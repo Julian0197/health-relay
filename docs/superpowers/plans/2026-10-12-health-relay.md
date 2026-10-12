@@ -12,6 +12,8 @@
 
 本文是阶段交付计划，各阶段开始时再根据已存在代码拆成具体小步实现任务。当前不生成无法验收的 App 空壳。
 
+10 月 12 日补充：按 `docs/self-hosting.md`，Go 基础接收器与 Docker 打包提前到阶段 3，用于端到端验收。阶段 6 再扩展处理器与生态。App 可直接上传任意配置目的地，自部署服务保持可选。
+
 ## 1. 配置和协议库
 
 计划文件：`packages/HealthRelayCore/Package.swift`、`Sources/HealthRelayCore/AutomationConfig.swift`、`Capability.swift`、`ExportBatch.swift`，以及 `Tests/HealthRelayCoreTests/ConfigurationTests.swift`、`BatchTests.swift`。
@@ -43,6 +45,8 @@
 - [ ] 401/422/413/429/5xx 与断网处理，不跳过未确认数据。
 - [ ] 服务端提交后断连，重发同 ID；两种确认模式分别验收。
 - [ ] 恢复 URLSession 回调和 outbox，容量硬上限停止新读取。
+- [ ] 增加 `server/cmd/receiver/main.go`、`server/internal/ingest/handler.go`、接收事务测试、`Dockerfile` 和 `compose.yaml`；批次/去重持久化后确认，重启不丢队列。
+- [ ] 验收手机向 Docker 接收器上传、重复批次、容器重启、下游不可达与恢复。下游转发状态和接收确认分开。
 
 产物：可接自有服务的可靠上传，不为网络故障重复扫历史。
 

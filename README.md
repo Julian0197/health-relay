@@ -21,6 +21,7 @@ An open-source iOS app for configurable Apple Health exports and reliable automa
 ## 方案与示例
 
 - [技术设计（中文）](docs/design.md)
+- [App 导出与可选 Docker 自部署](docs/self-hosting.md)
 - [配置与上传协议](docs/contracts.md)
 - [分阶段实施计划](docs/superpowers/plans/2026-10-12-health-relay.md)
 - [能力覆盖与验收](docs/capabilities.md)
@@ -35,7 +36,7 @@ An open-source iOS app for configurable Apple Health exports and reliable automa
 
 ## 技术栈
 
-Swift 6、SwiftUI、HealthKit、SQLite、URLSession、BackgroundTasks、AppIntents。计划最低 iOS 18；新系统类型独立使用 availability 检查。可选 Go 接收服务在 App 主链路完成后加入。
+Swift 6、SwiftUI、HealthKit、SQLite、URLSession、BackgroundTasks、AppIntents。计划最低 iOS 18；新系统类型独立使用 availability 检查。Go + Docker 是可选接收、存储和转发服务，也用于首条端到端链路验收；App 始终可以直接上传用户自己的接口。
 
 iOS 决定后台执行时机。“每 30 分钟”是期望的最小间隔，不能保证准点读取和上传；锁屏时 HealthKit 可能无法读取，恢复访问后继续处理。
 

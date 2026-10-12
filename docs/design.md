@@ -35,7 +35,7 @@ HEA 是功能参照；公开说明、实机观察与自主设计是依据。未�
 
 HealthKit 负责权限、来源、样本、统计和变更。SQLite 使用系统库，保存任务、anchor、变化窗口、待上传批次与日志；先不引入 ORM。Keychain 保存凭据。URLSession 做文件式后台上传，BackgroundTasks 做系统允许的补跑，AppIntents 调用同一执行器。
 
-Go 是后续参考接收服务。用户也可以接现有 Cloudflare、自己的 Go 服务或其他 webhook，App 不依赖某个后端框架。
+Go 是可选参考接收服务，提供 Docker 本地部署，也作为首条端到端链路的测试接收端。用户可以直接接现有 Cloudflare、自己的 Go 服务或其他 webhook，App 不依赖某个后端框架。服务接收、存储、处理和转发的职责见 [自部署方案](self-hosting.md)。
 
 计划目录：
 
