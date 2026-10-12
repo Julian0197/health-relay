@@ -1,93 +1,89 @@
 # HealthRelay 通用自动化能力实施计划
 
-> **For agentic workers:** 使用 executing-plans 分阶段实施与验收。用户当前只要求方案，不自动发布未验收 App。
+2026-10-12 更新。用户已授权实现并用真机调试；当前先完成 App，不开发 Go/Docker 服务。本文记录阶段状态，后续能力必须有各自验收。
 
-**Goal:** 用户可自行配置健康指标、处理方式、执行条件与上传接口的 iOS App。
+**Goal:** 用户自行配置健康指标、来源、范围、执行条件与上传接口，App 可可靠导出。
 
-**Architecture:** 单一任务模型贯通 UI 与文件/自动化入口；家族读取器产生标准记录，SQLite 保存进度与待上传批次，HTTP 传输独立确认。增加指标只扩展目录/家族，不改变调度器。
+**Architecture:** 单一版本化任务模型贯通 UI、文件和 AppIntent；家族读取器生成标准记录，每任务原子 JSON 保存一个待上传批次与建议检查点，有效 HTTP 确认后提交 anchor。首版不增加 SQLite、多包层或服务依赖。
 
-**Tech Stack:** Swift 6、SwiftUI、HealthKit、SQLite、URLSession、BackgroundTasks、AppIntents，后续可选 Go。
+**Tech Stack:** Swift 6、SwiftUI、HealthKit、Keychain、URLSession、BackgroundTasks、AppIntents；后续可选 Go。
 
----
+## 1. 配置与协议库
 
-本文是阶段交付计划，各阶段开始时再根据已存在代码拆成具体小步实现任务。当前不生成无法验收的 App 空壳。
+- [x] Codable 配置、目录、版本化 JSON 导入/导出与原子配置保存。
+- [x] 校验版本、家族、单位、统计、availability、URL、Header、批次和认证引用。
+- [x] 标准 upsert/delete 记录、原生 JSON/CSV/Markdown 编码。
+- [x] receipt 与 http2xx 两种确认，拒绝 202、错误 ID 与错误计数。
+- [x] 合成协议与本地持久化测试通过。
 
-10 月 12 日最新范围：用户决定先只做 App 自动化配置，不开发服务。Go/Docker 不进入当前阶段。已完成配置模型、校验、JSON 交换与本地保存，以及 SwiftUI 配置页面、Keychain、Xcode 工程；明细读取、上传和后台执行仍未完成，详见 `docs/implementation-configuration.md`。
+产物已在 `packages/HealthRelayCore/`。
 
-## 1. 配置和协议库
+## 2. 通用数量/分类/关联与锻炼读取
 
-计划文件：`packages/HealthRelayCore/Package.swift`、`Sources/HealthRelayCore/AutomationConfig.swift`、`Capability.swift`、`ExportBatch.swift`，以及 `Tests/HealthRelayCoreTests/ConfigurationTests.swift`、`BatchTests.swift`。
+- [x] SDK 27 数量/分类目录、系统版本限制、单位映射。
+- [x] 通用 anchored 分页读取新增/删除，来源过滤，固定增量首次下界。
+- [x] 关联父子结构、锻炼摘要和可表示 metadata。
+- [x] 真机 SDNN、RMSSD、步数、睡眠四类型原生明细读取与隔离 Cloudflare 提交回执核对；只将这四项标 deviceVerified。
+- [ ] 数量/分类/关联/锻炼逐类型真实样本核对；不能将家族实现标成全目录 deviceVerified。
 
-- [ ] 实现 contracts 文档对应 Codable 类型，所有合成示例往返编码。
-- [ ] 校验版本、家族、单位、统计、availability、URL、批次和认证引用。
-- [ ] 测试非法配置、202、错误 batch ID、计数不一致均不能推进确认。
-- [ ] `swift test --package-path packages/HealthRelayCore` 通过；公开 JSON 示例纳入测试。
-
-产物：不需要健康权限即可测试的协议库。
-
-## 2. 通用数量/分类目录与增量读取
-
-计划文件：`packages/HealthRelayKit/Sources/HealthRelayKit/MetricCatalog.swift`、`QuantityReader.swift`、`CategoryReader.swift`、`SourceFilter.swift`；`packages/HealthRelayStore/Sources/HealthRelayStore/Store.swift`、`Migrations.swift`、`Tests/HealthRelayStoreTests/CheckpointTests.swift`。
-
-- [ ] 对照 SDK inventory 完整登记数量/分类类型，逐项补名称、单位、availability 和读取能力。
-- [ ] 通用 anchored 分页读取新增/删除，来源过滤与固定初始下界。
-- [ ] 记录、anchor、变化范围同事务；注入事务前后退出并验证恢复。
-- [ ] 真机核对有数据的数量/分类案例；增加指标无需改调度器。
-- [ ] 发布完整覆盖表；没有真机样本不能标 deviceVerified。
-
-产物：任意已支持数量/分类指标共用读取能力，不是固定业务任务。
+产物在 `ios/HealthRelay/HealthKitReader.swift`；覆盖状态见 `docs/capabilities.md`。
 
 ## 3. 持久化批次与 HTTP
 
-计划文件：`packages/HealthRelayTransport/Sources/HealthRelayTransport/HTTPDestination.swift`、`UploadCoordinator.swift`、`ReceiptValidator.swift`；`packages/HealthRelayStore/Sources/HealthRelayStore/Outbox.swift`；传输包 `Tests/HealthRelayTransportTests/RetryTests.swift`、`ReceiptTests.swift`。
+- [x] 每任务一个固定 batch ID 与固定正文，原子保存 pending 和建议 anchor。
+- [x] 有效确认后提交 anchor；失败/重启保留原批次，不跳过未确认数据。
+- [x] HTTPS、Keychain 注入、拒绝重定向，两种确认。
+- [x] 网络/408/429/5xx 退避；认证/协议/413 错误暂停自动重试。
+- [x] 本地编码字节超限缩小查询页；单条超限明确报错。
+- [x] 明确取消 pending 后修复配置，不推进已提交 anchor。
+- [x] 合成 HTTPS 验收：503 → App 重启 → 同 ID/正文 → 200 receipt → 无新数据不再请求。
+- [x] 可选隔离 Cloudflare 原生 receipt 接收器，独立 DO SQLite 存储、测试认证、固定批次 SHA-256 去重与索引计数；2 项 Node 边界测试和合成重放验收。
+- [x] 真机混合任务向隔离接口确认 691 条/16 批，再次无新数据运行不增加计数；不向已有生产存储写入。
+- [ ] 服务端 413 自动拆批、后台 URLSession 及多批次存储；有需求后实施。
 
-- [ ] 固定 batch ID、文件和摘要，Keychain 注入凭据，拒绝重定向。
-- [ ] 401/422/413/429/5xx 与断网处理，不跳过未确认数据。
-- [ ] 服务端提交后断连，重发同 ID；两种确认模式分别验收。
-- [ ] 恢复 URLSession 回调和 outbox，容量硬上限停止新读取。
-- [ ] 使用合成测试接收端或用户配置接口验收上传，不要求增加自部署服务。
+产物：`SyncJournal.swift`、`SyncEngine.swift`、`HTTPUploader.swift`。本阶段保持单文件事务边界，SQLite 原计划暂缓。
 
-产物：可接自有服务的可靠上传，不为网络故障重复扫历史。
+## 4. iOS UI、后台与快捷指令
 
-## 4. iOS UI、后台和快捷指令
+- [x] iOS 18+ target、HealthKit/后台 capability、读取用途说明。
+- [x] 创建/编辑/复制/删除/启停，JSON 预览与认证重新绑定。
+- [x] 手动读取检查、运行、pending 修复与最近日志。
+- [x] Observer 先保存 dirty 再 completion；前台/BGTask 共用执行器。
+- [x] 运行中新的 dirty 不被结束操作清除；失败/未完成保留补跑机会。
+- [x] AppIntent 选择已有任务、打开 App 并调用同一执行器。
+- [x] 按配置申请结果通知，成功默认不通知。
+- [ ] 真机锁屏、低电量、断网、取消、Observer 与后台延迟验收。
+- [ ] 快捷指令 App 实际调用验收。
+- [ ] 系统文件选择器导入/导出端到端验收。
 
-计划文件：`ios/HealthRelay/HealthRelayApp.swift`、`HealthRelay.entitlements`、`Features/Automations/AutomationList.swift`、`AutomationEditor.swift`、`Features/Catalog/MetricPicker.swift`、`Features/Logs/RunLogView.swift`、`Automation/TaskExecutor.swift`、`BackgroundCoordinator.swift`、`RunAutomationIntent.swift`、`Security/CredentialStore.swift`。
-
-- [ ] 建立 iOS 18+ target，权限用途说明与 HealthKit/background delivery capability。
-- [ ] 创建、编辑、复制、启停通用任务；UI 与文件导入共用校验器。
-- [ ] 先验收手动预览→读取→上传→回执，再接 Observer、后台补跑、前台恢复。
-- [ ] 真机验收锁屏、低电量、取消、退出、断网与恢复；记录实际延迟。
-- [ ] JSON 导入差异预览、默认禁用；导出不携带 secrets 或运行进度。
-- [ ] AppIntent 运行已有任务与查询状态，共用执行器和游标。
-
-产物：首个可安装版本；只开放已实现能力。
+原生模拟器构建与 2 项 UI 测试已通过。系统唤醒不是精确定时。
 
 ## 5. 汇总与复杂对象
 
-计划文件：`packages/HealthRelayKit/Sources/HealthRelayKit/StatisticsReader.swift`、`CategorySummary.swift`、`CorrelationReader.swift`、`WorkoutReader.swift`；`packages/HealthRelayStore/Sources/HealthRelayStore/DirtyWindowStore.swift`；核心包 `Tests/HealthRelayCoreTests/WindowTests.swift`。
+- [ ] HealthKit 合法累计/离散/时间加权统计，不把时间取整当作平均。
+- [ ] 分类时长、迟到/删除只重算相关窗口，版本化 snapshot。
+- [ ] 时区/夏令时、跨日、多来源与空窗口验收。
+- [ ] 运动路线/关联时序、ECG、心情、用药等专用读取与完整子数据。
+- [ ] 更新能力表，只按实际证据扩大执行范围。
 
-- [ ] 累计、离散算术、时间加权分别验收；非法统计两处拒绝。
-- [ ] 迟到/删除只重算相交窗口，snapshot revision 与批次事务化。
-- [ ] 测试时区、夏令时、跨天分类、空窗口和多来源语义。
-- [ ] 接入关联与锻炼核心，再逐类做路线、ECG、心情、用药等专用读取。
-- [ ] 更新能力表，不把一个家族完成写成全功能完成。
-
-产物：统一配置下的通用汇总和复杂数据扩展。
+当前仅可配置，不能执行汇总或这些专用对象。
 
 ## 6. 兼容与生态
 
-计划文件：核心包 `Sources/HealthRelayCore/HEAV2Encoder.swift`；`server/go.mod`、`server/cmd/receiver/main.go`、`server/internal/ingest/handler.go`、`handler_test.go`；`skills/configure-automation/SKILL.md`。
+- [x] HEA v2 显式数量/睡眠明细映射、时区转换、删除拒绝测试。
+- [ ] 逐指标 HEA 接收器矩阵与迁移验收；HEA v1 未开放。
+- [ ] 配置生成/检查 Skill，与 App 同一模型，不自动取得健康权限。
+- [ ] 可选 Go 接收器的事务去重与提交回执；不是 App 运行前提。
+- [ ] 按实际需求接下游签名/看板，数据不变复用结果。
+- [ ] Dropbox、Google、MQTT、MCP 等独立目的地。
 
-- [ ] 公开协议与合成样例验收 HEA v2 编码器，列出兼容范围。
-- [ ] Go 参考服务事务去重并返回提交回执。
-- [ ] Skill 生成/检查 JSON 与导入指引，不自动取得健康权限。
-- [ ] 下游签名/看板独立接入，数据没变化时复用结果。
-- [ ] Dropbox、Google、MQTT、MCP 按需求独立增加 adapter。
+## 当前验收与发布检查
 
-产物：用户可自接服务，已有服务迁移有明确兼容边界。
+- [x] 34 项 Core 测试（19 Swift Testing + 15 XCTest）。
+- [x] iOS 27 模拟器构建，2 项原生 UI 测试，合成 HTTPS 重启恢复。
+- [x] 合成测试读取器不编入真机与 Release。
+- [x] 真机隔离测试接口的四类型原生手动链路完整确认，不从模拟器推定；后台与 AppIntent 实际自动调用仍待验收。
+- [ ] 发布前核对文档与实现、测试、设备证据一致。
+- [ ] 发布前检查不含真实健康样本、认证、设备身份、日志或第三方二进制。
 
-## 每阶段检查
-
-- [ ] 文档的已支持状态与代码、测试、真机证据一致。
-- [ ] 只提交自主代码、文档和合成例子，无个人导出/凭据/第三方二进制。
-- [ ] 本阶段通过才进入下一阶段；提交说明实际测试与真机边界。
+细节见 `docs/implementation-execution.md`。第一阶段历史记录保留于 `docs/implementation-configuration.md`。

@@ -4,7 +4,7 @@ An open-source iOS app for configurable Apple Health exports and reliable automa
 
 用配置建立 Apple Health 自动化任务：选择数据、来源、单位、日期范围、明细或汇总、执行条件和上传接口。
 
-**当前状态：第一版 iOS 自动化配置 App 已实现。可以构建、创建和保存配置；健康明细读取、自动上传与后台执行尚未接入。**
+**当前状态：配置与第一版明细导出链路已实现。可以读取 HealthKit、保存待上传批次、向自定义 HTTPS 接口上传并确认；后台入口已接入，实际调度由 iOS 决定。**
 
 ## 当前可用
 
@@ -14,25 +14,33 @@ An open-source iOS app for configurable Apple Health exports and reliable automa
 - 明细/汇总、秒至年的分组、合法数量统计；导出格式偏好与锻炼路线/曲线选项。
 - HTTP URL、Header、认证、超时、确认模式、间隔与批次偏好。
 - JSON 配置预览、文件导入/导出；认证保存到 Keychain，导出仅保留重新绑定所需的 Header 名称。
+- 通用数量、分类、关联明细和锻炼摘要读取；按类型保存 HealthKit anchor，支持新增和删除事件。
+- 原生 `healthrelay.v1` JSON、CSV、Markdown 编码；有限的 HEA v2 明细映射。
+- 手动运行、读取检查、活动日志、失败后保留并重试；已确认后推进游标，没有新记录不发送 HTTP 请求。
+- HealthKit 数据变化、前台补跑、系统后台刷新与运行已有任务的 AppIntent。
 
-以上是**配置能力**。格式选项不代表相应健康数据编码器已实现；不宣称已完成 HEA 输出兼容或全量数据读取。
+配置能力比执行能力更广。**汇总、HEA v1、运动路线/关联时序和特殊对象读取尚未开放执行**；不支持的组合会显示原因并阻止运行。HEA v2 只支持 [显式映射](packages/HealthRelayCore/Sources/HealthRelayCore/HEAEncoder.swift)，不能表达删除事件；不宣称 HEA 全功能对等或全部 HealthKit 类型已验收。
 
 ## 运行与验证
 
-要求 Xcode 27 / Swift 6，App 最低 iOS 18。打开 `ios/HealthRelay.xcodeproj`，选择 `HealthRelay` scheme 和 iPhone 模拟器运行。真机需选择自己的签名 Team；本次验收范围是模拟器。
+要求 Xcode 27 / Swift 6，App 最低 iOS 18。打开 `ios/HealthRelay.xcodeproj`，选择 `HealthRelay` scheme 和 iPhone 模拟器运行。真机需选择自己的签名 Team，并启用 HealthKit 与后台读取能力。
 
 ```sh
 swift test --package-path packages/HealthRelayCore
 xcodebuild -project ios/HealthRelay.xcodeproj -scheme HealthRelay -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
 ```
 
-[本阶段实现与验收边界](docs/implementation-configuration.md)包括完整测试命令、配置字段和后续工作。
+[执行阶段说明](docs/implementation-execution.md)包含运行步骤、失败恢复、测试证据和实际限制；[配置阶段记录](docs/implementation-configuration.md)保留第一阶段的历史验收。
+
+本阶段已通过 34 项 Core 测试、iOS 27 模拟器构建和 2 项原生 UI 测试。合成数据通过真实本地 HTTPS 接口验证了 `503 → App 重启 → 同一批次重试 → 正确回执 → 无新数据不再请求`；真机已将普通 HRV（SDNN）、恢复 HRV（RMSSD）、步数和睡眠原生明细上传至隔离 Cloudflare 验收接口，691 条/16 批确认成功；再次运行无新数据，服务端计数不变。App 不依赖这个接收器，也没有向既有生产接口写入。真机后台、全部指标和 HEA 格式生产兼容仍未验收。
 
 ## 界面
 
 以下为 iOS 27 模拟器真实运行截图，任务与接口均为合成验收配置。
 
 <img src="docs/images/automations.png" width="280" alt="自动化任务列表"> <img src="docs/images/configuration-editor.png" width="280" alt="配置编辑"> <img src="docs/images/metric-picker.png" width="280" alt="指标搜索与多选">
+
+<img src="docs/images/execution-success.png" width="280" alt="合成数据 HTTPS 确认成功"> <img src="docs/images/execution-no-data.png" width="280" alt="增量游标避免重复上传">
 
 ## 产品边界
 
@@ -49,6 +57,7 @@ xcodebuild -project ios/HealthRelay.xcodeproj -scheme HealthRelay -sdk iphonesim
 ## 方案与示例
 
 - [技术设计（中文）](docs/design.md)
+- [导出执行实现与验收](docs/implementation-execution.md)
 - [App 导出与可选 Docker 自部署](docs/self-hosting.md)
 - [配置与上传协议](docs/contracts.md)
 - [分阶段实施计划](docs/superpowers/plans/2026-10-12-health-relay.md)
@@ -64,7 +73,7 @@ xcodebuild -project ios/HealthRelay.xcodeproj -scheme HealthRelay -sdk iphonesim
 
 ## 技术栈
 
-当前使用 Swift 6、SwiftUI、Foundation、HealthKit 来源查询与 Keychain；任务配置以受保护的 JSON 文件原子保存。后续接入 HealthKit 明细、SQLite 待上传队列、URLSession、BackgroundTasks 和 AppIntents。
+当前使用 Swift 6、SwiftUI、HealthKit、Keychain、URLSession、BackgroundTasks 和 AppIntents，没有第三方运行时依赖。任务配置与每任务同步状态以受保护的 JSON 文件原子保存；首版每任务最多一个待上传批次，确认后才推进对应 anchor。暂不引入 SQLite 或后台 URLSession。
 
 第一阶段只开发 App，不增加 Go 服务或 Docker；App 将直接上传到用户配置的接口。自部署文档保留为后续可选方案，不是运行前提。
 

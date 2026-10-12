@@ -9,10 +9,16 @@
       "op": "upsert",
       "recordId": "c2602dc6-58ce-4e76-bc1d-e265a43299a0",
       "typeIdentifier": "HKQuantityTypeIdentifierBodyMass",
-      "start": "2026-01-01T10:15:12Z",
-      "end": "2026-01-01T10:15:12Z",
-      "source": {"id": "synthetic-source", "label": "Synthetic data"},
-      "payload": {"kind": "quantity", "value": 70.0, "unit": "kg"}
+      "start": "2026-01-01T10:15:12.000Z",
+      "end": "2026-01-01T10:15:12.000Z",
+      "source": {
+        "id": "test.synthetic",
+        "name": "Synthetic data"
+      },
+      "payload": {
+        "value": 70.0,
+        "unit": "kg"
+      }
     }
   ]
 }

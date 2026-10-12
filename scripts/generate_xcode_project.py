@@ -61,12 +61,12 @@ def configs(prefix, extra):
 project_configs = configs("project", {})
 app_configs = configs("app", {
     "PRODUCT_NAME": "$(TARGET_NAME)", "PRODUCT_BUNDLE_IDENTIFIER": "org.healthrelay.app",
-    "GENERATE_INFOPLIST_FILE": "YES", "MARKETING_VERSION": "0.1.0", "CURRENT_PROJECT_VERSION": "1",
+    "GENERATE_INFOPLIST_FILE": "YES", "INFOPLIST_FILE": "HealthRelay/Info.plist", "MARKETING_VERSION": "0.1.0", "CURRENT_PROJECT_VERSION": "1",
     "CODE_SIGN_STYLE": "Automatic", "CODE_SIGN_ENTITLEMENTS": "HealthRelay/HealthRelay.entitlements",
     "TARGETED_DEVICE_FAMILY": "1,2", "SUPPORTED_PLATFORMS": "iphoneos iphonesimulator",
     "INFOPLIST_KEY_CFBundleDisplayName": "HealthRelay", "INFOPLIST_KEY_UILaunchScreen_Generation": "YES",
     "INFOPLIST_KEY_UIApplicationSceneManifest_Generation": "YES",
-    "INFOPLIST_KEY_NSHealthShareUsageDescription": "查询你选择的健康数据来源，帮助配置健康数据导出任务。",
+    "INFOPLIST_KEY_NSHealthShareUsageDescription": "读取你选择的健康记录，并按你配置的自动化规则上传到你的接收接口。",
     "INFOPLIST_KEY_UISupportedInterfaceOrientations": "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight",
 })
 test_configs = configs("test", {

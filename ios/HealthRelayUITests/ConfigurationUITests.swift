@@ -40,6 +40,35 @@ final class ConfigurationUITests: XCTestCase {
         capture(app, "配置详情")
     }
 
+    @MainActor
+    func testHTTPSFailureRetryAndNoRepeatedUpload() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["--ui-testing", "--reset-configurations", "--synthetic-health"]
+        app.launchEnvironment = ["HEALTHRELAY_ACCEPTANCE_ENDPOINT": "https://localhost:18443/fail-once", "HEALTHRELAY_ACCEPTANCE_KEY": "synthetic-local-acceptance-key"]
+        app.launch()
+        let run = app.buttons["run-task-合成数据链路验收"]
+        XCTAssertTrue(run.waitForExistence(timeout: 10)); run.tap()
+        app.buttons["execute-task"].tap()
+        let failed = app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "HTTP 503")).firstMatch
+        XCTAssertTrue(failed.waitForExistence(timeout: 15))
+        capture(app, "首次请求失败保留批次")
+        app.terminate()
+        app.launchArguments = ["--ui-testing", "--synthetic-health"]
+        app.launch()
+        app.buttons["run-task-合成数据链路验收"].tap()
+        app.buttons["execute-task"].tap()
+        let success = app.staticTexts["execution-result"]
+        let uploaded = NSPredicate(format: "label CONTAINS %@", "已上传并确认 1 条")
+        expectation(for: uploaded, evaluatedWith: success)
+        waitForExpectations(timeout: 15)
+        capture(app, "重启后原批次确认成功")
+        app.buttons["execute-task"].tap()
+        let noData = NSPredicate(format: "label CONTAINS %@", "没有可读取的新记录")
+        expectation(for: noData, evaluatedWith: success)
+        waitForExpectations(timeout: 15)
+        capture(app, "游标推进后不重复发送")
+    }
+
     @MainActor private func capture(_ app: XCUIApplication, _ name: String) {
         let attachment = XCTAttachment(screenshot: app.screenshot())
         attachment.name = name

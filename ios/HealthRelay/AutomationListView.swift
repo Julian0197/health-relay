@@ -15,6 +15,7 @@ struct ConfigurationDocument: FileDocument {
 
 struct AutomationListView: View {
     @Bindable var store: AutomationStore
+    @State private var viewing: AutomationConfig?
     @State private var editing: AutomationConfig?
     @State private var importing = false
     @State private var importCandidate: AutomationConfig?
@@ -28,9 +29,9 @@ struct AutomationListView: View {
         NavigationStack {
             List {
                 Section {
-                    Label("先配置，再连接健康数据", systemImage: "slider.horizontal.3")
+                    Label("选择数据，上传到你的接口", systemImage: "slider.horizontal.3")
                         .font(.headline)
-                    Text("当前版本支持保存和交换任务配置，自动读取与上传尚未开放。")
+                    Text("支持手动上报、健康数据变化触发和系统后台调度。新任务保存后默认关闭。")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
                 if let failure = store.loadError {
@@ -44,10 +45,16 @@ struct AutomationListView: View {
                 } else {
                     Section("任务 · \(store.tasks.count)") {
                         ForEach(store.tasks) { task in
-                            Button { editing = task } label: { taskRow(task) }
+                            HStack {
+                                Button { editing = task } label: { taskRow(task) }
+                                    .accessibilityIdentifier("task-\(task.name)")
+                                Button { viewing = task } label: { Image(systemName: "play.circle").font(.title2) }
+                                    .accessibilityLabel("运行与日志")
+                                    .accessibilityIdentifier("run-task-\(task.name)")
+                            }
                                 .buttonStyle(.plain)
-                                .accessibilityIdentifier("task-\(task.name)")
                                 .contextMenu {
+                                    Button("运行与日志", systemImage: "play.circle") { viewing = task }
                                     Button("编辑", systemImage: "pencil") { editing = task }
                                     Button("复制", systemImage: "doc.on.doc") { editing = task.duplicated() }
                                     Button("导出配置", systemImage: "square.and.arrow.up") { export(task) }
@@ -75,6 +82,9 @@ struct AutomationListView: View {
                         .accessibilityIdentifier("new-task")
                         .disabled(store.loadError != nil)
                 }
+            }
+            .sheet(item: $viewing) { task in
+                NavigationStack { TaskExecutionView(store: store, taskID: task.id) }
             }
             .sheet(item: $editing) { task in
                 NavigationStack { AutomationEditorView(store: store, initial: task) }
@@ -126,7 +136,7 @@ struct AutomationListView: View {
                 Button("知道了") { error = nil }
             } message: { Text(error ?? "") }
             .confirmationDialog("删除这个自动化配置？", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }), titleVisibility: .visible) {
-                Button("删除配置", role: .destructive) {
+                Button("删除配置和待上传批次", role: .destructive) {
                     guard let task = deleting else { return }
                     do { try store.delete(task) } catch { self.error = error.localizedDescription }
                     deleting = nil
@@ -142,7 +152,7 @@ struct AutomationListView: View {
                 Image(systemName: "arrow.up.doc.fill").foregroundStyle(.teal)
                 Text(task.name).font(.headline).foregroundStyle(.primary)
                 Spacer()
-                Text("已保存").font(.caption).foregroundStyle(.secondary)
+                Text(task.enabled ? "已启用" : "已关闭").font(.caption).foregroundStyle(.secondary)
             }
             Text("\(task.data.family.title) · \(task.data.selections.count) 项 · \(task.range.mode.title)")
                 .font(.subheadline).foregroundStyle(.secondary)

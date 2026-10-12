@@ -64,14 +64,19 @@ struct AutomationEditorView: View {
         Form {
             Section {
                 TextField("任务名称", text: $task.name).accessibilityIdentifier("task-name")
-                LabeledContent("状态", value: "配置草稿")
-            } header: { Text("任务") } footer: { Text("保存配置不会开始读取或上传健康数据。") }
+                LabeledContent("状态", value: task.enabled ? "已启用" : "已关闭")
+            } header: { Text("任务") } footer: { Text("新任务默认关闭。保存后可手动运行，或在运行页启用自动化。") }
             dataSection
             rangeSection
             exportSection
             destinationSection
             headerSection
             executionSection
+            if !task.executionIssues.isEmpty {
+                Section("执行能力") {
+                    ForEach(task.executionIssues, id: \.self) { Text($0).font(.footnote).foregroundStyle(.secondary) }
+                }
+            }
             Section {
                 Button("预览 JSON 配置", systemImage: "curlybraces") { preview = true }
             }
@@ -281,7 +286,7 @@ struct AutomationEditorView: View {
             Stepper("每批最多 \(task.execution.batchMaxBytes / 1024) KiB", value: $task.execution.batchMaxBytes, in: 1024...10_485_760, step: 65_536)
             Toggle("失败时通知", isOn: Binding(get: { task.execution.notifyOnFailure ?? true }, set: { task.execution.notifyOnFailure = $0 }))
             Toggle("成功时通知", isOn: Binding(get: { task.execution.notifyOnSuccess ?? false }, set: { task.execution.notifyOnSuccess = $0 }))
-        } header: { Text("执行偏好") } footer: { Text("iOS 决定后台执行时机，期望间隔不是准点计时器。当前版本只保存这些设置。") }
+        } header: { Text("执行偏好") } footer: { Text("iOS 决定后台执行时机，期望间隔不是准点计时器。数据变化和后台调度共用增量游标；失败批次保留等待重试。") }
     }
 
     private func dateBinding(start: Bool) -> Binding<Date> {
@@ -298,7 +303,6 @@ struct AutomationEditorView: View {
         var createdReferences: [String] = []
         do {
             var saved = task
-            saved.enabled = false
             saved.destination.requiredSecretHeaders = nil
             saved.destination.headers = [:]; saved.destination.secretHeaders = [:]
             for header in headers where !header.name.isEmpty {
