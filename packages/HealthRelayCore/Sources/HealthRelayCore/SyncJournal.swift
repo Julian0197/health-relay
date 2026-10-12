@@ -5,6 +5,7 @@ public struct TypeCheckpoint: Codable, Sendable {
     public var start: Date
     public var end: Date?
     public var anchor: Data?
+    public var aggregate: AggregateState?
     public init(start: Date, end: Date? = nil, anchor: Data? = nil) { self.start = start; self.end = end; self.anchor = anchor }
 }
 public struct PendingUpload: Codable, Sendable {
@@ -15,6 +16,7 @@ public struct PendingUpload: Codable, Sendable {
     public var checkpointKey: String
     public var checkpoint: TypeCheckpoint
     public var configurationFingerprint: String
+    public var headers: [String: String]?
     public var attempts = 0
     public var nextAttempt: Date?
     public var automaticRetry = true
@@ -27,6 +29,10 @@ public struct RunLog: Codable, Identifiable, Sendable {
     public var message: String
     public var records = 0
     public var batches = 0
+    public var trigger: String?
+    public var durationSeconds: Double?
+    public var metricCounts: [String: Int]?
+    public var omittedDeletions: Int?
     public var httpStatus: Int?
     public init(state: State, message: String, records: Int = 0, batches: Int = 0, httpStatus: Int? = nil) {
         self.state = state; self.message = message; self.records = records; self.batches = batches; self.httpStatus = httpStatus
@@ -34,6 +40,9 @@ public struct RunLog: Codable, Identifiable, Sendable {
 }
 public struct SyncState: Codable, Sendable {
     public var schemaVersion = 1
+    public var nextSelectionID: String?
+    public var cycleStartedAt: Date?
+    public var cycleFingerprint: String?
     public var checkpoints: [String: TypeCheckpoint] = [:]
     public var pending: PendingUpload?
     public var lastAttempt: Date?
@@ -87,6 +96,8 @@ public enum SyncIdentity {
         case .incremental: start = calendar.date(byAdding: .day, value: -(task.range.bootstrapDays ?? 7), to: today)!; end = nil
         case .today: start = today; end = calendar.date(byAdding: .day, value: 1, to: today)!
         case .yesterday: start = calendar.date(byAdding: .day, value: -1, to: today)!; end = today
+        case .defaultRange: start = calendar.date(byAdding: .day, value: -1, to: today)!; end = calendar.date(byAdding: .day, value: 1, to: today)!
+        case .previousDays: start = calendar.date(byAdding: .day, value: -(task.range.days ?? 7), to: today)!; end = today
         case .pastDays: start = calendar.date(byAdding: .day, value: -(task.range.days ?? 7), to: today)!; end = calendar.date(byAdding: .day, value: 1, to: today)!
         case .custom: start = AutomationConfig.parseDate(task.range.start)!; end = AutomationConfig.parseDate(task.range.end)!
         }

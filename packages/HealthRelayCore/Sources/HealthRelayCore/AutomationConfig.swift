@@ -17,6 +17,7 @@ public struct MetricSelection: Codable, Equatable, Identifiable, Sendable {
     public var typeIdentifier: String
     public var unit: String?
     public var sources: [String]
+    public var statistics: [ExportSettings.Statistic]?
     public var id: String { typeIdentifier }
     public init(typeIdentifier: String, unit: String? = nil, sources: [String] = []) {
         self.typeIdentifier = typeIdentifier; self.unit = unit; self.sources = sources
@@ -40,13 +41,15 @@ public struct WorkoutOptions: Codable, Equatable, Sendable {
 
 public struct DateRange: Codable, Equatable, Sendable {
     public enum Mode: String, Codable, CaseIterable, Sendable {
-        case incremental, today, yesterday, pastDays, custom
+        case incremental, today, yesterday, pastDays, previousDays, defaultRange, custom
         public var title: String {
             switch self {
             case .incremental: "自上次同步"
             case .today: "今天"
             case .yesterday: "昨天"
-            case .pastDays: "过去 N 天"
+            case .pastDays: "过去 N 天（含今天）"
+            case .previousDays: "完整前 N 天"
+            case .defaultRange: "昨天至今"
             case .custom: "自定义"
             }
         }
@@ -79,6 +82,8 @@ public struct ExportSettings: Codable, Equatable, Sendable {
         }
     }
     public enum Statistic: String, Codable, CaseIterable, Sendable { case sum, average, minimum, maximum }
+    public enum DeletionPolicy: String, Codable, CaseIterable, Sendable { case reject, omit }
+    public var deletionPolicy: DeletionPolicy?
     public var format = "healthrelay.v1"
     public var mode: Mode = .raw
     public var grouping: Grouping = .none
@@ -106,6 +111,7 @@ public struct HTTPDestination: Codable, Equatable, Sendable {
 public struct ExecutionSettings: Codable, Equatable, Sendable {
     public var onDataChange = true
     public var onForeground = true
+    public var periodicPolling: Bool?
     public var minimumIntervalSeconds = 1800
     public var batchMaxRecords = 500
     public var batchMaxBytes = 1_048_576
@@ -142,6 +148,17 @@ public struct AutomationConfig: Codable, Equatable, Identifiable, Sendable {
         return first.statistics.filter { option in descriptors.allSatisfy { $0.statistics.contains(option) } }
     }
 
+    public func statistics(for selection: MetricSelection) -> [ExportSettings.Statistic] {
+        if let chosen = selection.statistics { return chosen }
+        if !export.statistics.isEmpty { return export.statistics }
+        return MetricCatalog.bundled.metric(selection.id)?.statistics ?? []
+    }
+    public var supportsAggregation: Bool {
+        !data.selections.isEmpty && data.selections.allSatisfy {
+            $0.id == "HKCategoryTypeIdentifierSleepAnalysis" || MetricCatalog.bundled.metric($0.id)?.family == .quantity
+        }
+    }
+
     public func validationIssues(systemMajorVersion: Int = 27) -> [String] {
         var issues: [String] = []
         if schemaVersion != 1 { issues.append("不支持的配置版本：\(schemaVersion)") }
@@ -163,16 +180,16 @@ public struct AutomationConfig: Codable, Equatable, Identifiable, Sendable {
         switch range.mode {
         case .incremental:
             if !(1...3650).contains(range.bootstrapDays ?? 0) { issues.append("首次读取范围须为 1–3650 天") }
-        case .pastDays:
+        case .pastDays, .previousDays:
             if !(1...3650).contains(range.days ?? 0) { issues.append("日期范围须为 1–3650 天") }
         case .custom:
             if let start = Self.parseDate(range.start), let end = Self.parseDate(range.end), start < end {} else {
                 issues.append("自定义日期必须有效，且结束时间晚于开始时间")
             }
-        case .today, .yesterday: break
+        case .today, .yesterday, .defaultRange: break
         }
         if TimeZone(identifier: export.timeZone) == nil { issues.append("时区无效") }
-        if !["healthrelay.v1", "hea.v1", "hea.v2", "csv", "markdown"].contains(export.format) { issues.append("未知导出格式") }
+        if !["healthrelay.v1", "hea.v1", "hea.v2", "hea.csv", "csv", "markdown"].contains(export.format) { issues.append("未知导出格式") }
         if let options = data.workoutOptions {
             if data.family != .workout { issues.append("锻炼选项仅适用于锻炼数据") }
             if !["seconds", "minutes"].contains(options.metricGrouping) { issues.append("锻炼曲线分组须为秒或分钟") }
@@ -181,8 +198,13 @@ public struct AutomationConfig: Codable, Equatable, Identifiable, Sendable {
             if export.grouping != .none || !export.statistics.isEmpty { issues.append("明细导出不能设置汇总分组或统计方法") }
         } else {
             if export.grouping == .none { issues.append("请选择汇总时间分组") }
-            if export.statistics.isEmpty || !export.statistics.allSatisfy({ allowedStatistics.contains($0) }) {
-                issues.append("统计方法不适用于所选指标；不同类型可拆分为多个任务")
+            for selection in data.selections {
+                guard let metric = MetricCatalog.bundled.metric(selection.id) else { continue }
+                if selection.id == "HKCategoryTypeIdentifierSleepAnalysis" { continue }
+                let chosen = statistics(for: selection)
+                if metric.family != .quantity || chosen.isEmpty || !chosen.allSatisfy({ metric.statistics.contains($0) }) {
+                    issues.append("\(metric.title) 不支持所选汇总统计")
+                }
             }
         }
         if let url = URLComponents(string: destination.url), url.scheme == "https", let host = url.host, !host.isEmpty,

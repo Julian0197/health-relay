@@ -69,6 +69,31 @@ final class ConfigurationUITests: XCTestCase {
         capture(app, "游标推进后不重复发送")
     }
 
+    @MainActor
+    func testAggregateTaskAndIndependentBackfill() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["--ui-testing", "--reset-configurations", "--synthetic-health", "--synthetic-aggregate"]
+        app.launchEnvironment = ["HEALTHRELAY_ACCEPTANCE_ENDPOINT": "https://localhost:18443/ingest", "HEALTHRELAY_ACCEPTANCE_KEY": "synthetic-local-acceptance-key"]
+        app.launch()
+        let run = app.buttons["run-task-合成数据链路验收"]
+        XCTAssertTrue(run.waitForExistence(timeout: 10)); run.tap()
+        app.buttons["execute-task"].tap()
+        let result = app.staticTexts["execution-result"]
+        expectation(for: NSPredicate(format: "label CONTAINS %@", "已上传并确认 2 条"), evaluatedWith: result)
+        waitForExpectations(timeout: 15)
+        let backfill = app.buttons["backfill-start"]
+        for _ in 0..<3 where !backfill.isHittable { app.swipeUp() }
+        backfill.tap()
+        XCTAssertTrue(app.buttons["backfill-confirm"].waitForExistence(timeout: 5)); app.buttons["backfill-confirm"].tap()
+        XCTAssertTrue(app.staticTexts["已完成"].waitForExistence(timeout: 15))
+        capture(app, "独立历史补传完成")
+        for _ in 0..<3 where !app.buttons["execute-task"].isHittable { app.swipeDown() }
+        app.buttons["execute-task"].tap()
+        expectation(for: NSPredicate(format: "label CONTAINS %@", "没有可读取的新记录"), evaluatedWith: result)
+        waitForExpectations(timeout: 15)
+        capture(app, "补传未重置日常进度")
+    }
+
     @MainActor private func capture(_ app: XCUIApplication, _ name: String) {
         let attachment = XCTAttachment(screenshot: app.screenshot())
         attachment.name = name

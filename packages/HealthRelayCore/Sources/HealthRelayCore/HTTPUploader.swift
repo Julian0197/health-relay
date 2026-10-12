@@ -11,6 +11,13 @@ public struct UploadFailure: Error, LocalizedError, Sendable {
     }
 }
 public enum HTTPAcknowledgement {
+    public static func retryDelay(_ value: String?, now: Date = Date()) -> TimeInterval? {
+        guard let value else { return nil }
+        if let seconds = Double(value), seconds.isFinite { return max(0, seconds) }
+        let formatter = DateFormatter(); formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0); formatter.dateFormat = "EEE, dd MMM yyyy HH:mm:ss z"
+        return formatter.date(from: value).map { max(0, $0.timeIntervalSince(now)) }
+    }
     private struct Receipt: Decodable { var batchId: String; var committed: Bool; var accepted: Int; var duplicates: Int }
     public static func validate(status: Int, data: Data, batchID: String, count: Int, mode: HTTPDestination.Acknowledgement) throws {
         guard (200...299).contains(status), status != 202 else {
@@ -49,6 +56,7 @@ public final class NoRedirectDelegate: NSObject, URLSessionTaskDelegate, Sendabl
         if let reference = destination.credentialRef {
             request.setValue((destination.credentialPrefix ?? "") + (try credential(reference)), forHTTPHeaderField: destination.credentialHeader ?? "Authorization")
         }
+        for (key, value) in upload.headers ?? [:] { request.setValue(value, forHTTPHeaderField: key) }
         request.setValue(upload.contentType, forHTTPHeaderField: "Content-Type")
         request.setValue(upload.batchID, forHTTPHeaderField: "Idempotency-Key")
         let response: (Data, URLResponse)
@@ -61,7 +69,7 @@ public final class NoRedirectDelegate: NSObject, URLSessionTaskDelegate, Sendabl
         guard let http = response.1 as? HTTPURLResponse else { throw UploadFailure("接口响应无效", retryable: true) }
         do { try HTTPAcknowledgement.validate(status: http.statusCode, data: response.0, batchID: upload.batchID, count: upload.recordCount, mode: destination.acknowledgement) }
         catch var error as UploadFailure {
-            if let seconds = http.value(forHTTPHeaderField: "Retry-After").flatMap(Double.init) { error.retryAfter = max(0, seconds) }
+            error.retryAfter = HTTPAcknowledgement.retryDelay(http.value(forHTTPHeaderField: "Retry-After"))
             throw error
         }
         return http.statusCode

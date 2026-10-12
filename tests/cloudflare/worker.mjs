@@ -11,6 +11,59 @@ export function validateBatch(batch, idempotencyKey) {
       typeof r.source?.id === 'string' && r.payload && typeof r.payload === 'object' && !Array.isArray(r.payload))));
 }
 
+// Acceptance adapter only. This verifies the chosen HEA profile, not every HEA receiver.
+export function normalizeHEA(document, batchId, taskId) {
+  const metrics = document?.data?.metrics;
+  if (!batchId || !taskId || !Array.isArray(metrics)) throw new Error('invalid_hea');
+  const records = metrics.flatMap(metric => {
+    if (typeof metric.name !== 'string' || !Array.isArray(metric.data)) throw new Error('invalid_metric');
+    return metric.data.map(point => {
+      const date = point.date ?? point.startDate;
+      if (typeof date !== 'string' || !date || ![point.qty, point.Avg, point.Min, point.Max, point.totalSleep].some(Number.isFinite)) throw new Error('invalid_point');
+      return { op: 'upsert', typeIdentifier: metric.name,
+        recordId: JSON.stringify([date, point.endDate ?? '', point.source ?? '', point.value ?? '']), payload: { ...point, unit: metric.units } };
+    });
+  });
+  if (!records.length || records.length > 500) throw new Error('invalid_count');
+  return { batchId, taskId, records };
+}
+
+export function csvRows(text) {
+  const rows = []; let row = [], value = '', quoted = false;
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i];
+    if (char === '"') {
+      if (quoted && text[i + 1] === '"') { value += '"'; i++; } else quoted = !quoted;
+    } else if (!quoted && (char === ',' || char === '\n')) {
+      row.push(value.replace(/\r$/, '')); value = '';
+      if (char === '\n') { if (row.some(Boolean)) rows.push(row); row = []; }
+    } else value += char;
+  }
+  if (quoted) throw new Error('invalid_csv');
+  if (value || row.length) { row.push(value); rows.push(row); }
+  return rows;
+}
+export async function normalizeCSV(bytes, contentType, batchId, taskId) {
+  if (!batchId || !taskId) throw new Error('invalid_headers');
+  const form = await new Response(bytes, { headers: { 'Content-Type': contentType } }).formData();
+  const records = [];
+  for (const file of form.getAll('file')) {
+    if (typeof file === 'string' || !file.name.endsWith('.csv')) throw new Error('invalid_file');
+    const [columns, ...rows] = csvRows(await file.text());
+    if (!columns || !rows.length) throw new Error('empty_csv');
+    for (const row of rows) {
+      if (row.length !== columns.length) throw new Error('invalid_row');
+      const point = Object.fromEntries(columns.map((key, index) => [key, row[index]]));
+      const date = point.Date ?? point['Start Date'];
+      if (!date) throw new Error('missing_date');
+      records.push({ op: 'upsert', typeIdentifier: file.name.slice(0, -4),
+        recordId: JSON.stringify([date, point['End Date'] ?? '', point.Source ?? '', point.Stage ?? '']), payload: point });
+    }
+  }
+  if (!records.length || records.length > 500) throw new Error('invalid_count');
+  return { batchId, taskId, records };
+}
+
 export class HealthRelayAcceptance {
   constructor(ctx) {
     this.ctx = ctx; this.sql = ctx.storage.sql;
@@ -30,7 +83,13 @@ export class HealthRelayAcceptance {
       const presentTypes = task ? types.filter(type => this.sql.exec('SELECT type_id FROM records WHERE task_id=? AND type_id=? LIMIT 1', task, type).toArray().length) : [];
       return json({ ok: true, environment: 'acceptance-only', ...stats, presentTypes });
     }
-    if (path !== '/ingest' || request.method !== 'POST') return json({ error: 'not_found' }, 404);
+    if (path === '/inspect' && request.method === 'GET') {
+      const task = url.searchParams.get('taskId'), type = url.searchParams.get('type');
+      if (!task || !type || task.length > 200 || type.length > 200) return json({ error: 'invalid_inspection' }, 400);
+      const rows = this.sql.exec('SELECT record_id,body FROM records WHERE task_id=? AND type_id=? ORDER BY record_id DESC LIMIT 5', task, type).toArray();
+      return json({ environment: 'acceptance-only', records: rows.map(row => JSON.parse(row.body)) });
+    }
+    if (!['/ingest', '/ingest/hea', '/ingest/hea-csv'].includes(path) || request.method !== 'POST') return json({ error: 'not_found' }, 404);
     const reader = request.body?.getReader();
     if (!reader) return json({ error: 'invalid_body' }, 400);
     let size = 0, chunks = [];
@@ -43,8 +102,15 @@ export class HealthRelayAcceptance {
     const bytes = new Uint8Array(size); let offset = 0;
     for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
     let batch;
-    try { batch = JSON.parse(new TextDecoder().decode(bytes)); } catch { return json({ error: 'invalid_json' }, 400); }
-    if (!validateBatch(batch, request.headers.get('Idempotency-Key'))) return json({ error: 'invalid_native_batch' }, 422);
+    try {
+      if (path === '/ingest/hea-csv') {
+        batch = await normalizeCSV(bytes, request.headers.get('Content-Type'), request.headers.get('Idempotency-Key'), request.headers.get('automation-id'));
+      } else {
+        const document = JSON.parse(new TextDecoder().decode(bytes));
+        batch = path === '/ingest/hea' ? normalizeHEA(document, request.headers.get('Idempotency-Key'), request.headers.get('automation-id')) : document;
+        if (path === '/ingest' && !validateBatch(batch, request.headers.get('Idempotency-Key'))) return json({ error: 'invalid_native_batch' }, 422);
+      }
+    } catch { return json({ error: 'invalid_export' }, 422); }
     const digest = [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))].map(n => n.toString(16).padStart(2, '0')).join('');
     try {
       return this.ctx.storage.transactionSync(() => {

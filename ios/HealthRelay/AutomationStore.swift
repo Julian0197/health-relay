@@ -14,6 +14,11 @@ final class AutomationStore {
     private let repository: ConfigurationRepository
     let credentials = CredentialStore()
     let health = HealthKitReader()
+    private let backfillRepository: BackfillRepository
+    private let coordinator = RunCoordinator()
+    private let observerCoordinator = RunCoordinator()
+    private var checkingDue = false
+    private(set) var backfills: [BackfillJob] = []
     let journal: SyncJournal
     private(set) var outcomes: [UUID: RunLog] = [:]
     private(set) var active: Set<UUID> = []
@@ -37,8 +42,9 @@ final class AutomationStore {
             try? FileManager.default.removeItem(at: directory)
         }
         repository = ConfigurationRepository(fileURL: file)
+        backfillRepository = BackfillRepository(file: directory.appendingPathComponent("backfills.json"))
         journal = SyncJournal(directory: directory.appendingPathComponent("sync", isDirectory: true))
-        do { tasks = try repository.load() }
+        do { tasks = try repository.load(); backfills = try backfillRepository.load() }
         catch { loadError = error.localizedDescription }
         #if DEBUG
         if tasks.isEmpty {
@@ -53,6 +59,10 @@ final class AutomationStore {
             var fixture = AutomationConfig.newTask()
             fixture.name = "合成数据链路验收"
             fixture.data.selections = [MetricSelection(typeIdentifier: "HKQuantityTypeIdentifierBodyMass", unit: "kg")]
+            if ProcessInfo.processInfo.arguments.contains("--synthetic-aggregate") {
+                fixture.export.mode = .aggregate; fixture.export.grouping = .hours
+                fixture.data.selections.append(MetricSelection(typeIdentifier: "HKQuantityTypeIdentifierStepCount", unit: "count"))
+            }
             fixture.destination.url = endpoint; fixture.destination.acknowledgement = .receipt
             do {
                 fixture.destination.headers = ["X-Acceptance-Key": key]
@@ -64,7 +74,7 @@ final class AutomationStore {
         BGTaskScheduler.shared.register(forTaskWithIdentifier: Self.refreshIdentifier, using: nil) { [weak self] task in
             Task { @MainActor in
                 guard let self else { task.setTaskCompleted(success: false); return }
-                let work = Task { await self.runDue(dataChangeOnly: false) }
+                let work = Task { await self.runDue(trigger: "background") }
                 task.expirationHandler = { work.cancel() }
                 await work.value
                 task.setTaskCompleted(success: !work.isCancelled)
@@ -74,7 +84,7 @@ final class AutomationStore {
 
     func save(_ task: AutomationConfig) throws {
         guard loadError == nil else { throw ConfigurationError("本地配置未能读取，保存已停止以保护原文件") }
-        guard !active.contains(task.id) else { throw ConfigurationError("任务正在运行，请完成后再修改配置") }
+        try ensureEditable(task)
         guard try journal.load(task.id).pending == nil else { throw ConfigurationError("有待上传批次，请先重试完成后再修改配置") }
         var updated = tasks
         var candidate = task
@@ -89,7 +99,7 @@ final class AutomationStore {
 
     func delete(_ task: AutomationConfig) throws {
         guard loadError == nil else { throw ConfigurationError("本地配置未能读取") }
-        guard !active.contains(task.id) else { throw ConfigurationError("任务正在运行，请完成后再删除") }
+        try ensureEditable(task)
         let updated = tasks.filter { $0.id != task.id }
         try repository.save(updated)
         tasks = updated
@@ -101,6 +111,9 @@ final class AutomationStore {
     func checkRead(_ task: AutomationConfig) async throws -> String {
         guard active.insert(task.id).inserted else { throw ConfigurationError("任务正在运行") }
         defer { active.remove(task.id) }
+        await coordinator.acquire()
+        defer { coordinator.release() }
+        try Task.checkCancellation()
         try await health.authorize(task)
         var summaries: [String] = []
         for selection in task.data.selections {
@@ -130,9 +143,12 @@ final class AutomationStore {
         await configureObservers()
     }
 
-    func run(_ task: AutomationConfig, automatic: Bool = false) async {
+    func run(_ task: AutomationConfig, automatic: Bool = false, trigger: String = "manual", deadline: Date? = nil) async {
         guard active.insert(task.id).inserted else { return }
         defer { active.remove(task.id); scheduleRefresh() }
+        await coordinator.acquire()
+        defer { coordinator.release() }
+        guard !Task.isCancelled, deadline.map({ $0 > Date() }) ?? true else { return }
         var dirtyAtStart = Set(UserDefaults.standard.stringArray(forKey: dirtyKey) ?? [])
         dirtyAtStart.remove(task.id.uuidString)
         UserDefaults.standard.set(Array(dirtyAtStart), forKey: dirtyKey)
@@ -145,7 +161,7 @@ final class AutomationStore {
                 try await health.authorize(task)
                 #endif
             }
-            let outcome = await engine.run(task, automatic: automatic)
+            let outcome = await engine.run(task, automatic: automatic, timeBudget: deadline.map { max(0, $0.timeIntervalSinceNow) } ?? 25, trigger: trigger)
             outcomes[task.id] = outcome
             if outcome.state == .failed || outcome.state == .queued { markDirty(task.id) }
             if automatic && ((outcome.state == .failed && (task.execution.notifyOnFailure ?? true)) || (outcome.state == .succeeded && task.execution.notifyOnSuccess == true)) {
@@ -174,20 +190,90 @@ final class AutomationStore {
         outcomes[task.id] = log; markDirty(task.id)
     }
 
-    func runDue(dataChangeOnly: Bool = false) async {
-        guard loadError == nil else { return }
-        for task in tasks where task.enabled {
-            if Task.isCancelled { break }
-            guard let state = try? journal.load(task.id) else { continue }
-            let dirty = Set(UserDefaults.standard.stringArray(forKey: dirtyKey) ?? [])
-            guard state.pending != nil || (!dataChangeOnly && task.execution.onForeground) || dirty.contains(task.id.uuidString) else { continue }
-            guard state.pending != nil || Date().timeIntervalSince(state.lastAttempt ?? .distantPast) >= Double(task.execution.minimumIntervalSeconds) else { continue }
-            await run(task, automatic: true)
+    private func ensureEditable(_ task: AutomationConfig) throws {
+        guard !active.contains(task.id) else { throw ConfigurationError("任务正在运行，请完成后再修改") }
+        guard !backfills.contains(where: { $0.task.id == task.id && $0.completedAt == nil }) else {
+            throw ConfigurationError("请先完成或取消历史补传，再修改或删除原任务")
         }
+    }
+
+    func startBackfill(_ task: AutomationConfig, start: Date, end: Date) async throws {
+        try ensureEditable(task)
+        let job = try BackfillJob(task: task, start: start, end: end)
+        #if DEBUG && targetEnvironment(simulator)
+        if !ProcessInfo.processInfo.arguments.contains("--synthetic-health") { try await health.authorize(task) }
+        #else
+        try await health.authorize(task)
+        #endif
+        let updated = backfills + [job]
+        try backfillRepository.save(updated); backfills = updated
+        await runBackfill(job)
+    }
+
+    func runBackfill(_ job: BackfillJob, automatic: Bool = false, deadline: Date? = nil) async {
+        guard job.completedAt == nil, active.insert(job.id).inserted else { return }
+        defer { active.remove(job.id); scheduleRefresh() }
+        await coordinator.acquire()
+        defer { coordinator.release() }
+        guard !Task.isCancelled, deadline.map({ $0 > Date() }) ?? true else { return }
+        outcomes[job.id] = RunLog(state: .running, message: "正在补传历史数据")
+        let log = await engine.run(job.task, automatic: automatic,
+            timeBudget: deadline.map { max(0, $0.timeIntervalSinceNow) } ?? 25,
+            storageID: job.id, trigger: "backfill")
+        outcomes[job.id] = log
+        if log.state == .succeeded || log.state == .noData,
+           let index = backfills.firstIndex(where: { $0.id == job.id }) {
+            var updated = backfills; updated[index].completedAt = Date()
+            do { try backfillRepository.save(updated); backfills = updated }
+            catch { outcomes[job.id] = RunLog(state: .failed, message: "补传完成状态保存失败，可安全重试") }
+        }
+    }
+
+    func removeBackfill(_ job: BackfillJob) throws {
+        guard !active.contains(job.id) else { throw ConfigurationError("补传正在运行，请完成本批后再取消") }
+        let updated = backfills.filter { $0.id != job.id }
+        try backfillRepository.save(updated); backfills = updated
+        try journal.remove(job.id)
+        outcomes[job.id] = nil
         scheduleRefresh()
     }
 
+    func runDue(dataChangeOnly: Bool = false, trigger: String = "foreground") async {
+        guard loadError == nil, !checkingDue else { return }
+        checkingDue = true
+        defer { checkingDue = false; scheduleRefresh() }
+        let deadline = Date().addingTimeInterval(25)
+        // Daily exports and backfills share one age-ordered queue.
+        let candidates = tasks.filter(\.enabled).map { (id: $0.id, task: $0, job: Optional<BackfillJob>.none) }
+            + backfills.filter { $0.completedAt == nil }.map { (id: $0.id, task: $0.task, job: Optional($0)) }
+        let ordered = candidates.sorted {
+            ((try? journal.load($0.id).lastAttempt) ?? .distantPast) < ((try? journal.load($1.id).lastAttempt) ?? .distantPast)
+        }
+        for candidate in ordered {
+            guard !Task.isCancelled, Date() < deadline else { break }
+            guard let state = try? journal.load(candidate.id) else { continue }
+            if let pending = state.pending {
+                guard pending.automaticRetry, (pending.nextAttempt ?? .distantPast) <= Date() else { continue }
+            } else if candidate.job != nil {
+                if let log = state.logs.first, log.state == .failed, Date().timeIntervalSince(log.date) < 300 { continue }
+            } else {
+                let task = candidate.task
+                let dirty = Set(UserDefaults.standard.stringArray(forKey: dirtyKey) ?? [])
+                let foreground = !dataChangeOnly && trigger == "foreground" && task.execution.onForeground
+                let polling = !dataChangeOnly && task.execution.periodicPolling == true
+                guard state.nextSelectionID != nil || foreground || polling || dirty.contains(task.id.uuidString) else { continue }
+                if state.nextSelectionID == nil {
+                    guard Date().timeIntervalSince(state.lastAttempt ?? .distantPast) >= Double(task.execution.minimumIntervalSeconds) else { continue }
+                }
+            }
+            if let job = candidate.job { await runBackfill(job, automatic: true, deadline: deadline) }
+            else { await run(candidate.task, automatic: true, trigger: dataChangeOnly ? "healthChange" : trigger, deadline: deadline) }
+        }
+    }
+
     func configureObservers() async {
+        await observerCoordinator.acquire()
+        defer { observerCoordinator.release() }
         for query in observers { health.health.stop(query) }; observers = []
         await withCheckedContinuation { continuation in
             health.health.disableAllBackgroundDelivery { _, _ in continuation.resume() }
@@ -219,15 +305,19 @@ final class AutomationStore {
     }
 
     private func scheduleRefresh() {
-        let enabled = tasks.filter(\.enabled)
         BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: Self.refreshIdentifier)
-        guard !enabled.isEmpty else { return }
-        let dates = enabled.compactMap { task -> Date? in
-            guard let state = try? journal.load(task.id) else { return nil }
+        let dirty = Set(UserDefaults.standard.stringArray(forKey: dirtyKey) ?? [])
+        var dates = tasks.filter(\.enabled).compactMap { task -> Date? in
+            guard let state = try? journal.load(task.id) else { return Date().addingTimeInterval(300) }
             if let pending = state.pending { return pending.automaticRetry ? pending.nextAttempt ?? Date() : nil }
-            let dirty = UserDefaults.standard.stringArray(forKey: dirtyKey) ?? []
-            guard task.execution.onForeground || dirty.contains(task.id.uuidString) else { return nil }
+            if state.nextSelectionID != nil { return Date().addingTimeInterval(60) }
+            guard task.execution.periodicPolling == true || dirty.contains(task.id.uuidString) else { return nil }
             return (state.lastAttempt ?? Date()).addingTimeInterval(Double(task.execution.minimumIntervalSeconds))
+        }
+        for job in backfills where job.completedAt == nil {
+            if let state = try? journal.load(job.id), let pending = state.pending {
+                if pending.automaticRetry { dates.append(pending.nextAttempt ?? Date()) }
+            } else { dates.append(Date().addingTimeInterval(300)) }
         }
         guard let earliest = dates.min() else { return }
         let request = BGAppRefreshTaskRequest(identifier: Self.refreshIdentifier)

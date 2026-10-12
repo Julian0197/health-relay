@@ -8,6 +8,10 @@ struct TaskExecutionView: View {
     @State private var readSummary: String?
     @State private var checking = false
     @State private var cancellingPending = false
+    @State private var showingBackfill = false
+    @State private var backfillStart = Date().addingTimeInterval(-86400)
+    @State private var backfillEnd = Date()
+    @State private var removingJob: BackfillJob?
     @State private var error: String?
     private var task: AutomationConfig? { store.tasks.first { $0.id == taskID } }
     var body: some View {
@@ -30,6 +34,24 @@ struct TaskExecutionView: View {
                     if checking { ProgressView("正在检查读取") }
                     if store.active.contains(task.id) { ProgressView("正在读取并上传") }
                 } footer: { Text("手动运行也会读取健康数据并向配置接口上传。没有新记录时不会发送请求。iOS 决定后台唤醒时机。") }
+                Section("历史补传") {
+                    Button("选择时间补传", systemImage: "clock.arrow.circlepath") { backfillEnd = Date(); showingBackfill = true }
+                        .accessibilityIdentifier("backfill-start").disabled(store.active.contains(task.id) || store.backfills.contains { $0.task.id == task.id && $0.completedAt == nil })
+                    ForEach(store.backfills.filter { $0.task.id == task.id }) { job in
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("\(job.task.range.start ?? "") → \(job.task.range.end ?? "")").font(.caption)
+                            Text(job.completedAt == nil ? "待完成" : "已完成")
+                            if let log = store.outcomes[job.id] ?? (try? store.journal.load(job.id).logs.first) { Text(log.message).font(.footnote) }
+                            if store.active.contains(job.id) { ProgressView() }
+                            HStack {
+                                if job.completedAt == nil { Button("继续补传") { Task { await store.runBackfill(job) } } }
+                                Button(job.completedAt == nil ? "取消补传" : "删除记录", role: .destructive) { removingJob = job }
+                            }.buttonStyle(.borderless).disabled(store.active.contains(job.id))
+                        }
+                    }
+                    Text("补传使用独立进度和固定日期，不会重置日常同步。大范围会分批继续；已上传的数据不会因取消而撤回。")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
                 if let readSummary { Section("读取检查") { Text(readSummary) } }
                 if !task.executionIssues.isEmpty {
                     Section("执行前需要调整") { ForEach(task.executionIssues, id: \.self) { Text($0).font(.footnote) } }
@@ -53,9 +75,15 @@ struct TaskExecutionView: View {
                         }
                     }
                     Section("运行日志") {
+                        if let data = try? JSONEncoder().encode(state.logs), let text = String(data: data, encoding: .utf8) {
+                            ShareLink("导出运行诊断", item: text)
+                        }
+
                         ForEach(state.logs) { log in
                             VStack(alignment: .leading, spacing: 6) {
                                 Text(log.message)
+                                if let duration = log.durationSeconds { Text("\(log.trigger ?? "manual") · \(duration, specifier: "%.1f") 秒 · \(log.records) 条 / \(log.batches) 批").font(.caption) }
+                                if let omitted = log.omittedDeletions, omitted > 0 { Text("跳过删除事件：\(omitted)").font(.caption) }
                                 Text(log.date.formatted()).font(.caption).foregroundStyle(.secondary)
                             }
                         }
@@ -71,6 +99,30 @@ struct TaskExecutionView: View {
                     do { try store.cancelPending(task) } catch { self.error = error.localizedDescription }
                 }
             }
+            .sheet(isPresented: $showingBackfill) {
+                NavigationStack {
+                    Form {
+                        DatePicker("开始", selection: $backfillStart, in: ...Date())
+                        DatePicker("结束", selection: $backfillEnd, in: ...Date())
+                        Text("按原任务的指标、格式、单位和接口发送。汇总会读取与该范围相交的完整窗口。")
+                    }.navigationTitle("历史补传")
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) { Button("取消") { showingBackfill = false } }
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("开始") {
+                                guard let task else { return }; showingBackfill = false
+                                Task { do { try await store.startBackfill(task, start: backfillStart, end: backfillEnd) } catch { self.error = error.localizedDescription } }
+                            }.accessibilityIdentifier("backfill-confirm").disabled(backfillStart >= backfillEnd)
+                        }
+                    }
+                }
+            }
+            .confirmationDialog("删除补传进度？已上传的数据会保留。", isPresented: Binding(get: { removingJob != nil }, set: { if !$0 { removingJob = nil } }), titleVisibility: .visible) {
+                Button("删除补传进度", role: .destructive) {
+                    guard let job = removingJob else { return }
+                    do { try store.removeBackfill(job) } catch { self.error = error.localizedDescription }; removingJob = nil
+                }
+            }
             .alert("无法执行", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) {
                 Button("知道了") { error = nil }
             } message: { Text(error ?? "") }
@@ -83,7 +135,12 @@ struct TaskExecutionView: View {
 @MainActor final class SyntheticHealthReader: HealthDataReader {
     func read(task: AutomationConfig, selection: MetricSelection, checkpoint: TypeCheckpoint, limit: Int) async throws -> ReadPage {
         guard checkpoint.anchor == nil else { return ReadPage(records: [], anchor: checkpoint.anchor, hasMore: false) }
-        let records = [HealthRecord(op: .upsert, typeIdentifier: selection.id, recordId: "synthetic-quantity-001", start: "2026-10-12T00:00:00Z", end: "2026-10-12T00:00:00Z", source: RecordSource(id: "test.synthetic", name: "Synthetic acceptance"), payload: ["value": .number(70), "unit": .string(selection.unit ?? "count")])]
+        var payload: [String: JSONValue] = ["value": .number(70), "unit": .string(selection.unit ?? "count")]
+        if task.export.mode == .aggregate {
+            payload["aggregation"] = .bool(true)
+            for statistic in task.statistics(for: selection) { payload[statistic.rawValue] = .number(70) }
+        }
+        let records = [HealthRecord(op: .upsert, typeIdentifier: selection.id, recordId: "synthetic-quantity-001", start: "2026-10-12T00:00:00Z", end: "2026-10-12T00:00:00Z", source: RecordSource(id: "test.synthetic", name: "Synthetic acceptance"), payload: payload)]
         return ReadPage(records: records, anchor: Data("synthetic-cursor-1".utf8), hasMore: false)
     }
 }

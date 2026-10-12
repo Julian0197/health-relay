@@ -163,7 +163,7 @@ struct AutomationEditorView: View {
             Picker("读取范围", selection: $task.range.mode) {
                 ForEach(DateRange.Mode.allCases, id: \.self) { Text($0.title).tag($0) }
             }.onChange(of: task.range.mode) { _, mode in
-                task.range = DateRange(mode: mode, bootstrapDays: mode == .incremental ? 7 : nil, days: mode == .pastDays ? 7 : nil,
+                task.range = DateRange(mode: mode, bootstrapDays: mode == .incremental ? 7 : nil, days: (mode == .pastDays || mode == .previousDays) ? 7 : nil,
                     start: mode == .custom ? Date().addingTimeInterval(-86400).ISO8601Format() : nil,
                     end: mode == .custom ? Date().ISO8601Format() : nil)
             }
@@ -172,7 +172,7 @@ struct AutomationEditorView: View {
                 Text("以后按健康数据变更继续读取；不是每次只查询最近这几天。")
                     .font(.footnote).foregroundStyle(.secondary)
             }
-            if task.range.mode == .pastDays {
+            if task.range.mode == .pastDays || task.range.mode == .previousDays {
                 Stepper("过去 \(task.range.days ?? 7) 天", value: Binding(get: { task.range.days ?? 7 }, set: { task.range.days = $0 }), in: 1...3650)
             }
             if task.range.mode == .custom {
@@ -188,31 +188,46 @@ struct AutomationEditorView: View {
             Picker("导出格式", selection: $task.export.format) {
                 Text("HealthRelay JSON · v1").tag("healthrelay.v1")
                 Text("HEA JSON · v2").tag("hea.v2")
-                Text("HEA JSON · v1").tag("hea.v1")
-                Text("CSV").tag("csv")
+                Text("HEA CSV · 兼容配置").tag("hea.csv")
+                Text("HEA JSON · v1（尚未支持）").tag("hea.v1")
+                Text("HealthRelay CSV").tag("csv")
                 Text("Markdown").tag("markdown")
+            }.onChange(of: task.export.format) { _, format in
+                if format.hasPrefix("hea."), task.export.deletionPolicy == nil { task.export.deletionPolicy = .reject }
+            }
+            if task.export.format.hasPrefix("hea.") {
+                Picker("健康记录被删除时", selection: Binding(get: { task.export.deletionPolicy ?? .reject }, set: { task.export.deletionPolicy = $0 })) {
+                    Text("停止并提示").tag(ExportSettings.DeletionPolicy.reject)
+                    Text("跳过删除事件").tag(ExportSettings.DeletionPolicy.omit)
+                }
+                Text("HEA 格式无法撤回已上传的记录。跳过删除时会记入日志；需要完整增删同步请用 HealthRelay JSON。汇总仍会发送有剩余值的修正窗口。")
+                    .font(.footnote).foregroundStyle(.secondary)
             }
             Picker("数据形式", selection: $task.export.mode) {
                 Text("原始明细").tag(ExportSettings.Mode.raw)
-                Text("汇总数据").tag(ExportSettings.Mode.aggregate)
-            }.disabled(task.allowedStatistics.isEmpty)
-            .onChange(of: task.export.mode) { _, mode in
+                Text("汇总数据").tag(ExportSettings.Mode.aggregate).disabled(!task.supportsAggregation)
+            }.onChange(of: task.export.mode) { _, mode in
                 task.export.grouping = mode == .raw ? .none : .days
-                task.export.statistics = mode == .raw ? [] : Array(task.allowedStatistics.prefix(1))
+                task.export.statistics = []
             }
             if task.export.mode == .aggregate {
                 Picker("时间分组", selection: $task.export.grouping) {
                     ForEach(ExportSettings.Grouping.allCases.filter { $0 != .none }, id: \.self) { Text($0.title).tag($0) }
                 }
-                ForEach(task.allowedStatistics, id: \.self) { statistic in
-                    Toggle(statisticTitle(statistic), isOn: Binding(get: { task.export.statistics.contains(statistic) }, set: { enabled in
-                        task.export.statistics.removeAll { $0 == statistic }
-                        if enabled { task.export.statistics.append(statistic) }
-                    }))
+                if !task.export.statistics.isEmpty {
+                    Text("此旧配置使用统一统计：" + task.export.statistics.map(\.rawValue).joined(separator: "、"))
+                        .font(.footnote)
+                    Button("改用每指标默认统计") { task.export.statistics = [] }
+                }
+                Text("各指标独立统计：累计量求和，测量值取均值和极值。可进入指标设置单独选择。")
+                    .font(.footnote).foregroundStyle(.secondary)
+                if task.data.selections.contains(where: { $0.id == "HKCategoryTypeIdentifierSleepAnalysis" }) {
+                    Text("睡眠按每天中午 12 点至次日中午归为一晚，不随上述数量指标分组；重叠时段去重。")
+                        .font(.footnote).foregroundStyle(.secondary)
                 }
             }
         } header: { Text("导出设置") } footer: {
-            Text(task.allowedStatistics.isEmpty ? "所选类型不支持共同的数量统计，请使用明细或拆分任务。" : "明细保留每条记录；汇总按选择的窗口和统计方法生成。")
+            Text(task.supportsAggregation ? "明细保留每条记录；汇总查询完整时间窗口，迟到数据会修正该窗口。" : "汇总支持数量指标和睡眠；其他类型请使用明细。")
         }
     }
 
@@ -272,6 +287,9 @@ struct AutomationEditorView: View {
         Section {
             Toggle("健康数据变化时处理", isOn: $task.execution.onDataChange)
             Toggle("打开 App 时检查", isOn: $task.execution.onForeground)
+            Toggle("定期补查", isOn: Binding(get: { task.execution.periodicPolling ?? false }, set: { task.execution.periodicPolling = $0 }))
+            Text("默认依靠数据变化触发；定期补查仅申请系统执行机会，不能保证固定分钟数。")
+                .font(.footnote).foregroundStyle(.secondary)
             HStack {
                 Text("期望间隔（分钟）")
                 TextField("分钟", value: Binding(get: { task.execution.minimumIntervalSeconds / 60 }, set: { value in
@@ -293,9 +311,6 @@ struct AutomationEditorView: View {
         Binding(get: { AutomationConfig.parseDate(start ? task.range.start : task.range.end) ?? Date() }, set: { date in
             if start { task.range.start = date.ISO8601Format() } else { task.range.end = date.ISO8601Format() }
         })
-    }
-    private func statisticTitle(_ value: ExportSettings.Statistic) -> String {
-        switch value { case .sum: "总和"; case .average: "平均"; case .minimum: "最小值"; case .maximum: "最大值" }
     }
 
     private func save() {
@@ -335,6 +350,10 @@ struct AutomationEditorView: View {
 private struct MetricSettingsView: View {
     let metric: MetricDescriptor
     @Binding var selection: MetricSelection
+    private func statisticTitle(_ value: ExportSettings.Statistic) -> String {
+        switch value { case .sum: "总和"; case .average: "平均"; case .minimum: "最小值"; case .maximum: "最大值" }
+    }
+
     var body: some View {
         Form {
             Section {
@@ -343,6 +362,17 @@ private struct MetricSettingsView: View {
                 if !metric.units.isEmpty {
                     Picker("输出单位", selection: Binding(get: { selection.unit ?? metric.units[0] }, set: { selection.unit = $0 })) {
                         ForEach(metric.units, id: \.self) { Text($0).tag($0) }
+                    }
+                }
+                if !metric.statistics.isEmpty {
+                    Toggle("自定义汇总统计", isOn: Binding(get: { selection.statistics != nil }, set: { selection.statistics = $0 ? metric.statistics : nil }))
+                    if selection.statistics != nil {
+                        ForEach(metric.statistics, id: \.self) { statistic in
+                            Toggle(statisticTitle(statistic), isOn: Binding(get: { selection.statistics?.contains(statistic) ?? false }, set: { enabled in
+                                selection.statistics?.removeAll { $0 == statistic }
+                                if enabled { selection.statistics?.append(statistic) }
+                            }))
+                        }
                     }
                 }
                 NavigationLink {

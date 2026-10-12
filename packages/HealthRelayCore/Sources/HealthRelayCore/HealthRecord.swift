@@ -64,6 +64,7 @@ public struct EncodedBatch: Sendable {
 public enum BatchEncoder {
     public static func encode(_ batch: UploadBatch, format: String = "healthrelay.v1", timeZone: String = "UTC") throws -> EncodedBatch {
         let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+        if format == "hea.csv" { return try HEACSVEncoder.encode(batch, timeZone: timeZone) }
         if format == "hea.v2" { return try HEAEncoder.encode(batch, timeZone: timeZone) }
         if format == "healthrelay.v1" {
             return EncodedBatch(body: try encoder.encode(batch), contentType: "application/json")
@@ -86,9 +87,8 @@ public enum BatchEncoder {
 public extension AutomationConfig {
     var executionIssues: [String] {
         var issues: [String] = []
-        if export.mode != .raw { issues.append("汇总执行尚未开放，请选择原始明细") }
-        if !["healthrelay.v1", "hea.v2", "csv", "markdown"].contains(export.format) { issues.append("HEA v1 执行尚未开放，请使用 v2 或 HealthRelay JSON") }
-        if export.format == "hea.v2" && data.selections.contains(where: { HEAEncoder.metricNames[$0.id] == nil }) {
+        if !["healthrelay.v1", "hea.v2", "hea.csv", "csv", "markdown"].contains(export.format) { issues.append("HEA v1 执行尚未开放，请使用 v2 或 HealthRelay JSON") }
+        if ["hea.v2", "hea.csv"].contains(export.format) && data.selections.contains(where: { HEAEncoder.metricNames[$0.id] == nil }) {
             issues.append("所选指标的 HEA v2 格式尚未验证，请使用 HealthRelay JSON")
         }
         if data.workoutOptions?.includeRoutes == true || data.workoutOptions?.includeMetrics == true {

@@ -2,7 +2,7 @@ import Foundation
 import HealthKit
 import HealthRelayCore
 
-@MainActor final class HealthKitReader: HealthDataReader {
+@MainActor final class HealthKitReader: HealthDataReader, AggregateSource {
     let health = HKHealthStore()
 
     func sampleType(_ id: String) throws -> HKSampleType {
@@ -36,25 +36,68 @@ import HealthRelayCore
         try await health.requestAuthorization(toShare: [], read: types)
     }
     func read(task: AutomationConfig, selection: MetricSelection, checkpoint: TypeCheckpoint, limit: Int) async throws -> ReadPage {
+        if task.export.mode == .aggregate { return try await AggregationReader(source: self).read(task: task, selection: selection, checkpoint: checkpoint, limit: limit) }
+        return try await readChanges(task: task, selection: selection, checkpoint: checkpoint, limit: limit)
+    }
+    func readChanges(task: AutomationConfig, selection: MetricSelection, checkpoint: TypeCheckpoint, limit: Int) async throws -> ReadPage {
         let type = try sampleType(selection.id)
         let anchor = try checkpoint.anchor.map { data in
             guard let value = try NSKeyedUnarchiver.unarchivedObject(ofClass: HKQueryAnchor.self, from: data) else { throw ConfigurationError("健康数据游标损坏，已停止读取") }
             return value
         }
         // Keep the same date predicate for every page and later incremental run.
-        let predicate = HKQuery.predicateForSamples(withStart: checkpoint.start, end: checkpoint.end, options: .strictStartDate)
+        let aggregate = task.export.mode == .aggregate
+        let isSleep = selection.id == "HKCategoryTypeIdentifierSleepAnalysis"
+        let start = aggregate ? try AggregateWindow.containing(checkpoint.start, grouping: task.export.grouping, timeZone: task.export.timeZone, sleep: isSleep).start : checkpoint.start
+        let end = aggregate ? try checkpoint.end.map { try AggregateWindow.containing($0.addingTimeInterval(-0.001), grouping: task.export.grouping, timeZone: task.export.timeZone, sleep: isSleep).end } : checkpoint.end
+        let predicate = HKQuery.predicateForSamples(withStart: start, end: end, options: aggregate ? [] : .strictStartDate)
         let descriptor = HKAnchoredObjectQueryDescriptor(predicates: [.sample(type: type, predicate: predicate)], anchor: anchor, limit: limit)
         let result = try await descriptor.result(for: health)
         let allowed = result.addedSamples.filter { sample in
             let source = sample.sourceRevision.source.bundleIdentifier
             return (selection.sources.isEmpty || selection.sources.contains(source)) && !task.data.excludedSources.contains(source)
-                && (checkpoint.end == nil || sample.startDate < checkpoint.end!)
+                && (end == nil || sample.startDate < end!)
         }
         var records = try allowed.map { try record($0, unit: selection.unit) }
         // Deletions have only a UUID. Receivers ignore delete events for UUIDs they never imported.
         records += result.deletedObjects.map { HealthRecord(op: .delete, typeIdentifier: selection.id, recordId: $0.uuid.uuidString.lowercased()) }
         return ReadPage(records: records, anchor: try NSKeyedArchiver.archivedData(withRootObject: result.newAnchor, requiringSecureCoding: true), hasMore: result.addedSamples.count + result.deletedObjects.count >= limit)
     }
+    func snapshot(task: AutomationConfig, selection: MetricSelection, window: AggregateWindow) async throws -> [String: JSONValue]? {
+        let type = try sampleType(selection.id)
+        var predicates = [HKQuery.predicateForSamples(withStart: window.start, end: window.end, options: [])]
+        if !selection.sources.isEmpty || !task.data.excludedSources.isEmpty {
+            let sources = try await HKSourceQueryDescriptor(predicate: .sample(type: type, predicate: nil)).result(for: health)
+            let allowed = sources.filter { (selection.sources.isEmpty || selection.sources.contains($0.bundleIdentifier)) && !task.data.excludedSources.contains($0.bundleIdentifier) }
+            guard !allowed.isEmpty else { return nil }
+            predicates.append(HKQuery.predicateForObjects(from: Set(allowed)))
+        }
+        let predicate = NSCompoundPredicate(andPredicateWithSubpredicates: predicates)
+        if selection.id == "HKCategoryTypeIdentifierSleepAnalysis", let category = type as? HKCategoryType {
+            let samples = try await HKSampleQueryDescriptor(predicates: [.categorySample(type: category, predicate: predicate)], sortDescriptors: [SortDescriptor(\HKCategorySample.startDate)], limit: nil).result(for: health)
+            return SleepSummary.payload(records: try samples.map { try record($0, unit: nil) }, window: window, timeZone: task.export.timeZone)
+        }
+        guard let quantity = type as? HKQuantityType, let unitCode = selection.unit else { throw ConfigurationError("此类型尚不支持汇总") }
+        let selected = task.statistics(for: selection)
+        var options: HKStatisticsOptions = []
+        for statistic in selected {
+            switch statistic { case .sum: options.insert(.cumulativeSum); case .average: options.insert(.discreteAverage); case .minimum: options.insert(.discreteMin); case .maximum: options.insert(.discreteMax) }
+        }
+        let descriptor = HKStatisticsCollectionQueryDescriptor(predicate: .quantitySample(type: quantity, predicate: predicate), options: options, anchorDate: window.start, intervalComponents: DateComponents(second: Int(window.end.timeIntervalSince(window.start))))
+        let collection = try await descriptor.result(for: health)
+        guard let statistics = collection.statistics(for: window.start) else { return nil }
+        let outputUnit = try Self.unit(unitCode)
+        var payload: [String: JSONValue] = ["aggregation": .bool(true), "unit": .string(unitCode)]
+        for statistic in selected {
+            let value: HKQuantity?
+            switch statistic { case .sum: value = statistics.sumQuantity(); case .average: value = statistics.averageQuantity(); case .minimum: value = statistics.minimumQuantity(); case .maximum: value = statistics.maximumQuantity() }
+            if let value { payload[statistic.rawValue] = .number(value.doubleValue(for: outputUnit)) }
+        }
+        guard let preferred = payload["sum"] ?? payload["average"] ?? payload["minimum"] ?? payload["maximum"] else { return nil }
+        payload["value"] = preferred
+        return payload
+    }
+
     private func record(_ sample: HKSample, unit: String?) throws -> HealthRecord {
         var payload: [String: JSONValue] = [:]
         if let quantity = sample as? HKQuantitySample {

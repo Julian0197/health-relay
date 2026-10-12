@@ -1,0 +1,55 @@
+{
+  "schemaVersion": 1,
+  "id": "93ddb7d2-60ab-4a89-bd14-d59caeb9d3f7",
+  "revision": 1,
+  "name": "混合指标汇总示例",
+  "enabled": false,
+  "data": {
+    "family": "healthMetrics",
+    "selections": [
+      {
+        "typeIdentifier": "HKQuantityTypeIdentifierStepCount",
+        "unit": "count",
+        "sources": []
+      },
+      {
+        "typeIdentifier": "HKQuantityTypeIdentifierHeartRate",
+        "unit": "count/min",
+        "sources": []
+      },
+      {
+        "typeIdentifier": "HKCategoryTypeIdentifierSleepAnalysis",
+        "sources": []
+      }
+    ],
+    "excludedSources": []
+  },
+  "range": {
+    "mode": "incremental",
+    "bootstrapDays": 7
+  },
+  "export": {
+    "format": "healthrelay.v1",
+    "mode": "aggregate",
+    "grouping": "hours",
+    "statistics": [],
+    "timeZone": "Asia/Shanghai"
+  },
+  "destination": {
+    "kind": "http",
+    "url": "https://api.example.com/v1/batches",
+    "method": "POST",
+    "headers": {},
+    "credentialRef": "bind-on-device",
+    "timeoutSeconds": 30,
+    "acknowledgement": "receipt"
+  },
+  "execution": {
+    "onDataChange": true,
+    "onForeground": true,
+    "minimumIntervalSeconds": 7200,
+    "batchMaxRecords": 500,
+    "batchMaxBytes": 1048576,
+    "periodicPolling": false
+  }
+}

@@ -4,7 +4,7 @@ An open-source iOS app for configurable Apple Health exports and reliable automa
 
 用配置建立 Apple Health 自动化任务：选择数据、来源、单位、日期范围、明细或汇总、执行条件和上传接口。
 
-**当前状态：配置与第一版明细导出链路已实现。可以读取 HealthKit、保存待上传批次、向自定义 HTTPS 接口上传并确认；后台入口已接入，实际调度由 iOS 决定。**
+**当前状态：通用明细、数量/睡眠汇总、HEA v2 兼容、独立历史补传和后台续跑已实现。模拟器与独立 Cloudflare 测试接口已通过；本轮新增能力的真机验收待继续，iOS 决定实际后台调度。**
 
 ## 当前可用
 
@@ -15,11 +15,13 @@ An open-source iOS app for configurable Apple Health exports and reliable automa
 - HTTP URL、Header、认证、超时、确认模式、间隔与批次偏好。
 - JSON 配置预览、文件导入/导出；认证保存到 Keychain，导出仅保留重新绑定所需的 Header 名称。
 - 通用数量、分类、关联明细和锻炼摘要读取；按类型保存 HealthKit anchor，支持新增和删除事件。
-- 原生 `healthrelay.v1` JSON、CSV、Markdown 编码；有限的 HEA v2 明细映射。
+- 原生 `healthrelay.v1` JSON、CSV、Markdown；20 项 HEA v2 映射、自动请求上下文和明确命名的 HEA multipart CSV profile。
+- 每指标独立汇总，完整时间窗口与迟到/删除修正；睡眠按跨午夜窗口归属和时段去重。
+- 固定日期历史补传，独立进度、继续/取消；普通任务与补传共享公平串行队列。
 - 手动运行、读取检查、活动日志、失败后保留并重试；已确认后推进游标，没有新记录不发送 HTTP 请求。
 - HealthKit 数据变化、前台补跑、系统后台刷新与运行已有任务的 AppIntent。
 
-配置能力比执行能力更广。**汇总、HEA v1、运动路线/关联时序和特殊对象读取尚未开放执行**；不支持的组合会显示原因并阻止运行。HEA v2 只支持 [显式映射](packages/HealthRelayCore/Sources/HealthRelayCore/HEAEncoder.swift)，不能表达删除事件；不宣称 HEA 全功能对等或全部 HealthKit 类型已验收。
+配置能力比执行能力更广。**HEA v1、运动路线/关联时序和特殊对象读取尚未开放执行**；不支持的组合会显示原因并阻止运行。HEA v2 只支持 [显式映射](packages/HealthRelayCore/Sources/HealthRelayCore/HEAEncoder.swift)，不能表达删除事件，可明确选择拒绝或跳过；HEA CSV 字段布局尚未对照真实 HEA 捕获，不宣称 HEA 全功能对等或全部 HealthKit 类型已验收。
 
 ## 运行与验证
 
@@ -32,7 +34,9 @@ xcodebuild -project ios/HealthRelay.xcodeproj -scheme HealthRelay -sdk iphonesim
 
 [执行阶段说明](docs/implementation-execution.md)包含运行步骤、失败恢复、测试证据和实际限制；[配置阶段记录](docs/implementation-configuration.md)保留第一阶段的历史验收。
 
-本阶段已通过 34 项 Core 测试、iOS 27 模拟器构建和 2 项原生 UI 测试。合成数据通过真实本地 HTTPS 接口验证了 `503 → App 重启 → 同一批次重试 → 正确回执 → 无新数据不再请求`；真机已将普通 HRV（SDNN）、恢复 HRV（RMSSD）、步数和睡眠原生明细上传至隔离 Cloudflare 验收接口，691 条/16 批确认成功；再次运行无新数据，服务端计数不变。App 不依赖这个接收器，也没有向既有生产接口写入。真机后台、全部指标和 HEA 格式生产兼容仍未验收。
+本轮通过 63 项 Core 测试（含显式开启的 Swift→Cloudflare 集成）、5 项接收器测试、3 项原生模拟器 UI 测试和 iOS 构建。覆盖窗口修正、无变化不重算、503 重启重试、跨午夜续跑、独立补传和 multipart 请求。详见[自动化核心实现与验收](docs/implementation-automation-core.md)。
+
+此前真机已将 SDNN、RMSSD、步数和睡眠原生明细上传到独立测试接口，691 条/16 批确认，随后无新数据时计数不变。该结果不证明本轮新汇总、HEA 格式和自然后台唤醒已验收；用户使用手机期间暂缓真机操作。未向既有生产接口写入。
 
 ## 界面
 
@@ -57,11 +61,13 @@ xcodebuild -project ios/HealthRelay.xcodeproj -scheme HealthRelay -sdk iphonesim
 ## 方案与示例
 
 - [技术设计（中文）](docs/design.md)
+- [自动化核心实现与验收](docs/implementation-automation-core.md)
 - [导出执行实现与验收](docs/implementation-execution.md)
 - [App 导出与可选 Docker 自部署](docs/self-hosting.md)
 - [配置与上传协议](docs/contracts.md)
 - [分阶段实施计划](docs/superpowers/plans/2026-10-12-health-relay.md)
 - [能力覆盖与验收](docs/capabilities.md)
+- [HEA 自动化差距与补齐顺序](docs/hea-automation-gap-audit-2026-10-12.md)
 - [公开依据与调研边界](docs/research.md)
 - [SDK 27 标识符清单](catalog/sdk-27-inventory.json)：覆盖盘点，**不表示已实现支持**。
 
