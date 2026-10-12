@@ -4,7 +4,35 @@ An open-source iOS app for configurable Apple Health exports and reliable automa
 
 用配置建立 Apple Health 自动化任务：选择数据、来源、单位、日期范围、明细或汇总、执行条件和上传接口。
 
-**当前状态：方案阶段。仓库尚无可安装的 iOS App；以下功能是实现目标。**
+**当前状态：第一版 iOS 自动化配置 App 已实现。可以构建、创建和保存配置；健康明细读取、自动上传与后台执行尚未接入。**
+
+## 当前可用
+
+- 任务列表、新建、编辑、复制、删除与本地保存。
+- 指标搜索和多选：121 个数量、72 个分类标识符，另有 2 个关联配置和锻炼配置；新系统指标按 iOS 版本限制选择。
+- 每指标单位/来源、任务来源排除、增量/日历/自定义日期范围。
+- 明细/汇总、秒至年的分组、合法数量统计；导出格式偏好与锻炼路线/曲线选项。
+- HTTP URL、Header、认证、超时、确认模式、间隔与批次偏好。
+- JSON 配置预览、文件导入/导出；认证保存到 Keychain，导出仅保留重新绑定所需的 Header 名称。
+
+以上是**配置能力**。格式选项不代表相应健康数据编码器已实现；不宣称已完成 HEA 输出兼容或全量数据读取。
+
+## 运行与验证
+
+要求 Xcode 27 / Swift 6，App 最低 iOS 18。打开 `ios/HealthRelay.xcodeproj`，选择 `HealthRelay` scheme 和 iPhone 模拟器运行。真机需选择自己的签名 Team；本次验收范围是模拟器。
+
+```sh
+swift test --package-path packages/HealthRelayCore
+xcodebuild -project ios/HealthRelay.xcodeproj -scheme HealthRelay -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
+```
+
+[本阶段实现与验收边界](docs/implementation-configuration.md)包括完整测试命令、配置字段和后续工作。
+
+## 界面
+
+以下为 iOS 27 模拟器真实运行截图，任务与接口均为合成验收配置。
+
+<img src="docs/images/automations.png" width="280" alt="自动化任务列表"> <img src="docs/images/configuration-editor.png" width="280" alt="配置编辑"> <img src="docs/images/metric-picker.png" width="280" alt="指标搜索与多选">
 
 ## 产品边界
 
@@ -36,7 +64,9 @@ An open-source iOS app for configurable Apple Health exports and reliable automa
 
 ## 技术栈
 
-Swift 6、SwiftUI、HealthKit、SQLite、URLSession、BackgroundTasks、AppIntents。计划最低 iOS 18；新系统类型独立使用 availability 检查。Go + Docker 是可选接收、存储和转发服务，也用于首条端到端链路验收；App 始终可以直接上传用户自己的接口。
+当前使用 Swift 6、SwiftUI、Foundation、HealthKit 来源查询与 Keychain；任务配置以受保护的 JSON 文件原子保存。后续接入 HealthKit 明细、SQLite 待上传队列、URLSession、BackgroundTasks 和 AppIntents。
+
+第一阶段只开发 App，不增加 Go 服务或 Docker；App 将直接上传到用户配置的接口。自部署文档保留为后续可选方案，不是运行前提。
 
 iOS 决定后台执行时机。“每 30 分钟”是期望的最小间隔，不能保证准点读取和上传；锁屏时 HealthKit 可能无法读取，恢复访问后继续处理。
 

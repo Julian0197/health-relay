@@ -1,6 +1,6 @@
 # 配置与上传契约（提案 v1）
 
-这是 HealthRelay 自己的协议。例子均为合成数据，当前尚无运行时解析器；不宣称兼容 HEA 配置导入。
+这是 HealthRelay 自己的协议。例子均为合成数据，配置解析器已实现；健康数据执行链路尚未接入，不宣称兼容 HEA 配置导入。
 
 ## AutomationConfig
 
@@ -11,9 +11,9 @@
 | schemaVersion | 配置协议版本，当前 1 |
 | id / revision | 任务 UUID / 正整数版本 |
 | name / enabled | 名称 / 启停，导入默认禁用 |
-| data.family | quantity、category、correlation、workout 等，按能力开放 |
+| data.family | healthMetrics（数量/分类/关联统一目录）、quantity、category、correlation、workout |
 | data.selections | HealthKit 标识符数组；没有固定业务流 |
-| selections[].unit | 数量输出单位，校验量纲 |
+| selections[].unit | 数量输出单位，按目录中的合法单位集合校验；读取器后续绑定 HealthKit 单位 |
 | selections[].sources | 每项来源包含集合，空集合为全部未排除来源 |
 | data.excludedSources | 任务全局排除集合 |
 | range | 增量或日历日期策略 |
@@ -27,9 +27,11 @@
 
 固定日历模式允许重新读取已知窗口并比较摘要；它不具有增量游标的“无需重读”保证。
 
-raw 必须 grouping=none、statistics=[]。aggregate 使用 minutes/hours/days，合法统计由目录校验。首版格式 healthrelay.v1；CSV、HEA v2 是后续编码器，不能仅声明字段就作为支持。
+raw 必须 grouping=none、statistics=[]。aggregate 可配置 seconds/minutes/hours/days/weeks/months/years，合法统计由目录校验。配置 format 接受 healthrelay.v1、hea.v1、hea.v2、csv、markdown；当前仅保存偏好，后续编码器未完成前不允许实际运行这些格式。
 
-credentialRef 指向本机 Keychain；导出脱敏。示例 bind-on-device 是待绑定引用，不能作为 Token 发送。导入普通 header 中的认证值需要转入 Keychain。App 同时校验版本、ID、家族、单位、统计、窗口、批次/超时范围、availability、URL 和保留 header 冲突。
+credentialRef 指向本机 Keychain。可选 credentialHeader/credentialPrefix 描述认证 Header 及值前缀；secretHeaders 保存自定义敏感 Header 的本机引用。requiredSecretHeaders 在导出时仅保留需要重新填写的 Header 名称；导入移除所有设备引用与敏感普通 Header 值，默认关闭，进入编辑器重新绑定。App 校验版本、ID、家族、目录单位、统计、窗口、批次/超时范围、availability、URL 和保留 Header 冲突。
+
+可选 data.workoutOptions 包含 includeRoutes、includeMetrics、metricGrouping（seconds/minutes）。没有该字段的 v1 配置仍可读取。
 
 ## Native batch
 

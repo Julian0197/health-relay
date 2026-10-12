@@ -1,0 +1,2534 @@
+{
+  "metrics": [
+    {
+      "id": "HKQuantityTypeIdentifierAppleSleepingWristTemperature",
+      "title": "睡眠手腕温度",
+      "category": "睡眠",
+      "family": "quantity",
+      "minimumIOS": 16,
+      "units": [
+        "degC",
+        "degF"
+      ],
+      "statistics": [
+        "average",
+        "minimum",
+        "maximum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierBodyFatPercentage",
+      "title": "体脂率",
+      "category": "身体测量",
+      "family": "quantity",
+      "minimumIOS": 8,
+      "units": [
+        "%"
+      ],
+      "statistics": [
+        "average",
+        "minimum",
+        "maximum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierBodyMass",
+      "title": "体重",
+      "category": "身体测量",
+      "family": "quantity",
+      "minimumIOS": 8,
+      "units": [
+        "kg",
+        "lb"
+      ],
+      "statistics": [
+        "average",
+        "minimum",
+        "maximum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierBodyMassIndex",
+      "title": "身体质量指数",
+      "category": "身体测量",
+      "family": "quantity",
+      "minimumIOS": 8,
+      "units": [
+        "count"
+      ],
+      "statistics": [
+        "average",
+        "minimum",
+        "maximum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierElectrodermalActivity",
+      "title": "皮肤电活动",
+      "category": "身体测量",
+      "family": "quantity",
+      "minimumIOS": 8,
+      "units": [
+        "S"
+      ],
+      "statistics": [
+        "average",
+        "minimum",
+        "maximum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierHeight",
+      "title": "身高",
+      "category": "身体测量",
+      "family": "quantity",
+      "minimumIOS": 8,
+      "units": [
+        "m",
+        "km",
+        "mi",
+        "cm"
+      ],
+      "statistics": [
+        "average",
+        "minimum",
+        "maximum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierLeanBodyMass",
+      "title": "瘦体重",
+      "category": "身体测量",
+      "family": "quantity",
+      "minimumIOS": 8,
+      "units": [
+        "kg",
+        "lb"
+      ],
+      "statistics": [
+        "average",
+        "minimum",
+        "maximum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierWaistCircumference",
+      "title": "腰围",
+      "category": "身体测量",
+      "family": "quantity",
+      "minimumIOS": 11,
+      "units": [
+        "m",
+        "km",
+        "mi",
+        "cm"
+      ],
+      "statistics": [
+        "average",
+        "minimum",
+        "maximum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierActiveEnergyBurned",
+      "title": "活动能量",
+      "category": "活动与运动",
+      "family": "quantity",
+      "minimumIOS": 8,
+      "units": [
+        "kcal",
+        "kJ"
+      ],
+      "statistics": [
+        "sum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierAppleExerciseTime",
+      "title": "锻炼时间",
+      "category": "活动与运动",
+      "family": "quantity",
+      "minimumIOS": 9,
+      "units": [
+        "min",
+        "hr",
+        "s"
+      ],
+      "statistics": [
+        "sum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierAppleMoveTime",
+      "title": "活动时间",
+      "category": "活动与运动",
+      "family": "quantity",
+      "minimumIOS": 14,
+      "units": [
+        "min",
+        "hr",
+        "s"
+      ],
+      "statistics": [
+        "sum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierAppleStandTime",
+      "title": "站立时间",
+      "category": "活动与运动",
+      "family": "quantity",
+      "minimumIOS": 13,
+      "units": [
+        "min",
+        "hr",
+        "s"
+      ],
+      "statistics": [
+        "sum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierBasalEnergyBurned",
+      "title": "静息能量",
+      "category": "活动与运动",
+      "family": "quantity",
+      "minimumIOS": 8,
+      "units": [
+        "kcal",
+        "kJ"
+      ],
+      "statistics": [
+        "sum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierCrossCountrySkiingSpeed",
+      "title": "Cross Country Skiing Speed",
+      "category": "活动与运动",
+      "family": "quantity",
+      "minimumIOS": 18,
+      "units": [
+        "m/s",
+        "km/hr",
+        "mi/hr"
+      ],
+      "statistics": [
+        "average",
+        "minimum",
+        "maximum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierCyclingCadence",
+      "title": "骑行踏频",
+      "category": "活动与运动",
+      "family": "quantity",
+      "minimumIOS": 17,
+      "units": [
+        "count/min",
+        "count/s"
+      ],
+      "statistics": [
+        "average",
+        "minimum",
+        "maximum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierCyclingFunctionalThresholdPower",
+      "title": "骑行功能阈值功率",
+      "category": "活动与运动",
+      "family": "quantity",
+      "minimumIOS": 17,
+      "units": [
+        "W"
+      ],
+      "statistics": [
+        "average",
+        "minimum",
+        "maximum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierCyclingPower",
+      "title": "骑行功率",
+      "category": "活动与运动",
+      "family": "quantity",
+      "minimumIOS": 17,
+      "units": [
+        "W"
+      ],
+      "statistics": [
+        "average",
+        "minimum",
+        "maximum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierCyclingSpeed",
+      "title": "骑行速度",
+      "category": "活动与运动",
+      "family": "quantity",
+      "minimumIOS": 17,
+      "units": [
+        "m/s",
+        "km/hr",
+        "mi/hr"
+      ],
+      "statistics": [
+        "average",
+        "minimum",
+        "maximum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierDistanceCrossCountrySkiing",
+      "title": "Distance Cross Country Skiing",
+      "category": "活动与运动",
+      "family": "quantity",
+      "minimumIOS": 18,
+      "units": [
+        "m",
+        "km",
+        "mi",
+        "cm"
+      ],
+      "statistics": [
+        "sum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierDistanceCycling",
+      "title": "骑行距离",
+      "category": "活动与运动",
+      "family": "quantity",
+      "minimumIOS": 8,
+      "units": [
+        "m",
+        "km",
+        "mi",
+        "cm"
+      ],
+      "statistics": [
+        "sum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierDistanceDownhillSnowSports",
+      "title": "Distance Downhill Snow Sports",
+      "category": "活动与运动",
+      "family": "quantity",
+      "minimumIOS": 11,
+      "units": [
+        "m",
+        "km",
+        "mi",
+        "cm"
+      ],
+      "statistics": [
+        "sum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierDistancePaddleSports",
+      "title": "Distance Paddle Sports",
+      "category": "活动与运动",
+      "family": "quantity",
+      "minimumIOS": 18,
+      "units": [
+        "m",
+        "km",
+        "mi",
+        "cm"
+      ],
+      "statistics": [
+        "sum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierDistanceRowing",
+      "title": "Distance Rowing",
+      "category": "活动与运动",
+      "family": "quantity",
+      "minimumIOS": 18,
+      "units": [
+        "m",
+        "km",
+        "mi",
+        "cm"
+      ],
+      "statistics": [
+        "sum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierDistanceSkatingSports",
+      "title": "Distance Skating Sports",
+      "category": "活动与运动",
+      "family": "quantity",
+      "minimumIOS": 18,
+      "units": [
+        "m",
+        "km",
+        "mi",
+        "cm"
+      ],
+      "statistics": [
+        "sum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierDistanceSwimming",
+      "title": "游泳距离",
+      "category": "活动与运动",
+      "family": "quantity",
+      "minimumIOS": 10,
+      "units": [
+        "m",
+        "km",
+        "mi",
+        "cm"
+      ],
+      "statistics": [
+        "sum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierDistanceWalkingRunning",
+      "title": "步行与跑步距离",
+      "category": "活动与运动",
+      "family": "quantity",
+      "minimumIOS": 8,
+      "units": [
+        "m",
+        "km",
+        "mi",
+        "cm"
+      ],
+      "statistics": [
+        "sum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierDistanceWheelchair",
+      "title": "轮椅距离",
+      "category": "活动与运动",
+      "family": "quantity",
+      "minimumIOS": 10,
+      "units": [
+        "m",
+        "km",
+        "mi",
+        "cm"
+      ],
+      "statistics": [
+        "sum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierEstimatedWorkoutEffortScore",
+      "title": "估计锻炼努力评分",
+      "category": "活动与运动",
+      "family": "quantity",
+      "minimumIOS": 18,
+      "units": [
+        "appleEffortScore"
+      ],
+      "statistics": [
+        "average",
+        "minimum",
+        "maximum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierFlightsClimbed",
+      "title": "爬楼层数",
+      "category": "活动与运动",
+      "family": "quantity",
+      "minimumIOS": 8,
+      "units": [
+        "count"
+      ],
+      "statistics": [
+        "sum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierNikeFuel",
+      "title": "Nike Fuel",
+      "category": "活动与运动",
+      "family": "quantity",
+      "minimumIOS": 8,
+      "units": [
+        "count"
+      ],
+      "statistics": [
+        "sum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierPaddleSportsSpeed",
+      "title": "Paddle Sports Speed",
+      "category": "活动与运动",
+      "family": "quantity",
+      "minimumIOS": 18,
+      "units": [
+        "m/s",
+        "km/hr",
+        "mi/hr"
+      ],
+      "statistics": [
+        "average",
+        "minimum",
+        "maximum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierPhysicalEffort",
+      "title": "体能努力",
+      "category": "活动与运动",
+      "family": "quantity",
+      "minimumIOS": 17,
+      "units": [
+        "kcal/(hr*kg)"
+      ],
+      "statistics": [
+        "average",
+        "minimum",
+        "maximum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierPushCount",
+      "title": "轮椅推动次数",
+      "category": "活动与运动",
+      "family": "quantity",
+      "minimumIOS": 10,
+      "units": [
+        "count"
+      ],
+      "statistics": [
+        "sum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierRowingSpeed",
+      "title": "Rowing Speed",
+      "category": "活动与运动",
+      "family": "quantity",
+      "minimumIOS": 18,
+      "units": [
+        "m/s",
+        "km/hr",
+        "mi/hr"
+      ],
+      "statistics": [
+        "average",
+        "minimum",
+        "maximum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierRunningPower",
+      "title": "跑步功率",
+      "category": "活动与运动",
+      "family": "quantity",
+      "minimumIOS": 16,
+      "units": [
+        "W"
+      ],
+      "statistics": [
+        "average",
+        "minimum",
+        "maximum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierRunningSpeed",
+      "title": "跑步速度",
+      "category": "活动与运动",
+      "family": "quantity",
+      "minimumIOS": 16,
+      "units": [
+        "m/s",
+        "km/hr",
+        "mi/hr"
+      ],
+      "statistics": [
+        "average",
+        "minimum",
+        "maximum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierStepCount",
+      "title": "步数",
+      "category": "活动与运动",
+      "family": "quantity",
+      "minimumIOS": 8,
+      "units": [
+        "count"
+      ],
+      "statistics": [
+        "sum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierSwimmingStrokeCount",
+      "title": "游泳划水次数",
+      "category": "活动与运动",
+      "family": "quantity",
+      "minimumIOS": 10,
+      "units": [
+        "count"
+      ],
+      "statistics": [
+        "sum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierUnderwaterDepth",
+      "title": "水下深度",
+      "category": "活动与运动",
+      "family": "quantity",
+      "minimumIOS": 16,
+      "units": [
+        "m",
+        "km",
+        "mi",
+        "cm"
+      ],
+      "statistics": [
+        "average",
+        "minimum",
+        "maximum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierWorkoutEffortScore",
+      "title": "锻炼努力评分",
+      "category": "活动与运动",
+      "family": "quantity",
+      "minimumIOS": 18,
+      "units": [
+        "appleEffortScore"
+      ],
+      "statistics": [
+        "average",
+        "minimum",
+        "maximum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierEnvironmentalAudioExposure",
+      "title": "环境音量",
+      "category": "活动与运动",
+      "family": "quantity",
+      "minimumIOS": 13,
+      "units": [
+        "dBASPL"
+      ],
+      "statistics": [
+        "average",
+        "minimum",
+        "maximum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierEnvironmentalSoundReduction",
+      "title": "Environmental Sound Reduction",
+      "category": "活动与运动",
+      "family": "quantity",
+      "minimumIOS": 16,
+      "units": [
+        "dBASPL"
+      ],
+      "statistics": [
+        "average",
+        "minimum",
+        "maximum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierHeadphoneAudioExposure",
+      "title": "耳机音量",
+      "category": "活动与运动",
+      "family": "quantity",
+      "minimumIOS": 13,
+      "units": [
+        "dBASPL"
+      ],
+      "statistics": [
+        "average",
+        "minimum",
+        "maximum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierAtrialFibrillationBurden",
+      "title": "房颤负荷",
+      "category": "心脏",
+      "family": "quantity",
+      "minimumIOS": 16,
+      "units": [
+        "%"
+      ],
+      "statistics": [
+        "average",
+        "minimum",
+        "maximum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierHeartRate",
+      "title": "心率",
+      "category": "心脏",
+      "family": "quantity",
+      "minimumIOS": 8,
+      "units": [
+        "count/min",
+        "count/s"
+      ],
+      "statistics": [
+        "average",
+        "minimum",
+        "maximum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierHeartRateRecoveryOneMinute",
+      "title": "一分钟心率恢复",
+      "category": "心脏",
+      "family": "quantity",
+      "minimumIOS": 16,
+      "units": [
+        "count/min",
+        "count/s"
+      ],
+      "statistics": [
+        "average",
+        "minimum",
+        "maximum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierHeartRateVariabilityRMSSD",
+      "title": "恢复 HRV（RMSSD）",
+      "category": "心脏",
+      "family": "quantity",
+      "minimumIOS": 27,
+      "units": [
+        "ms",
+        "s"
+      ],
+      "statistics": [
+        "average",
+        "minimum",
+        "maximum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierHeartRateVariabilitySDNN",
+      "title": "心率变异性（SDNN）",
+      "category": "心脏",
+      "family": "quantity",
+      "minimumIOS": 11,
+      "units": [
+        "ms",
+        "s"
+      ],
+      "statistics": [
+        "average",
+        "minimum",
+        "maximum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierPeripheralPerfusionIndex",
+      "title": "末梢灌注指数",
+      "category": "心脏",
+      "family": "quantity",
+      "minimumIOS": 8,
+      "units": [
+        "%"
+      ],
+      "statistics": [
+        "average",
+        "minimum",
+        "maximum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierRestingHeartRate",
+      "title": "静息心率",
+      "category": "心脏",
+      "family": "quantity",
+      "minimumIOS": 11,
+      "units": [
+        "count/min",
+        "count/s"
+      ],
+      "statistics": [
+        "average",
+        "minimum",
+        "maximum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierVO2Max",
+      "title": "最大摄氧量",
+      "category": "心脏",
+      "family": "quantity",
+      "minimumIOS": 11,
+      "units": [
+        "mL/(kg*min)"
+      ],
+      "statistics": [
+        "average",
+        "minimum",
+        "maximum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierWalkingHeartRateAverage",
+      "title": "步行平均心率",
+      "category": "心脏",
+      "family": "quantity",
+      "minimumIOS": 11,
+      "units": [
+        "count/min",
+        "count/s"
+      ],
+      "statistics": [
+        "average",
+        "minimum",
+        "maximum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierAppleWalkingSteadiness",
+      "title": "步行稳定性",
+      "category": "活动能力",
+      "family": "quantity",
+      "minimumIOS": 15,
+      "units": [
+        "%"
+      ],
+      "statistics": [
+        "average",
+        "minimum",
+        "maximum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierRunningGroundContactTime",
+      "title": "跑步触地时间",
+      "category": "活动能力",
+      "family": "quantity",
+      "minimumIOS": 16,
+      "units": [
+        "ms",
+        "s"
+      ],
+      "statistics": [
+        "average",
+        "minimum",
+        "maximum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierRunningStrideLength",
+      "title": "跑步步幅",
+      "category": "活动能力",
+      "family": "quantity",
+      "minimumIOS": 16,
+      "units": [
+        "m",
+        "km",
+        "mi",
+        "cm"
+      ],
+      "statistics": [
+        "average",
+        "minimum",
+        "maximum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierRunningVerticalOscillation",
+      "title": "跑步垂直振幅",
+      "category": "活动能力",
+      "family": "quantity",
+      "minimumIOS": 16,
+      "units": [
+        "cm"
+      ],
+      "statistics": [
+        "average",
+        "minimum",
+        "maximum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierSixMinuteWalkTestDistance",
+      "title": "六分钟步行距离",
+      "category": "活动能力",
+      "family": "quantity",
+      "minimumIOS": 14,
+      "units": [
+        "m",
+        "km",
+        "mi",
+        "cm"
+      ],
+      "statistics": [
+        "average",
+        "minimum",
+        "maximum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierStairAscentSpeed",
+      "title": "上楼速度",
+      "category": "活动能力",
+      "family": "quantity",
+      "minimumIOS": 14,
+      "units": [
+        "m/s",
+        "km/hr",
+        "mi/hr"
+      ],
+      "statistics": [
+        "average",
+        "minimum",
+        "maximum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierStairDescentSpeed",
+      "title": "下楼速度",
+      "category": "活动能力",
+      "family": "quantity",
+      "minimumIOS": 14,
+      "units": [
+        "m/s",
+        "km/hr",
+        "mi/hr"
+      ],
+      "statistics": [
+        "average",
+        "minimum",
+        "maximum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierWalkingAsymmetryPercentage",
+      "title": "步行不对称性",
+      "category": "活动能力",
+      "family": "quantity",
+      "minimumIOS": 14,
+      "units": [
+        "%"
+      ],
+      "statistics": [
+        "average",
+        "minimum",
+        "maximum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierWalkingDoubleSupportPercentage",
+      "title": "步行双支撑时间比例",
+      "category": "活动能力",
+      "family": "quantity",
+      "minimumIOS": 14,
+      "units": [
+        "%"
+      ],
+      "statistics": [
+        "average",
+        "minimum",
+        "maximum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierWalkingSpeed",
+      "title": "步行速度",
+      "category": "活动能力",
+      "family": "quantity",
+      "minimumIOS": 14,
+      "units": [
+        "m/s",
+        "km/hr",
+        "mi/hr"
+      ],
+      "statistics": [
+        "average",
+        "minimum",
+        "maximum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierWalkingStepLength",
+      "title": "步长",
+      "category": "活动能力",
+      "family": "quantity",
+      "minimumIOS": 14,
+      "units": [
+        "m",
+        "km",
+        "mi",
+        "cm"
+      ],
+      "statistics": [
+        "average",
+        "minimum",
+        "maximum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierDietaryBiotin",
+      "title": "营养 · 生物素",
+      "category": "营养",
+      "family": "quantity",
+      "minimumIOS": 8,
+      "units": [
+        "g",
+        "mg",
+        "mcg"
+      ],
+      "statistics": [
+        "sum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierDietaryCaffeine",
+      "title": "营养 · 咖啡因",
+      "category": "营养",
+      "family": "quantity",
+      "minimumIOS": 8,
+      "units": [
+        "g",
+        "mg",
+        "mcg"
+      ],
+      "statistics": [
+        "sum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierDietaryCalcium",
+      "title": "营养 · 钙",
+      "category": "营养",
+      "family": "quantity",
+      "minimumIOS": 8,
+      "units": [
+        "g",
+        "mg",
+        "mcg"
+      ],
+      "statistics": [
+        "sum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierDietaryCarbohydrates",
+      "title": "营养 · 碳水化合物",
+      "category": "营养",
+      "family": "quantity",
+      "minimumIOS": 8,
+      "units": [
+        "g",
+        "mg",
+        "mcg"
+      ],
+      "statistics": [
+        "sum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierDietaryChloride",
+      "title": "营养 · 氯",
+      "category": "营养",
+      "family": "quantity",
+      "minimumIOS": 8,
+      "units": [
+        "g",
+        "mg",
+        "mcg"
+      ],
+      "statistics": [
+        "sum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierDietaryCholesterol",
+      "title": "营养 · 胆固醇",
+      "category": "营养",
+      "family": "quantity",
+      "minimumIOS": 8,
+      "units": [
+        "g",
+        "mg",
+        "mcg"
+      ],
+      "statistics": [
+        "sum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierDietaryChromium",
+      "title": "营养 · 铬",
+      "category": "营养",
+      "family": "quantity",
+      "minimumIOS": 8,
+      "units": [
+        "g",
+        "mg",
+        "mcg"
+      ],
+      "statistics": [
+        "sum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierDietaryCopper",
+      "title": "营养 · 铜",
+      "category": "营养",
+      "family": "quantity",
+      "minimumIOS": 8,
+      "units": [
+        "g",
+        "mg",
+        "mcg"
+      ],
+      "statistics": [
+        "sum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierDietaryEnergyConsumed",
+      "title": "营养 · 能量摄入",
+      "category": "营养",
+      "family": "quantity",
+      "minimumIOS": 8,
+      "units": [
+        "kcal",
+        "kJ"
+      ],
+      "statistics": [
+        "sum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierDietaryFatMonounsaturated",
+      "title": "营养 · 单不饱和脂肪",
+      "category": "营养",
+      "family": "quantity",
+      "minimumIOS": 8,
+      "units": [
+        "g",
+        "mg",
+        "mcg"
+      ],
+      "statistics": [
+        "sum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierDietaryFatPolyunsaturated",
+      "title": "营养 · 多不饱和脂肪",
+      "category": "营养",
+      "family": "quantity",
+      "minimumIOS": 8,
+      "units": [
+        "g",
+        "mg",
+        "mcg"
+      ],
+      "statistics": [
+        "sum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierDietaryFatSaturated",
+      "title": "营养 · 饱和脂肪",
+      "category": "营养",
+      "family": "quantity",
+      "minimumIOS": 8,
+      "units": [
+        "g",
+        "mg",
+        "mcg"
+      ],
+      "statistics": [
+        "sum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierDietaryFatTotal",
+      "title": "营养 · 总脂肪",
+      "category": "营养",
+      "family": "quantity",
+      "minimumIOS": 8,
+      "units": [
+        "g",
+        "mg",
+        "mcg"
+      ],
+      "statistics": [
+        "sum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierDietaryFiber",
+      "title": "营养 · 膳食纤维",
+      "category": "营养",
+      "family": "quantity",
+      "minimumIOS": 8,
+      "units": [
+        "g",
+        "mg",
+        "mcg"
+      ],
+      "statistics": [
+        "sum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierDietaryFolate",
+      "title": "营养 · 叶酸",
+      "category": "营养",
+      "family": "quantity",
+      "minimumIOS": 8,
+      "units": [
+        "g",
+        "mg",
+        "mcg"
+      ],
+      "statistics": [
+        "sum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierDietaryIodine",
+      "title": "营养 · 碘",
+      "category": "营养",
+      "family": "quantity",
+      "minimumIOS": 8,
+      "units": [
+        "g",
+        "mg",
+        "mcg"
+      ],
+      "statistics": [
+        "sum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierDietaryIron",
+      "title": "营养 · 铁",
+      "category": "营养",
+      "family": "quantity",
+      "minimumIOS": 8,
+      "units": [
+        "g",
+        "mg",
+        "mcg"
+      ],
+      "statistics": [
+        "sum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierDietaryMagnesium",
+      "title": "营养 · 镁",
+      "category": "营养",
+      "family": "quantity",
+      "minimumIOS": 8,
+      "units": [
+        "g",
+        "mg",
+        "mcg"
+      ],
+      "statistics": [
+        "sum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierDietaryManganese",
+      "title": "营养 · 锰",
+      "category": "营养",
+      "family": "quantity",
+      "minimumIOS": 8,
+      "units": [
+        "g",
+        "mg",
+        "mcg"
+      ],
+      "statistics": [
+        "sum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierDietaryMolybdenum",
+      "title": "营养 · 钼",
+      "category": "营养",
+      "family": "quantity",
+      "minimumIOS": 8,
+      "units": [
+        "g",
+        "mg",
+        "mcg"
+      ],
+      "statistics": [
+        "sum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierDietaryNiacin",
+      "title": "营养 · 烟酸",
+      "category": "营养",
+      "family": "quantity",
+      "minimumIOS": 8,
+      "units": [
+        "g",
+        "mg",
+        "mcg"
+      ],
+      "statistics": [
+        "sum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierDietaryPantothenicAcid",
+      "title": "营养 · 泛酸",
+      "category": "营养",
+      "family": "quantity",
+      "minimumIOS": 8,
+      "units": [
+        "g",
+        "mg",
+        "mcg"
+      ],
+      "statistics": [
+        "sum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierDietaryPhosphorus",
+      "title": "营养 · 磷",
+      "category": "营养",
+      "family": "quantity",
+      "minimumIOS": 8,
+      "units": [
+        "g",
+        "mg",
+        "mcg"
+      ],
+      "statistics": [
+        "sum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierDietaryPotassium",
+      "title": "营养 · 钾",
+      "category": "营养",
+      "family": "quantity",
+      "minimumIOS": 8,
+      "units": [
+        "g",
+        "mg",
+        "mcg"
+      ],
+      "statistics": [
+        "sum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierDietaryProtein",
+      "title": "营养 · 蛋白质",
+      "category": "营养",
+      "family": "quantity",
+      "minimumIOS": 8,
+      "units": [
+        "g",
+        "mg",
+        "mcg"
+      ],
+      "statistics": [
+        "sum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierDietaryRiboflavin",
+      "title": "营养 · 核黄素",
+      "category": "营养",
+      "family": "quantity",
+      "minimumIOS": 8,
+      "units": [
+        "g",
+        "mg",
+        "mcg"
+      ],
+      "statistics": [
+        "sum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierDietarySelenium",
+      "title": "营养 · 硒",
+      "category": "营养",
+      "family": "quantity",
+      "minimumIOS": 8,
+      "units": [
+        "g",
+        "mg",
+        "mcg"
+      ],
+      "statistics": [
+        "sum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierDietarySodium",
+      "title": "营养 · 钠",
+      "category": "营养",
+      "family": "quantity",
+      "minimumIOS": 8,
+      "units": [
+        "g",
+        "mg",
+        "mcg"
+      ],
+      "statistics": [
+        "sum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierDietarySugar",
+      "title": "营养 · 糖",
+      "category": "营养",
+      "family": "quantity",
+      "minimumIOS": 8,
+      "units": [
+        "g",
+        "mg",
+        "mcg"
+      ],
+      "statistics": [
+        "sum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierDietaryThiamin",
+      "title": "营养 · 硫胺素",
+      "category": "营养",
+      "family": "quantity",
+      "minimumIOS": 8,
+      "units": [
+        "g",
+        "mg",
+        "mcg"
+      ],
+      "statistics": [
+        "sum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierDietaryVitaminA",
+      "title": "营养 · 维生素 A",
+      "category": "营养",
+      "family": "quantity",
+      "minimumIOS": 8,
+      "units": [
+        "g",
+        "mg",
+        "mcg"
+      ],
+      "statistics": [
+        "sum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierDietaryVitaminB12",
+      "title": "营养 · 维生素 B12",
+      "category": "营养",
+      "family": "quantity",
+      "minimumIOS": 8,
+      "units": [
+        "g",
+        "mg",
+        "mcg"
+      ],
+      "statistics": [
+        "sum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierDietaryVitaminB6",
+      "title": "营养 · 维生素 B6",
+      "category": "营养",
+      "family": "quantity",
+      "minimumIOS": 8,
+      "units": [
+        "g",
+        "mg",
+        "mcg"
+      ],
+      "statistics": [
+        "sum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierDietaryVitaminC",
+      "title": "营养 · 维生素 C",
+      "category": "营养",
+      "family": "quantity",
+      "minimumIOS": 8,
+      "units": [
+        "g",
+        "mg",
+        "mcg"
+      ],
+      "statistics": [
+        "sum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierDietaryVitaminD",
+      "title": "营养 · 维生素 D",
+      "category": "营养",
+      "family": "quantity",
+      "minimumIOS": 8,
+      "units": [
+        "g",
+        "mg",
+        "mcg"
+      ],
+      "statistics": [
+        "sum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierDietaryVitaminE",
+      "title": "营养 · 维生素 E",
+      "category": "营养",
+      "family": "quantity",
+      "minimumIOS": 8,
+      "units": [
+        "g",
+        "mg",
+        "mcg"
+      ],
+      "statistics": [
+        "sum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierDietaryVitaminK",
+      "title": "营养 · 维生素 K",
+      "category": "营养",
+      "family": "quantity",
+      "minimumIOS": 8,
+      "units": [
+        "g",
+        "mg",
+        "mcg"
+      ],
+      "statistics": [
+        "sum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierDietaryWater",
+      "title": "营养 · 水",
+      "category": "营养",
+      "family": "quantity",
+      "minimumIOS": 9,
+      "units": [
+        "mL",
+        "L"
+      ],
+      "statistics": [
+        "sum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierDietaryZinc",
+      "title": "营养 · 锌",
+      "category": "营养",
+      "family": "quantity",
+      "minimumIOS": 8,
+      "units": [
+        "g",
+        "mg",
+        "mcg"
+      ],
+      "statistics": [
+        "sum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierBloodAlcoholContent",
+      "title": "Blood Alcohol Content",
+      "category": "其他",
+      "family": "quantity",
+      "minimumIOS": 8,
+      "units": [
+        "%"
+      ],
+      "statistics": [
+        "average",
+        "minimum",
+        "maximum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierBloodPressureDiastolic",
+      "title": "舒张压",
+      "category": "心脏",
+      "family": "quantity",
+      "minimumIOS": 8,
+      "units": [
+        "mmHg",
+        "kPa"
+      ],
+      "statistics": [
+        "average",
+        "minimum",
+        "maximum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierBloodPressureSystolic",
+      "title": "收缩压",
+      "category": "心脏",
+      "family": "quantity",
+      "minimumIOS": 8,
+      "units": [
+        "mmHg",
+        "kPa"
+      ],
+      "statistics": [
+        "average",
+        "minimum",
+        "maximum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierInsulinDelivery",
+      "title": "胰岛素给药",
+      "category": "其他",
+      "family": "quantity",
+      "minimumIOS": 11,
+      "units": [
+        "IU"
+      ],
+      "statistics": [
+        "sum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierNumberOfAlcoholicBeverages",
+      "title": "Number Of Alcoholic Beverages",
+      "category": "其他",
+      "family": "quantity",
+      "minimumIOS": 15,
+      "units": [
+        "count"
+      ],
+      "statistics": [
+        "sum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierNumberOfTimesFallen",
+      "title": "跌倒次数",
+      "category": "其他",
+      "family": "quantity",
+      "minimumIOS": 8,
+      "units": [
+        "count"
+      ],
+      "statistics": [
+        "sum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierTimeInDaylight",
+      "title": "Time In Daylight",
+      "category": "其他",
+      "family": "quantity",
+      "minimumIOS": 17,
+      "units": [
+        "min",
+        "hr",
+        "s"
+      ],
+      "statistics": [
+        "sum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierUVExposure",
+      "title": "紫外线照射",
+      "category": "其他",
+      "family": "quantity",
+      "minimumIOS": 9,
+      "units": [
+        "count"
+      ],
+      "statistics": [
+        "average",
+        "minimum",
+        "maximum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierWaterTemperature",
+      "title": "水温",
+      "category": "其他",
+      "family": "quantity",
+      "minimumIOS": 16,
+      "units": [
+        "degC",
+        "degF"
+      ],
+      "statistics": [
+        "average",
+        "minimum",
+        "maximum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierBasalBodyTemperature",
+      "title": "基础体温",
+      "category": "生殖健康",
+      "family": "quantity",
+      "minimumIOS": 9,
+      "units": [
+        "degC",
+        "degF"
+      ],
+      "statistics": [
+        "average",
+        "minimum",
+        "maximum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierAppleSleepingBreathingDisturbances",
+      "title": "睡眠呼吸紊乱",
+      "category": "睡眠",
+      "family": "quantity",
+      "minimumIOS": 18,
+      "units": [
+        "count"
+      ],
+      "statistics": [
+        "average",
+        "minimum",
+        "maximum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierForcedExpiratoryVolume1",
+      "title": "一秒用力呼气量",
+      "category": "呼吸系统",
+      "family": "quantity",
+      "minimumIOS": 8,
+      "units": [
+        "L",
+        "mL"
+      ],
+      "statistics": [
+        "average",
+        "minimum",
+        "maximum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierForcedVitalCapacity",
+      "title": "用力肺活量",
+      "category": "呼吸系统",
+      "family": "quantity",
+      "minimumIOS": 8,
+      "units": [
+        "L",
+        "mL"
+      ],
+      "statistics": [
+        "average",
+        "minimum",
+        "maximum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierInhalerUsage",
+      "title": "吸入器使用",
+      "category": "呼吸系统",
+      "family": "quantity",
+      "minimumIOS": 8,
+      "units": [
+        "count"
+      ],
+      "statistics": [
+        "sum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierOxygenSaturation",
+      "title": "血氧饱和度",
+      "category": "呼吸系统",
+      "family": "quantity",
+      "minimumIOS": 8,
+      "units": [
+        "%"
+      ],
+      "statistics": [
+        "average",
+        "minimum",
+        "maximum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierPeakExpiratoryFlowRate",
+      "title": "呼气峰值流速",
+      "category": "呼吸系统",
+      "family": "quantity",
+      "minimumIOS": 8,
+      "units": [
+        "L/min"
+      ],
+      "statistics": [
+        "average",
+        "minimum",
+        "maximum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierRespiratoryRate",
+      "title": "呼吸频率",
+      "category": "呼吸系统",
+      "family": "quantity",
+      "minimumIOS": 8,
+      "units": [
+        "count/min",
+        "count/s"
+      ],
+      "statistics": [
+        "average",
+        "minimum",
+        "maximum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierBloodGlucose",
+      "title": "血糖",
+      "category": "呼吸系统",
+      "family": "quantity",
+      "minimumIOS": 8,
+      "units": [
+        "mg/dL"
+      ],
+      "statistics": [
+        "average",
+        "minimum",
+        "maximum"
+      ]
+    },
+    {
+      "id": "HKQuantityTypeIdentifierBodyTemperature",
+      "title": "体温",
+      "category": "呼吸系统",
+      "family": "quantity",
+      "minimumIOS": 8,
+      "units": [
+        "degC",
+        "degF"
+      ],
+      "statistics": [
+        "average",
+        "minimum",
+        "maximum"
+      ]
+    },
+    {
+      "id": "HKCategoryTypeIdentifierAppleStandHour",
+      "title": "站立小时",
+      "category": "分类记录",
+      "family": "category",
+      "minimumIOS": 9,
+      "units": [],
+      "statistics": []
+    },
+    {
+      "id": "HKCategoryTypeIdentifierEnvironmentalAudioExposureEvent",
+      "title": "Environmental Audio Exposure Event",
+      "category": "分类记录",
+      "family": "category",
+      "minimumIOS": 14,
+      "units": [],
+      "statistics": []
+    },
+    {
+      "id": "HKCategoryTypeIdentifierHeadphoneAudioExposureEvent",
+      "title": "Headphone Audio Exposure Event",
+      "category": "分类记录",
+      "family": "category",
+      "minimumIOS": 14,
+      "units": [],
+      "statistics": []
+    },
+    {
+      "id": "HKCategoryTypeIdentifierHighHeartRateEvent",
+      "title": "高心率通知",
+      "category": "心脏",
+      "family": "category",
+      "minimumIOS": 12,
+      "units": [],
+      "statistics": []
+    },
+    {
+      "id": "HKCategoryTypeIdentifierHypertensionEvent",
+      "title": "Hypertension Event",
+      "category": "分类记录",
+      "family": "category",
+      "minimumIOS": 26,
+      "units": [],
+      "statistics": []
+    },
+    {
+      "id": "HKCategoryTypeIdentifierIrregularHeartRhythmEvent",
+      "title": "心律不齐通知",
+      "category": "分类记录",
+      "family": "category",
+      "minimumIOS": 12,
+      "units": [],
+      "statistics": []
+    },
+    {
+      "id": "HKCategoryTypeIdentifierLowCardioFitnessEvent",
+      "title": "Low Cardio Fitness Event",
+      "category": "分类记录",
+      "family": "category",
+      "minimumIOS": 14,
+      "units": [],
+      "statistics": []
+    },
+    {
+      "id": "HKCategoryTypeIdentifierLowHeartRateEvent",
+      "title": "低心率通知",
+      "category": "心脏",
+      "family": "category",
+      "minimumIOS": 12,
+      "units": [],
+      "statistics": []
+    },
+    {
+      "id": "HKCategoryTypeIdentifierMindfulSession",
+      "title": "正念训练",
+      "category": "分类记录",
+      "family": "category",
+      "minimumIOS": 10,
+      "units": [],
+      "statistics": []
+    },
+    {
+      "id": "HKCategoryTypeIdentifierAppleWalkingSteadinessEvent",
+      "title": "Apple Walking Steadiness Event",
+      "category": "分类记录",
+      "family": "category",
+      "minimumIOS": 15,
+      "units": [],
+      "statistics": []
+    },
+    {
+      "id": "HKCategoryTypeIdentifierHandwashingEvent",
+      "title": "洗手",
+      "category": "分类记录",
+      "family": "category",
+      "minimumIOS": 14,
+      "units": [],
+      "statistics": []
+    },
+    {
+      "id": "HKCategoryTypeIdentifierToothbrushingEvent",
+      "title": "刷牙",
+      "category": "分类记录",
+      "family": "category",
+      "minimumIOS": 13,
+      "units": [],
+      "statistics": []
+    },
+    {
+      "id": "HKCategoryTypeIdentifierBleedingAfterMenopause",
+      "title": "Bleeding After Menopause",
+      "category": "分类记录",
+      "family": "category",
+      "minimumIOS": 27,
+      "units": [],
+      "statistics": []
+    },
+    {
+      "id": "HKCategoryTypeIdentifierBleedingAfterPregnancy",
+      "title": "Bleeding After Pregnancy",
+      "category": "分类记录",
+      "family": "category",
+      "minimumIOS": 18,
+      "units": [],
+      "statistics": []
+    },
+    {
+      "id": "HKCategoryTypeIdentifierBleedingDuringPregnancy",
+      "title": "Bleeding During Pregnancy",
+      "category": "分类记录",
+      "family": "category",
+      "minimumIOS": 18,
+      "units": [],
+      "statistics": []
+    },
+    {
+      "id": "HKCategoryTypeIdentifierCervicalMucusQuality",
+      "title": "宫颈黏液质量",
+      "category": "分类记录",
+      "family": "category",
+      "minimumIOS": 9,
+      "units": [],
+      "statistics": []
+    },
+    {
+      "id": "HKCategoryTypeIdentifierContraceptive",
+      "title": "Contraceptive",
+      "category": "分类记录",
+      "family": "category",
+      "minimumIOS": 14,
+      "units": [],
+      "statistics": []
+    },
+    {
+      "id": "HKCategoryTypeIdentifierInfrequentMenstrualCycles",
+      "title": "Infrequent Menstrual Cycles",
+      "category": "分类记录",
+      "family": "category",
+      "minimumIOS": 16,
+      "units": [],
+      "statistics": []
+    },
+    {
+      "id": "HKCategoryTypeIdentifierIntermenstrualBleeding",
+      "title": "经期间出血",
+      "category": "分类记录",
+      "family": "category",
+      "minimumIOS": 9,
+      "units": [],
+      "statistics": []
+    },
+    {
+      "id": "HKCategoryTypeIdentifierIrregularMenstrualCycles",
+      "title": "Irregular Menstrual Cycles",
+      "category": "分类记录",
+      "family": "category",
+      "minimumIOS": 16,
+      "units": [],
+      "statistics": []
+    },
+    {
+      "id": "HKCategoryTypeIdentifierLactation",
+      "title": "哺乳",
+      "category": "分类记录",
+      "family": "category",
+      "minimumIOS": 14,
+      "units": [],
+      "statistics": []
+    },
+    {
+      "id": "HKCategoryTypeIdentifierMenopausalState",
+      "title": "Menopausal State",
+      "category": "分类记录",
+      "family": "category",
+      "minimumIOS": 27,
+      "units": [],
+      "statistics": []
+    },
+    {
+      "id": "HKCategoryTypeIdentifierMenstrualFlow",
+      "title": "经期流量",
+      "category": "分类记录",
+      "family": "category",
+      "minimumIOS": 9,
+      "units": [],
+      "statistics": []
+    },
+    {
+      "id": "HKCategoryTypeIdentifierOvulationTestResult",
+      "title": "排卵测试结果",
+      "category": "分类记录",
+      "family": "category",
+      "minimumIOS": 9,
+      "units": [],
+      "statistics": []
+    },
+    {
+      "id": "HKCategoryTypeIdentifierPersistentIntermenstrualBleeding",
+      "title": "Persistent Intermenstrual Bleeding",
+      "category": "分类记录",
+      "family": "category",
+      "minimumIOS": 16,
+      "units": [],
+      "statistics": []
+    },
+    {
+      "id": "HKCategoryTypeIdentifierPregnancy",
+      "title": "怀孕",
+      "category": "分类记录",
+      "family": "category",
+      "minimumIOS": 14,
+      "units": [],
+      "statistics": []
+    },
+    {
+      "id": "HKCategoryTypeIdentifierPregnancyTestResult",
+      "title": "妊娠测试结果",
+      "category": "分类记录",
+      "family": "category",
+      "minimumIOS": 15,
+      "units": [],
+      "statistics": []
+    },
+    {
+      "id": "HKCategoryTypeIdentifierProgesteroneTestResult",
+      "title": "孕酮测试结果",
+      "category": "分类记录",
+      "family": "category",
+      "minimumIOS": 15,
+      "units": [],
+      "statistics": []
+    },
+    {
+      "id": "HKCategoryTypeIdentifierProlongedMenstrualPeriods",
+      "title": "Prolonged Menstrual Periods",
+      "category": "分类记录",
+      "family": "category",
+      "minimumIOS": 16,
+      "units": [],
+      "statistics": []
+    },
+    {
+      "id": "HKCategoryTypeIdentifierSexualActivity",
+      "title": "性活动",
+      "category": "分类记录",
+      "family": "category",
+      "minimumIOS": 9,
+      "units": [],
+      "statistics": []
+    },
+    {
+      "id": "HKCategoryTypeIdentifierSleepApneaEvent",
+      "title": "Sleep Apnea Event",
+      "category": "睡眠",
+      "family": "category",
+      "minimumIOS": 18,
+      "units": [],
+      "statistics": []
+    },
+    {
+      "id": "HKCategoryTypeIdentifierSleepAnalysis",
+      "title": "睡眠阶段",
+      "category": "睡眠",
+      "family": "category",
+      "minimumIOS": 8,
+      "units": [],
+      "statistics": []
+    },
+    {
+      "id": "HKCategoryTypeIdentifierAbdominalCramps",
+      "title": "腹部痉挛",
+      "category": "分类记录",
+      "family": "category",
+      "minimumIOS": 13,
+      "units": [],
+      "statistics": []
+    },
+    {
+      "id": "HKCategoryTypeIdentifierAcne",
+      "title": "痤疮",
+      "category": "分类记录",
+      "family": "category",
+      "minimumIOS": 13,
+      "units": [],
+      "statistics": []
+    },
+    {
+      "id": "HKCategoryTypeIdentifierAppetiteChanges",
+      "title": "食欲变化",
+      "category": "分类记录",
+      "family": "category",
+      "minimumIOS": 13,
+      "units": [],
+      "statistics": []
+    },
+    {
+      "id": "HKCategoryTypeIdentifierBladderIncontinence",
+      "title": "尿失禁",
+      "category": "分类记录",
+      "family": "category",
+      "minimumIOS": 14,
+      "units": [],
+      "statistics": []
+    },
+    {
+      "id": "HKCategoryTypeIdentifierBloating",
+      "title": "腹胀",
+      "category": "分类记录",
+      "family": "category",
+      "minimumIOS": 13,
+      "units": [],
+      "statistics": []
+    },
+    {
+      "id": "HKCategoryTypeIdentifierBreastPain",
+      "title": "乳房疼痛",
+      "category": "分类记录",
+      "family": "category",
+      "minimumIOS": 13,
+      "units": [],
+      "statistics": []
+    },
+    {
+      "id": "HKCategoryTypeIdentifierChestTightnessOrPain",
+      "title": "胸闷或胸痛",
+      "category": "分类记录",
+      "family": "category",
+      "minimumIOS": 13,
+      "units": [],
+      "statistics": []
+    },
+    {
+      "id": "HKCategoryTypeIdentifierChills",
+      "title": "发冷",
+      "category": "分类记录",
+      "family": "category",
+      "minimumIOS": 13,
+      "units": [],
+      "statistics": []
+    },
+    {
+      "id": "HKCategoryTypeIdentifierConstipation",
+      "title": "便秘",
+      "category": "分类记录",
+      "family": "category",
+      "minimumIOS": 13,
+      "units": [],
+      "statistics": []
+    },
+    {
+      "id": "HKCategoryTypeIdentifierCoughing",
+      "title": "咳嗽",
+      "category": "分类记录",
+      "family": "category",
+      "minimumIOS": 13,
+      "units": [],
+      "statistics": []
+    },
+    {
+      "id": "HKCategoryTypeIdentifierDiarrhea",
+      "title": "腹泻",
+      "category": "分类记录",
+      "family": "category",
+      "minimumIOS": 13,
+      "units": [],
+      "statistics": []
+    },
+    {
+      "id": "HKCategoryTypeIdentifierDizziness",
+      "title": "头晕",
+      "category": "分类记录",
+      "family": "category",
+      "minimumIOS": 13,
+      "units": [],
+      "statistics": []
+    },
+    {
+      "id": "HKCategoryTypeIdentifierDrySkin",
+      "title": "皮肤干燥",
+      "category": "分类记录",
+      "family": "category",
+      "minimumIOS": 14,
+      "units": [],
+      "statistics": []
+    },
+    {
+      "id": "HKCategoryTypeIdentifierFainting",
+      "title": "昏厥",
+      "category": "分类记录",
+      "family": "category",
+      "minimumIOS": 13,
+      "units": [],
+      "statistics": []
+    },
+    {
+      "id": "HKCategoryTypeIdentifierFatigue",
+      "title": "疲劳",
+      "category": "分类记录",
+      "family": "category",
+      "minimumIOS": 13,
+      "units": [],
+      "statistics": []
+    },
+    {
+      "id": "HKCategoryTypeIdentifierFever",
+      "title": "发热",
+      "category": "分类记录",
+      "family": "category",
+      "minimumIOS": 13,
+      "units": [],
+      "statistics": []
+    },
+    {
+      "id": "HKCategoryTypeIdentifierGeneralizedBodyAche",
+      "title": "全身疼痛",
+      "category": "分类记录",
+      "family": "category",
+      "minimumIOS": 13,
+      "units": [],
+      "statistics": []
+    },
+    {
+      "id": "HKCategoryTypeIdentifierHairLoss",
+      "title": "脱发",
+      "category": "分类记录",
+      "family": "category",
+      "minimumIOS": 14,
+      "units": [],
+      "statistics": []
+    },
+    {
+      "id": "HKCategoryTypeIdentifierHeadache",
+      "title": "头痛",
+      "category": "分类记录",
+      "family": "category",
+      "minimumIOS": 13,
+      "units": [],
+      "statistics": []
+    },
+    {
+      "id": "HKCategoryTypeIdentifierHeartburn",
+      "title": "胃灼热",
+      "category": "分类记录",
+      "family": "category",
+      "minimumIOS": 13,
+      "units": [],
+      "statistics": []
+    },
+    {
+      "id": "HKCategoryTypeIdentifierHotFlashes",
+      "title": "潮热",
+      "category": "分类记录",
+      "family": "category",
+      "minimumIOS": 13,
+      "units": [],
+      "statistics": []
+    },
+    {
+      "id": "HKCategoryTypeIdentifierLossOfSmell",
+      "title": "嗅觉丧失",
+      "category": "分类记录",
+      "family": "category",
+      "minimumIOS": 13,
+      "units": [],
+      "statistics": []
+    },
+    {
+      "id": "HKCategoryTypeIdentifierLossOfTaste",
+      "title": "味觉丧失",
+      "category": "分类记录",
+      "family": "category",
+      "minimumIOS": 13,
+      "units": [],
+      "statistics": []
+    },
+    {
+      "id": "HKCategoryTypeIdentifierLowerBackPain",
+      "title": "腰痛",
+      "category": "分类记录",
+      "family": "category",
+      "minimumIOS": 13,
+      "units": [],
+      "statistics": []
+    },
+    {
+      "id": "HKCategoryTypeIdentifierMemoryLapse",
+      "title": "记忆力减退",
+      "category": "分类记录",
+      "family": "category",
+      "minimumIOS": 14,
+      "units": [],
+      "statistics": []
+    },
+    {
+      "id": "HKCategoryTypeIdentifierMoodChanges",
+      "title": "情绪变化",
+      "category": "分类记录",
+      "family": "category",
+      "minimumIOS": 13,
+      "units": [],
+      "statistics": []
+    },
+    {
+      "id": "HKCategoryTypeIdentifierNausea",
+      "title": "恶心",
+      "category": "分类记录",
+      "family": "category",
+      "minimumIOS": 13,
+      "units": [],
+      "statistics": []
+    },
+    {
+      "id": "HKCategoryTypeIdentifierNightSweats",
+      "title": "盗汗",
+      "category": "分类记录",
+      "family": "category",
+      "minimumIOS": 14,
+      "units": [],
+      "statistics": []
+    },
+    {
+      "id": "HKCategoryTypeIdentifierPelvicPain",
+      "title": "盆腔疼痛",
+      "category": "分类记录",
+      "family": "category",
+      "minimumIOS": 13,
+      "units": [],
+      "statistics": []
+    },
+    {
+      "id": "HKCategoryTypeIdentifierRapidPoundingOrFlutteringHeartbeat",
+      "title": "心跳加速或心悸",
+      "category": "分类记录",
+      "family": "category",
+      "minimumIOS": 13,
+      "units": [],
+      "statistics": []
+    },
+    {
+      "id": "HKCategoryTypeIdentifierRunnyNose",
+      "title": "流鼻涕",
+      "category": "分类记录",
+      "family": "category",
+      "minimumIOS": 13,
+      "units": [],
+      "statistics": []
+    },
+    {
+      "id": "HKCategoryTypeIdentifierShortnessOfBreath",
+      "title": "气短",
+      "category": "分类记录",
+      "family": "category",
+      "minimumIOS": 13,
+      "units": [],
+      "statistics": []
+    },
+    {
+      "id": "HKCategoryTypeIdentifierSinusCongestion",
+      "title": "鼻窦堵塞",
+      "category": "分类记录",
+      "family": "category",
+      "minimumIOS": 13,
+      "units": [],
+      "statistics": []
+    },
+    {
+      "id": "HKCategoryTypeIdentifierSkippedHeartbeat",
+      "title": "心跳漏拍",
+      "category": "分类记录",
+      "family": "category",
+      "minimumIOS": 13,
+      "units": [],
+      "statistics": []
+    },
+    {
+      "id": "HKCategoryTypeIdentifierSleepChanges",
+      "title": "睡眠变化",
+      "category": "睡眠",
+      "family": "category",
+      "minimumIOS": 13,
+      "units": [],
+      "statistics": []
+    },
+    {
+      "id": "HKCategoryTypeIdentifierSoreThroat",
+      "title": "喉咙痛",
+      "category": "分类记录",
+      "family": "category",
+      "minimumIOS": 13,
+      "units": [],
+      "statistics": []
+    },
+    {
+      "id": "HKCategoryTypeIdentifierVaginalDryness",
+      "title": "阴道干涩",
+      "category": "分类记录",
+      "family": "category",
+      "minimumIOS": 14,
+      "units": [],
+      "statistics": []
+    },
+    {
+      "id": "HKCategoryTypeIdentifierVomiting",
+      "title": "呕吐",
+      "category": "分类记录",
+      "family": "category",
+      "minimumIOS": 13,
+      "units": [],
+      "statistics": []
+    },
+    {
+      "id": "HKCategoryTypeIdentifierWheezing",
+      "title": "喘息",
+      "category": "分类记录",
+      "family": "category",
+      "minimumIOS": 13,
+      "units": [],
+      "statistics": []
+    },
+    {
+      "id": "HKCorrelationTypeIdentifierBloodPressure",
+      "title": "血压",
+      "category": "心脏",
+      "family": "correlation",
+      "minimumIOS": 8,
+      "units": [],
+      "statistics": []
+    },
+    {
+      "id": "HKCorrelationTypeIdentifierFood",
+      "title": "饮食关联记录",
+      "category": "分类记录",
+      "family": "correlation",
+      "minimumIOS": 8,
+      "units": [],
+      "statistics": []
+    },
+    {
+      "id": "HKCategoryTypeIdentifierAudioExposureEvent",
+      "title": "Audio Exposure Event",
+      "category": "分类记录",
+      "family": "category",
+      "minimumIOS": 8,
+      "units": [],
+      "statistics": []
+    },
+    {
+      "id": "HKWorkoutType",
+      "title": "锻炼记录",
+      "category": "活动与运动",
+      "family": "workout",
+      "minimumIOS": 8,
+      "units": [],
+      "statistics": []
+    }
+  ]
+}
