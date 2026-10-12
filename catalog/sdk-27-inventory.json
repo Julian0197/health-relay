@@ -1,0 +1,1220 @@
+{
+  "sdk": "iPhoneOS27.0",
+  "checkedOn": "2026-10-12",
+  "source": "Public HealthKit SDK declarations in HKTypeIdentifiers.h",
+  "scope": "Declared quantity, category, correlation, characteristic and clinical identifier symbols only. Special object types and APIs are listed separately in docs/capabilities.md. This is not an implemented capability catalog; null availability needs manual review.",
+  "counts": {
+    "quantity": 121,
+    "category": 72,
+    "characteristic": 6,
+    "correlation": 2
+  },
+  "entries": [
+    {
+      "symbol": "HKQuantityTypeIdentifierAppleSleepingWristTemperature",
+      "family": "quantity",
+      "introducedIOS": "16.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierBodyFatPercentage",
+      "family": "quantity",
+      "introducedIOS": "8.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierBodyMass",
+      "family": "quantity",
+      "introducedIOS": "8.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierBodyMassIndex",
+      "family": "quantity",
+      "introducedIOS": "8.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierElectrodermalActivity",
+      "family": "quantity",
+      "introducedIOS": "8.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierHeight",
+      "family": "quantity",
+      "introducedIOS": "8.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierLeanBodyMass",
+      "family": "quantity",
+      "introducedIOS": "8.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierWaistCircumference",
+      "family": "quantity",
+      "introducedIOS": "11.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierActiveEnergyBurned",
+      "family": "quantity",
+      "introducedIOS": "8.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierAppleExerciseTime",
+      "family": "quantity",
+      "introducedIOS": "9.3",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierAppleMoveTime",
+      "family": "quantity",
+      "introducedIOS": "14.5",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierAppleStandTime",
+      "family": "quantity",
+      "introducedIOS": "13.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierBasalEnergyBurned",
+      "family": "quantity",
+      "introducedIOS": "8.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierCrossCountrySkiingSpeed",
+      "family": "quantity",
+      "introducedIOS": "18.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierCyclingCadence",
+      "family": "quantity",
+      "introducedIOS": "17.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierCyclingFunctionalThresholdPower",
+      "family": "quantity",
+      "introducedIOS": "17.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierCyclingPower",
+      "family": "quantity",
+      "introducedIOS": "17.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierCyclingSpeed",
+      "family": "quantity",
+      "introducedIOS": "17.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierDistanceCrossCountrySkiing",
+      "family": "quantity",
+      "introducedIOS": "18.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierDistanceCycling",
+      "family": "quantity",
+      "introducedIOS": "8.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierDistanceDownhillSnowSports",
+      "family": "quantity",
+      "introducedIOS": "11.2",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierDistancePaddleSports",
+      "family": "quantity",
+      "introducedIOS": "18.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierDistanceRowing",
+      "family": "quantity",
+      "introducedIOS": "18.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierDistanceSkatingSports",
+      "family": "quantity",
+      "introducedIOS": "18.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierDistanceSwimming",
+      "family": "quantity",
+      "introducedIOS": "10.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierDistanceWalkingRunning",
+      "family": "quantity",
+      "introducedIOS": "8.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierDistanceWheelchair",
+      "family": "quantity",
+      "introducedIOS": "10.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierEstimatedWorkoutEffortScore",
+      "family": "quantity",
+      "introducedIOS": "18.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierFlightsClimbed",
+      "family": "quantity",
+      "introducedIOS": "8.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierNikeFuel",
+      "family": "quantity",
+      "introducedIOS": "8.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierPaddleSportsSpeed",
+      "family": "quantity",
+      "introducedIOS": "18.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierPhysicalEffort",
+      "family": "quantity",
+      "introducedIOS": "17.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierPushCount",
+      "family": "quantity",
+      "introducedIOS": "10.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierRowingSpeed",
+      "family": "quantity",
+      "introducedIOS": "18.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierRunningPower",
+      "family": "quantity",
+      "introducedIOS": "16.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierRunningSpeed",
+      "family": "quantity",
+      "introducedIOS": "16.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierStepCount",
+      "family": "quantity",
+      "introducedIOS": "8.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierSwimmingStrokeCount",
+      "family": "quantity",
+      "introducedIOS": "10.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierUnderwaterDepth",
+      "family": "quantity",
+      "introducedIOS": "16.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierWorkoutEffortScore",
+      "family": "quantity",
+      "introducedIOS": "18.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierEnvironmentalAudioExposure",
+      "family": "quantity",
+      "introducedIOS": "13.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierEnvironmentalSoundReduction",
+      "family": "quantity",
+      "introducedIOS": "16.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierHeadphoneAudioExposure",
+      "family": "quantity",
+      "introducedIOS": "13.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierAtrialFibrillationBurden",
+      "family": "quantity",
+      "introducedIOS": "16.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierHeartRate",
+      "family": "quantity",
+      "introducedIOS": "8.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierHeartRateRecoveryOneMinute",
+      "family": "quantity",
+      "introducedIOS": "16.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierHeartRateVariabilityRMSSD",
+      "family": "quantity",
+      "introducedIOS": "27.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierHeartRateVariabilitySDNN",
+      "family": "quantity",
+      "introducedIOS": "11.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierPeripheralPerfusionIndex",
+      "family": "quantity",
+      "introducedIOS": "8.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierRestingHeartRate",
+      "family": "quantity",
+      "introducedIOS": "11.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierVO2Max",
+      "family": "quantity",
+      "introducedIOS": "11.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierWalkingHeartRateAverage",
+      "family": "quantity",
+      "introducedIOS": "11.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierAppleWalkingSteadiness",
+      "family": "quantity",
+      "introducedIOS": "15.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierRunningGroundContactTime",
+      "family": "quantity",
+      "introducedIOS": "16.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierRunningStrideLength",
+      "family": "quantity",
+      "introducedIOS": "16.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierRunningVerticalOscillation",
+      "family": "quantity",
+      "introducedIOS": "16.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierSixMinuteWalkTestDistance",
+      "family": "quantity",
+      "introducedIOS": "14.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierStairAscentSpeed",
+      "family": "quantity",
+      "introducedIOS": "14.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierStairDescentSpeed",
+      "family": "quantity",
+      "introducedIOS": "14.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierWalkingAsymmetryPercentage",
+      "family": "quantity",
+      "introducedIOS": "14.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierWalkingDoubleSupportPercentage",
+      "family": "quantity",
+      "introducedIOS": "14.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierWalkingSpeed",
+      "family": "quantity",
+      "introducedIOS": "14.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierWalkingStepLength",
+      "family": "quantity",
+      "introducedIOS": "14.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierDietaryBiotin",
+      "family": "quantity",
+      "introducedIOS": "8.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierDietaryCaffeine",
+      "family": "quantity",
+      "introducedIOS": "8.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierDietaryCalcium",
+      "family": "quantity",
+      "introducedIOS": "8.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierDietaryCarbohydrates",
+      "family": "quantity",
+      "introducedIOS": "8.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierDietaryChloride",
+      "family": "quantity",
+      "introducedIOS": "8.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierDietaryCholesterol",
+      "family": "quantity",
+      "introducedIOS": "8.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierDietaryChromium",
+      "family": "quantity",
+      "introducedIOS": "8.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierDietaryCopper",
+      "family": "quantity",
+      "introducedIOS": "8.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierDietaryEnergyConsumed",
+      "family": "quantity",
+      "introducedIOS": "8.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierDietaryFatMonounsaturated",
+      "family": "quantity",
+      "introducedIOS": "8.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierDietaryFatPolyunsaturated",
+      "family": "quantity",
+      "introducedIOS": "8.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierDietaryFatSaturated",
+      "family": "quantity",
+      "introducedIOS": "8.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierDietaryFatTotal",
+      "family": "quantity",
+      "introducedIOS": "8.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierDietaryFiber",
+      "family": "quantity",
+      "introducedIOS": "8.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierDietaryFolate",
+      "family": "quantity",
+      "introducedIOS": "8.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierDietaryIodine",
+      "family": "quantity",
+      "introducedIOS": "8.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierDietaryIron",
+      "family": "quantity",
+      "introducedIOS": "8.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierDietaryMagnesium",
+      "family": "quantity",
+      "introducedIOS": "8.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierDietaryManganese",
+      "family": "quantity",
+      "introducedIOS": "8.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierDietaryMolybdenum",
+      "family": "quantity",
+      "introducedIOS": "8.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierDietaryNiacin",
+      "family": "quantity",
+      "introducedIOS": "8.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierDietaryPantothenicAcid",
+      "family": "quantity",
+      "introducedIOS": "8.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierDietaryPhosphorus",
+      "family": "quantity",
+      "introducedIOS": "8.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierDietaryPotassium",
+      "family": "quantity",
+      "introducedIOS": "8.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierDietaryProtein",
+      "family": "quantity",
+      "introducedIOS": "8.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierDietaryRiboflavin",
+      "family": "quantity",
+      "introducedIOS": "8.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierDietarySelenium",
+      "family": "quantity",
+      "introducedIOS": "8.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierDietarySodium",
+      "family": "quantity",
+      "introducedIOS": "8.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierDietarySugar",
+      "family": "quantity",
+      "introducedIOS": "8.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierDietaryThiamin",
+      "family": "quantity",
+      "introducedIOS": "8.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierDietaryVitaminA",
+      "family": "quantity",
+      "introducedIOS": "8.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierDietaryVitaminB12",
+      "family": "quantity",
+      "introducedIOS": "8.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierDietaryVitaminB6",
+      "family": "quantity",
+      "introducedIOS": "8.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierDietaryVitaminC",
+      "family": "quantity",
+      "introducedIOS": "8.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierDietaryVitaminD",
+      "family": "quantity",
+      "introducedIOS": "8.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierDietaryVitaminE",
+      "family": "quantity",
+      "introducedIOS": "8.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierDietaryVitaminK",
+      "family": "quantity",
+      "introducedIOS": "8.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierDietaryWater",
+      "family": "quantity",
+      "introducedIOS": "9.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierDietaryZinc",
+      "family": "quantity",
+      "introducedIOS": "8.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierBloodAlcoholContent",
+      "family": "quantity",
+      "introducedIOS": "8.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierBloodPressureDiastolic",
+      "family": "quantity",
+      "introducedIOS": "8.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierBloodPressureSystolic",
+      "family": "quantity",
+      "introducedIOS": "8.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierInsulinDelivery",
+      "family": "quantity",
+      "introducedIOS": "11.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierNumberOfAlcoholicBeverages",
+      "family": "quantity",
+      "introducedIOS": "15.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierNumberOfTimesFallen",
+      "family": "quantity",
+      "introducedIOS": "8.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierTimeInDaylight",
+      "family": "quantity",
+      "introducedIOS": "17.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierUVExposure",
+      "family": "quantity",
+      "introducedIOS": "9.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierWaterTemperature",
+      "family": "quantity",
+      "introducedIOS": "16.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierBasalBodyTemperature",
+      "family": "quantity",
+      "introducedIOS": "9.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierAppleSleepingBreathingDisturbances",
+      "family": "quantity",
+      "introducedIOS": "18.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierForcedExpiratoryVolume1",
+      "family": "quantity",
+      "introducedIOS": "8.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierForcedVitalCapacity",
+      "family": "quantity",
+      "introducedIOS": "8.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierInhalerUsage",
+      "family": "quantity",
+      "introducedIOS": "8.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierOxygenSaturation",
+      "family": "quantity",
+      "introducedIOS": "8.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierPeakExpiratoryFlowRate",
+      "family": "quantity",
+      "introducedIOS": "8.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierRespiratoryRate",
+      "family": "quantity",
+      "introducedIOS": "8.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierBloodGlucose",
+      "family": "quantity",
+      "introducedIOS": "8.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKQuantityTypeIdentifierBodyTemperature",
+      "family": "quantity",
+      "introducedIOS": "8.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKCategoryTypeIdentifierAppleStandHour",
+      "family": "category",
+      "introducedIOS": "9.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKCategoryTypeIdentifierEnvironmentalAudioExposureEvent",
+      "family": "category",
+      "introducedIOS": "14.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKCategoryTypeIdentifierHeadphoneAudioExposureEvent",
+      "family": "category",
+      "introducedIOS": "14.2",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKCategoryTypeIdentifierHighHeartRateEvent",
+      "family": "category",
+      "introducedIOS": "12.2",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKCategoryTypeIdentifierHypertensionEvent",
+      "family": "category",
+      "introducedIOS": "26.2",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKCategoryTypeIdentifierIrregularHeartRhythmEvent",
+      "family": "category",
+      "introducedIOS": "12.2",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKCategoryTypeIdentifierLowCardioFitnessEvent",
+      "family": "category",
+      "introducedIOS": "14.3",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKCategoryTypeIdentifierLowHeartRateEvent",
+      "family": "category",
+      "introducedIOS": "12.2",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKCategoryTypeIdentifierMindfulSession",
+      "family": "category",
+      "introducedIOS": "10.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKCategoryTypeIdentifierAppleWalkingSteadinessEvent",
+      "family": "category",
+      "introducedIOS": "15.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKCategoryTypeIdentifierHandwashingEvent",
+      "family": "category",
+      "introducedIOS": "14.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKCategoryTypeIdentifierToothbrushingEvent",
+      "family": "category",
+      "introducedIOS": "13.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKCategoryTypeIdentifierBleedingAfterMenopause",
+      "family": "category",
+      "introducedIOS": "27.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKCategoryTypeIdentifierBleedingAfterPregnancy",
+      "family": "category",
+      "introducedIOS": "18.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKCategoryTypeIdentifierBleedingDuringPregnancy",
+      "family": "category",
+      "introducedIOS": "18.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKCategoryTypeIdentifierCervicalMucusQuality",
+      "family": "category",
+      "introducedIOS": "9.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKCategoryTypeIdentifierContraceptive",
+      "family": "category",
+      "introducedIOS": "14.3",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKCategoryTypeIdentifierInfrequentMenstrualCycles",
+      "family": "category",
+      "introducedIOS": "16.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKCategoryTypeIdentifierIntermenstrualBleeding",
+      "family": "category",
+      "introducedIOS": "9.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKCategoryTypeIdentifierIrregularMenstrualCycles",
+      "family": "category",
+      "introducedIOS": "16.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKCategoryTypeIdentifierLactation",
+      "family": "category",
+      "introducedIOS": "14.3",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKCategoryTypeIdentifierMenopausalState",
+      "family": "category",
+      "introducedIOS": "27.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKCategoryTypeIdentifierMenstrualFlow",
+      "family": "category",
+      "introducedIOS": "9.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKCategoryTypeIdentifierOvulationTestResult",
+      "family": "category",
+      "introducedIOS": "9.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKCategoryTypeIdentifierPersistentIntermenstrualBleeding",
+      "family": "category",
+      "introducedIOS": "16.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKCategoryTypeIdentifierPregnancy",
+      "family": "category",
+      "introducedIOS": "14.3",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKCategoryTypeIdentifierPregnancyTestResult",
+      "family": "category",
+      "introducedIOS": "15.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKCategoryTypeIdentifierProgesteroneTestResult",
+      "family": "category",
+      "introducedIOS": "15.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKCategoryTypeIdentifierProlongedMenstrualPeriods",
+      "family": "category",
+      "introducedIOS": "16.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKCategoryTypeIdentifierSexualActivity",
+      "family": "category",
+      "introducedIOS": "9.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKCategoryTypeIdentifierSleepApneaEvent",
+      "family": "category",
+      "introducedIOS": "18.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKCategoryTypeIdentifierSleepAnalysis",
+      "family": "category",
+      "introducedIOS": "8.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKCategoryTypeIdentifierAbdominalCramps",
+      "family": "category",
+      "introducedIOS": "13.6",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKCategoryTypeIdentifierAcne",
+      "family": "category",
+      "introducedIOS": "13.6",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKCategoryTypeIdentifierAppetiteChanges",
+      "family": "category",
+      "introducedIOS": "13.6",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKCategoryTypeIdentifierBladderIncontinence",
+      "family": "category",
+      "introducedIOS": "14.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKCategoryTypeIdentifierBloating",
+      "family": "category",
+      "introducedIOS": "13.6",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKCategoryTypeIdentifierBreastPain",
+      "family": "category",
+      "introducedIOS": "13.6",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKCategoryTypeIdentifierChestTightnessOrPain",
+      "family": "category",
+      "introducedIOS": "13.6",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKCategoryTypeIdentifierChills",
+      "family": "category",
+      "introducedIOS": "13.6",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKCategoryTypeIdentifierConstipation",
+      "family": "category",
+      "introducedIOS": "13.6",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKCategoryTypeIdentifierCoughing",
+      "family": "category",
+      "introducedIOS": "13.6",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKCategoryTypeIdentifierDiarrhea",
+      "family": "category",
+      "introducedIOS": "13.6",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKCategoryTypeIdentifierDizziness",
+      "family": "category",
+      "introducedIOS": "13.6",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKCategoryTypeIdentifierDrySkin",
+      "family": "category",
+      "introducedIOS": "14.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKCategoryTypeIdentifierFainting",
+      "family": "category",
+      "introducedIOS": "13.6",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKCategoryTypeIdentifierFatigue",
+      "family": "category",
+      "introducedIOS": "13.6",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKCategoryTypeIdentifierFever",
+      "family": "category",
+      "introducedIOS": "13.6",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKCategoryTypeIdentifierGeneralizedBodyAche",
+      "family": "category",
+      "introducedIOS": "13.6",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKCategoryTypeIdentifierHairLoss",
+      "family": "category",
+      "introducedIOS": "14.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKCategoryTypeIdentifierHeadache",
+      "family": "category",
+      "introducedIOS": "13.6",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKCategoryTypeIdentifierHeartburn",
+      "family": "category",
+      "introducedIOS": "13.6",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKCategoryTypeIdentifierHotFlashes",
+      "family": "category",
+      "introducedIOS": "13.6",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKCategoryTypeIdentifierLossOfSmell",
+      "family": "category",
+      "introducedIOS": "13.6",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKCategoryTypeIdentifierLossOfTaste",
+      "family": "category",
+      "introducedIOS": "13.6",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKCategoryTypeIdentifierLowerBackPain",
+      "family": "category",
+      "introducedIOS": "13.6",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKCategoryTypeIdentifierMemoryLapse",
+      "family": "category",
+      "introducedIOS": "14.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKCategoryTypeIdentifierMoodChanges",
+      "family": "category",
+      "introducedIOS": "13.6",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKCategoryTypeIdentifierNausea",
+      "family": "category",
+      "introducedIOS": "13.6",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKCategoryTypeIdentifierNightSweats",
+      "family": "category",
+      "introducedIOS": "14.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKCategoryTypeIdentifierPelvicPain",
+      "family": "category",
+      "introducedIOS": "13.6",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKCategoryTypeIdentifierRapidPoundingOrFlutteringHeartbeat",
+      "family": "category",
+      "introducedIOS": "13.6",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKCategoryTypeIdentifierRunnyNose",
+      "family": "category",
+      "introducedIOS": "13.6",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKCategoryTypeIdentifierShortnessOfBreath",
+      "family": "category",
+      "introducedIOS": "13.6",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKCategoryTypeIdentifierSinusCongestion",
+      "family": "category",
+      "introducedIOS": "13.6",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKCategoryTypeIdentifierSkippedHeartbeat",
+      "family": "category",
+      "introducedIOS": "13.6",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKCategoryTypeIdentifierSleepChanges",
+      "family": "category",
+      "introducedIOS": "13.6",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKCategoryTypeIdentifierSoreThroat",
+      "family": "category",
+      "introducedIOS": "13.6",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKCategoryTypeIdentifierVaginalDryness",
+      "family": "category",
+      "introducedIOS": "14.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKCategoryTypeIdentifierVomiting",
+      "family": "category",
+      "introducedIOS": "13.6",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKCategoryTypeIdentifierWheezing",
+      "family": "category",
+      "introducedIOS": "13.6",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKCharacteristicTypeIdentifierActivityMoveMode",
+      "family": "characteristic",
+      "introducedIOS": "14.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKCharacteristicTypeIdentifierBiologicalSex",
+      "family": "characteristic",
+      "introducedIOS": "8.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKCharacteristicTypeIdentifierBloodType",
+      "family": "characteristic",
+      "introducedIOS": "8.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKCharacteristicTypeIdentifierDateOfBirth",
+      "family": "characteristic",
+      "introducedIOS": "8.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKCharacteristicTypeIdentifierFitzpatrickSkinType",
+      "family": "characteristic",
+      "introducedIOS": "9.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKCharacteristicTypeIdentifierWheelchairUse",
+      "family": "characteristic",
+      "introducedIOS": "10.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKCorrelationTypeIdentifierBloodPressure",
+      "family": "correlation",
+      "introducedIOS": "8.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKCorrelationTypeIdentifierFood",
+      "family": "correlation",
+      "introducedIOS": "8.0",
+      "status": "planned"
+    },
+    {
+      "symbol": "HKCategoryTypeIdentifierAudioExposureEvent",
+      "family": "category",
+      "introducedIOS": null,
+      "status": "planned"
+    }
+  ]
+}

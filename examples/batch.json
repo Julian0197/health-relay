@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "batchId": "4790b31f-cafc-4ff1-a6f0-eec9e778c1bb",
+  "taskId": "c6b0d136-27ed-43b4-8a0f-0f17318a3224",
+  "configRevision": 1,
+  "createdAt": "2026-01-01T12:00:00Z",
+  "records": [
+    {
+      "op": "upsert",
+      "recordId": "c2602dc6-58ce-4e76-bc1d-e265a43299a0",
+      "typeIdentifier": "HKQuantityTypeIdentifierBodyMass",
+      "start": "2026-01-01T10:15:12Z",
+      "end": "2026-01-01T10:15:12Z",
+      "source": {"id": "synthetic-source", "label": "Synthetic data"},
+      "payload": {"kind": "quantity", "value": 70.0, "unit": "kg"}
+    }
+  ]
+}

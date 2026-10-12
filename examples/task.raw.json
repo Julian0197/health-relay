@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "id": "c6b0d136-27ed-43b4-8a0f-0f17318a3224",
+  "revision": 1,
+  "name": "多指标明细示例",
+  "enabled": false,
+  "data": {
+    "family": "quantity",
+    "selections": [
+      {"typeIdentifier": "HKQuantityTypeIdentifierBodyMass", "unit": "kg", "sources": []},
+      {"typeIdentifier": "HKQuantityTypeIdentifierRespiratoryRate", "unit": "count/min", "sources": []}
+    ],
+    "excludedSources": []
+  },
+  "range": {"mode": "incremental", "bootstrapDays": 7},
+  "export": {"format": "healthrelay.v1", "mode": "raw", "grouping": "none", "statistics": [], "timeZone": "Asia/Shanghai"},
+  "destination": {"kind": "http", "url": "https://api.example.com/v1/batches", "method": "POST", "headers": {}, "credentialRef": "bind-on-device", "timeoutSeconds": 30, "acknowledgement": "receipt"},
+  "execution": {"onDataChange": true, "onForeground": true, "minimumIntervalSeconds": 1800, "batchMaxRecords": 500, "batchMaxBytes": 1048576}
+}

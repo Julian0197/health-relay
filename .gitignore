@@ -1,0 +1,17 @@
+.DS_Store
+.env
+.env.*
+!.env.example
+DerivedData/
+.build/
+build/
+*.xcuserstate
+xcuserdata/
+*.ipa
+*.p12
+*.mobileprovision
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+private-data/
+private-artifacts/

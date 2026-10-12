@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "id": "927f6198-f129-4c8e-9c3c-979022f2f3f0",
+  "revision": 1,
+  "name": "累计指标日汇总示例",
+  "enabled": false,
+  "data": {
+    "family": "quantity",
+    "selections": [
+      {"typeIdentifier": "HKQuantityTypeIdentifierStepCount", "unit": "count", "sources": []},
+      {"typeIdentifier": "HKQuantityTypeIdentifierDietaryWater", "unit": "mL", "sources": []}
+    ],
+    "excludedSources": []
+  },
+  "range": {"mode": "incremental", "bootstrapDays": 7},
+  "export": {"format": "healthrelay.v1", "mode": "aggregate", "grouping": "days", "statistics": ["sum"], "timeZone": "Asia/Shanghai"},
+  "destination": {"kind": "http", "url": "https://api.example.com/v1/batches", "method": "POST", "headers": {}, "credentialRef": "bind-on-device", "timeoutSeconds": 30, "acknowledgement": "receipt"},
+  "execution": {"onDataChange": true, "onForeground": true, "minimumIntervalSeconds": 7200, "batchMaxRecords": 500, "batchMaxBytes": 1048576}
+}
