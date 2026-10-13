@@ -33,7 +33,7 @@ struct AutomationEditorView: View {
         _headers = State(initialValue: entries)
     }
 
-    private var issues: [String] { candidate.validationIssues(systemMajorVersion: ProcessInfo.processInfo.operatingSystemVersion.majorVersion) + headerIssues }
+    private var issues: [String] { candidate.validationIssues(systemMajorVersion: task.device == .watch ? 27 : ProcessInfo.processInfo.operatingSystemVersion.majorVersion, device: task.device) + headerIssues }
     private var headerIssues: [String] {
         let filled = headers.filter { !$0.name.isEmpty }
         let names = filled.map { $0.name.lowercased() }
@@ -41,13 +41,13 @@ struct AutomationEditorView: View {
         if Set(names).count != names.count { result.append("Header 名称不能重复") }
         for header in headers {
             if header.name.isEmpty && (!header.value.isEmpty || header.existingReference != nil) { result.append("请填写 Header 名称") }
-            if !header.name.isEmpty && header.value.isEmpty && header.existingReference == nil { result.append("请填写 \(header.name) 的值") }
+            if !header.name.isEmpty && header.value.isEmpty && header.existingReference == nil && !(task.device == .watch && (header.secret || ConfigurationCodec.isSensitiveHeader(header.name))) { result.append("请填写 \(header.name) 的值") }
             if AutomationConfig.containsHeaderLineBreak(header.value) { result.append("Header 值不能包含换行") }
         }
         if let authName = task.destination.credentialHeader, !authName.isEmpty,
            names.contains(authName.lowercased()) { result.append("认证 Header 与自定义 Header 重复") }
         if AutomationConfig.containsHeaderLineBreak(credentialValue) { result.append("认证值不能包含换行") }
-        if task.destination.credentialHeader != nil && credentialValue.isEmpty && task.destination.credentialRef == nil {
+        if task.device == .iPhone && task.destination.credentialHeader != nil && credentialValue.isEmpty && task.destination.credentialRef == nil {
             result.append("请填写认证值，或关闭认证")
         }
         return result
@@ -64,6 +64,9 @@ struct AutomationEditorView: View {
         Form {
             Section {
                 TextField("任务名称", text: $task.name).accessibilityIdentifier("task-name")
+                Picker("执行设备", selection: $task.device) {
+                    ForEach(ExecutionDevice.allCases, id: \.self) { Text($0.title).tag($0) }
+                }
                 LabeledContent("状态", value: task.enabled ? "已启用" : "已关闭")
             } header: { Text("任务") } footer: { Text("新任务默认关闭。保存后可手动运行，或在运行页启用自动化。") }
             dataSection
@@ -255,7 +258,7 @@ struct AutomationEditorView: View {
                     .textInputAutocapitalization(.never).autocorrectionDisabled()
             }
         } header: { Text("HTTP 接口") } footer: {
-            Text("回执模式要求接口支持 HealthRelay 批次协议。认证值仅保存在本机 Keychain，不随配置导出。")
+            Text("回执模式要求接口支持 HealthRelay 批次协议。认证值仅保存在本机 Keychain，不随配置导出或 Watch 同步。Watch 任务可留空，到手表填写。")
         }
     }
 
@@ -326,6 +329,10 @@ struct AutomationEditorView: View {
                         let ref = try store.credentials.save(header.value)
                         createdReferences.append(ref); saved.destination.secretHeaders?[header.name] = ref
                     } else if let ref = header.existingReference { saved.destination.secretHeaders?[header.name] = ref }
+                    else if saved.device == .watch {
+                        if saved.destination.requiredSecretHeaders == nil { saved.destination.requiredSecretHeaders = [] }
+                        saved.destination.requiredSecretHeaders?.append(header.name)
+                    }
                 } else { saved.destination.headers[header.name] = header.value }
             }
             if saved.destination.credentialHeader != nil && !credentialValue.isEmpty {

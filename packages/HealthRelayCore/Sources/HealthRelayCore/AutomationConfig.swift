@@ -1,5 +1,10 @@
 import Foundation
 
+public enum ExecutionDevice: String, Codable, CaseIterable, Sendable {
+    case iPhone, watch
+    public var title: String { self == .iPhone ? "iPhone" : "Apple Watch" }
+}
+
 public enum DataFamily: String, Codable, CaseIterable, Sendable {
     case healthMetrics, quantity, category, correlation, workout
     public var title: String {
@@ -122,6 +127,7 @@ public struct ExecutionSettings: Codable, Equatable, Sendable {
 
 public struct AutomationConfig: Codable, Equatable, Identifiable, Sendable {
     public var schemaVersion = 1
+    public var device: ExecutionDevice = .iPhone
     public var id: UUID
     public var revision = 1
     public var name = "新自动化"
@@ -132,6 +138,21 @@ public struct AutomationConfig: Codable, Equatable, Identifiable, Sendable {
     public var destination = HTTPDestination()
     public var execution = ExecutionSettings()
     public init(id: UUID = UUID()) { self.id = id }
+    private enum CodingKeys: String, CodingKey { case schemaVersion, device, id, revision, name, enabled, data, range, export, destination, execution }
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        schemaVersion = try values.decode(Int.self, forKey: .schemaVersion)
+        device = try values.decodeIfPresent(ExecutionDevice.self, forKey: .device) ?? .iPhone
+        id = try values.decode(UUID.self, forKey: .id)
+        revision = try values.decode(Int.self, forKey: .revision)
+        name = try values.decode(String.self, forKey: .name)
+        enabled = try values.decode(Bool.self, forKey: .enabled)
+        data = try values.decode(DataSelection.self, forKey: .data)
+        range = try values.decode(DateRange.self, forKey: .range)
+        export = try values.decode(ExportSettings.self, forKey: .export)
+        destination = try values.decode(HTTPDestination.self, forKey: .destination)
+        execution = try values.decode(ExecutionSettings.self, forKey: .execution)
+    }
     public static func newTask() -> Self { Self() }
     public func duplicated() -> Self {
         var copy = self
@@ -159,7 +180,7 @@ public struct AutomationConfig: Codable, Equatable, Identifiable, Sendable {
         }
     }
 
-    public func validationIssues(systemMajorVersion: Int = 27) -> [String] {
+    public func validationIssues(systemMajorVersion: Int = 27, device platform: ExecutionDevice = .iPhone) -> [String] {
         var issues: [String] = []
         if schemaVersion != 1 { issues.append("不支持的配置版本：\(schemaVersion)") }
         if revision < 1 { issues.append("配置 revision 必须大于 0") }
@@ -173,7 +194,11 @@ public struct AutomationConfig: Codable, Equatable, Identifiable, Sendable {
             let matches = metric.family == data.family ||
                 (data.family == .healthMetrics && [.quantity, .category, .correlation].contains(metric.family))
             if !matches { issues.append("\(metric.title) 不属于当前数据类型") }
-            if metric.minimumIOS > systemMajorVersion { issues.append("\(metric.title) 需要 iOS \(metric.minimumIOS) 或更新版本") }
+            if platform == .watch {
+                if let minimum = metric.minimumWatchOS {
+                    if minimum > systemMajorVersion { issues.append("\(metric.title) 需要 watchOS \(minimum) 或更新版本") }
+                } else { issues.append("\(metric.title) 不支持 watchOS") }
+            } else if metric.minimumIOS > systemMajorVersion { issues.append("\(metric.title) 需要 iOS \(metric.minimumIOS) 或更新版本") }
             if metric.family == .quantity && !metric.units.contains(selection.unit ?? "") { issues.append("\(metric.title) 的单位无效") }
             if metric.family != .quantity && selection.unit != nil { issues.append("\(metric.title) 不支持数量单位") }
         }

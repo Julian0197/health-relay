@@ -85,7 +85,7 @@ public enum BatchEncoder {
     }
 }
 public extension AutomationConfig {
-    var executionIssues: [String] {
+    var executionCapabilityIssues: [String] {
         var issues: [String] = []
         if !["healthrelay.v1", "hea.v2", "hea.csv", "csv", "markdown"].contains(export.format) { issues.append("HEA v1 执行尚未开放，请使用 v2 或 HealthRelay JSON") }
         if ["hea.v2", "hea.csv"].contains(export.format) && data.selections.contains(where: { HEAEncoder.metricNames[$0.id] == nil }) {
@@ -94,6 +94,10 @@ public extension AutomationConfig {
         if data.workoutOptions?.includeRoutes == true || data.workoutOptions?.includeMetrics == true {
             issues.append("运动路线和关联时序尚未开放，请先关闭这两个选项")
         }
+        return issues
+    }
+    var executionIssues: [String] {
+        var issues = executionCapabilityIssues
         if destination.requiredSecretHeaders?.isEmpty == false { issues.append("请重新填写导入配置的认证值") }
         if destination.credentialHeader != nil && destination.credentialRef == nil { issues.append("请填写认证值") }
         return issues

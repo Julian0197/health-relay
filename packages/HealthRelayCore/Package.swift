@@ -3,7 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "HealthRelayCore",
-    platforms: [.iOS(.v18), .macOS(.v14)],
+    platforms: [.iOS(.v18), .macOS(.v14), .watchOS(.v11)],
     products: [.library(name: "HealthRelayCore", targets: ["HealthRelayCore"])],
     targets: [
         .target(name: "HealthRelayCore", resources: [.process("Resources")]),

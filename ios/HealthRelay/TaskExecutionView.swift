@@ -17,6 +17,9 @@ struct TaskExecutionView: View {
     var body: some View {
         List {
             if let task {
+                if !store.canRunOnPhone(task) {
+                    Section { Text("此任务在 Watch 执行。切回 iPhone 后，请同步 Watch 配置并等待移除确认。").font(.footnote) }
+                }
                 Section {
                     Toggle("启用自动化", isOn: Binding(get: { self.task?.enabled ?? false }, set: { enabled in
                         Task { do { try await store.setEnabled(task, enabled: enabled) } catch { self.error = error.localizedDescription } }
@@ -33,10 +36,10 @@ struct TaskExecutionView: View {
                     }.disabled(checking || store.active.contains(task.id))
                     if checking { ProgressView("正在检查读取") }
                     if store.active.contains(task.id) { ProgressView("正在读取并上传") }
-                } footer: { Text("手动运行也会读取健康数据并向配置接口上传。没有新记录时不会发送请求。iOS 决定后台唤醒时机。") }
+                } footer: { Text("手动运行也会读取健康数据并向配置接口上传。没有新记录时不会发送请求。iOS 决定后台唤醒时机。") }.disabled(!store.canRunOnPhone(task))
                 Section("历史补传") {
                     Button("选择时间补传", systemImage: "clock.arrow.circlepath") { backfillEnd = Date(); showingBackfill = true }
-                        .accessibilityIdentifier("backfill-start").disabled(store.active.contains(task.id) || store.backfills.contains { $0.task.id == task.id && $0.completedAt == nil })
+                        .accessibilityIdentifier("backfill-start").disabled(!store.canRunOnPhone(task) || store.active.contains(task.id) || store.backfills.contains { $0.task.id == task.id && $0.completedAt == nil })
                     ForEach(store.backfills.filter { $0.task.id == task.id }) { job in
                         VStack(alignment: .leading, spacing: 6) {
                             Text("\(job.task.range.start ?? "") → \(job.task.range.end ?? "")").font(.caption)
@@ -128,20 +131,3 @@ struct TaskExecutionView: View {
             } message: { Text(error ?? "") }
     }
 }
-
-#if DEBUG && targetEnvironment(simulator)
-/// Synthetic records are available only to an explicit simulator acceptance run.
-/// This reader is absent from physical-device and Release builds.
-@MainActor final class SyntheticHealthReader: HealthDataReader {
-    func read(task: AutomationConfig, selection: MetricSelection, checkpoint: TypeCheckpoint, limit: Int) async throws -> ReadPage {
-        guard checkpoint.anchor == nil else { return ReadPage(records: [], anchor: checkpoint.anchor, hasMore: false) }
-        var payload: [String: JSONValue] = ["value": .number(70), "unit": .string(selection.unit ?? "count")]
-        if task.export.mode == .aggregate {
-            payload["aggregation"] = .bool(true)
-            for statistic in task.statistics(for: selection) { payload[statistic.rawValue] = .number(70) }
-        }
-        let records = [HealthRecord(op: .upsert, typeIdentifier: selection.id, recordId: "synthetic-quantity-001", start: "2026-10-12T00:00:00Z", end: "2026-10-12T00:00:00Z", source: RecordSource(id: "test.synthetic", name: "Synthetic acceptance"), payload: payload)]
-        return ReadPage(records: records, anchor: Data("synthetic-cursor-1".utf8), hasMore: false)
-    }
-}
-#endif
