@@ -15,3 +15,15 @@ xcuserdata/
 *.sqlite-wal
 private-data/
 private-artifacts/
+
+# Cloudflare / local dashboard artifacts and capabilities
+node_modules/
+dist/
+.wrangler/
+.dev.vars
+.dev.vars.*
+!.dev.vars.example
+wrangler.local.jsonc
+*.deploy.html
+*.release.html
+*.payload.json

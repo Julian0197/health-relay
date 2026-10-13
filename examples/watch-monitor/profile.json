@@ -1,0 +1,44 @@
+{
+  "schema": "watch-monitor-migration-profile.v1",
+  "sourceRevision": "97a4d36",
+  "timeZone": "Asia/Shanghai",
+  "format": "HEA JSON v2",
+  "enabled": false,
+  "streams": [
+    {
+      "name": "心率分钟",
+      "path": "/ingest/heart",
+      "minimumIntervalSeconds": 1800,
+      "aggregation": "minutes",
+      "healthRelayTask": "heart.json"
+    },
+    {
+      "name": "HRV 双指标分钟",
+      "path": "/ingest/hrv",
+      "minimumIntervalSeconds": 1800,
+      "aggregation": "minutes",
+      "healthRelayTask": "hrv.json"
+    },
+    {
+      "name": "每日活动概览",
+      "path": "/ingest/health",
+      "minimumIntervalSeconds": 3600,
+      "aggregation": "days",
+      "healthRelayTask": "activity.json"
+    },
+    {
+      "name": "睡眠阶段",
+      "path": "/ingest/sleep-segments",
+      "minimumIntervalSeconds": 21600,
+      "aggregation": "raw",
+      "healthRelayTask": "sleep.json"
+    },
+    {
+      "name": "锻炼记录",
+      "path": "/ingest/workouts",
+      "minimumIntervalSeconds": 1800,
+      "aggregation": null,
+      "healthRelayTask": "workouts.json"
+    }
+  ]
+}

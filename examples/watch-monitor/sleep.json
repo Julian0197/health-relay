@@ -1,0 +1,50 @@
+{
+  "schemaVersion": 1,
+  "id": "00000000-0000-4000-8000-000000000004",
+  "revision": 1,
+  "name": "睡眠阶段（示例）",
+  "enabled": false,
+  "device": "iPhone",
+  "data": {
+    "family": "category",
+    "selections": [
+      {
+        "typeIdentifier": "HKCategoryTypeIdentifierSleepAnalysis",
+        "sources": []
+      }
+    ],
+    "excludedSources": []
+  },
+  "range": {
+    "mode": "defaultRange"
+  },
+  "export": {
+    "format": "hea.v2",
+    "mode": "raw",
+    "grouping": "none",
+    "statistics": [],
+    "timeZone": "Asia/Shanghai",
+    "deletionPolicy": "reject"
+  },
+  "destination": {
+    "kind": "http",
+    "url": "https://health.example.com/ingest/sleep-segments",
+    "method": "POST",
+    "headers": {
+      "X-HAE-Aggregation": "raw"
+    },
+    "requiredSecretHeaders": [
+      "X-API-Key"
+    ],
+    "timeoutSeconds": 30,
+    "acknowledgement": "http2xx"
+  },
+  "execution": {
+    "onDataChange": true,
+    "onForeground": true,
+    "periodicPolling": true,
+    "minimumIntervalSeconds": 21600,
+    "batchMaxRecords": 500,
+    "batchMaxBytes": 1048576
+  }
+}

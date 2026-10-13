@@ -1,0 +1,16 @@
+{
+  "$schema": "https://raw.githubusercontent.com/cloudflare/workers-sdk/main/packages/wrangler/config-schema.json",
+  "name": "healthrelay-gateway",
+  "main": "gateway.mjs",
+  "compatibility_date": "2026-09-01",
+  "workers_dev": true,
+  "services": [
+    {
+      "binding": "HEALTH_BACKEND",
+      "service": "healthrelay-health"
+    }
+  ],
+  "observability": {
+    "enabled": false
+  }
+}

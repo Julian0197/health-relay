@@ -1,0 +1,20 @@
+# Copy to .dev.vars (ignored). Set your own values locally or with wrangler secret put.
+# Empty values deliberately keep the receiver unavailable until configured.
+HAE_API_KEY=""
+ANALYSIS_API_KEY=""
+FEISHU_WEBHOOK_URL=""
+FEISHU_SIGN_SECRET=""
+# Optional Base application credentials for signature and dashboard publication.
+FEISHU_APP_ID=""
+FEISHU_APP_SECRET=""
+SIGNATURE_BASE_TOKEN=""
+SIGNATURE_TABLE_ID=""
+SIGNATURE_RECORD_ID=""
+# Use a separate, read-only display Base for the HTML dashboard.
+DASHBOARD_CACHE_BASE_TOKEN=""
+DASHBOARD_CACHE_TABLE_ID=""
+DASHBOARD_CACHE_RECORD_ID=""
+# Optional single-source scoring profile: configure ALL THREE together, or leave empty.
+HEALTH_DEVICE_PROFILE=""
+HEALTH_DEVICE_EPOCH_START=""
+HEALTH_REPORTED_SOURCE=""

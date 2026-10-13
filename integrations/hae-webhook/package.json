@@ -1,0 +1,16 @@
+{
+  "name": "healthrelay-cloudflare",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22.13" },
+  "scripts": {
+    "test": "node --test *.test.mjs",
+    "test:contract": "node --test healthrelay-contract.mjs",
+    "test:runtime": "node runtime-smoke.mjs node_modules/miniflare/dist/src/index.js health-indices-v1",
+    "test:refresh": "node event-refresh-runtime.mjs node_modules/miniflare/dist/src/index.js",
+    "dev": "wrangler dev --local",
+    "check:deploy": "wrangler deploy --dry-run --outdir dist/worker"
+  },
+  "devDependencies": { "wrangler": "4.150.0" }
+}

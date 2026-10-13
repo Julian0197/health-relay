@@ -1,0 +1,63 @@
+{
+  "schemaVersion": 1,
+  "id": "00000000-0000-4000-8000-000000000002",
+  "revision": 1,
+  "name": "HRV 双指标分钟（示例）",
+  "enabled": false,
+  "device": "iPhone",
+  "data": {
+    "family": "quantity",
+    "selections": [
+      {
+        "typeIdentifier": "HKQuantityTypeIdentifierHeartRateVariabilitySDNN",
+        "sources": [],
+        "unit": "ms",
+        "statistics": [
+          "average"
+        ]
+      },
+      {
+        "typeIdentifier": "HKQuantityTypeIdentifierHeartRateVariabilityRMSSD",
+        "sources": [],
+        "unit": "ms",
+        "statistics": [
+          "average"
+        ]
+      }
+    ],
+    "excludedSources": []
+  },
+  "range": {
+    "mode": "incremental",
+    "bootstrapDays": 7
+  },
+  "export": {
+    "format": "hea.v2",
+    "mode": "aggregate",
+    "grouping": "minutes",
+    "statistics": [],
+    "timeZone": "Asia/Shanghai",
+    "deletionPolicy": "reject"
+  },
+  "destination": {
+    "kind": "http",
+    "url": "https://health.example.com/ingest/hrv",
+    "method": "POST",
+    "headers": {
+      "X-HAE-Aggregation": "minutes"
+    },
+    "requiredSecretHeaders": [
+      "X-API-Key"
+    ],
+    "timeoutSeconds": 30,
+    "acknowledgement": "http2xx"
+  },
+  "execution": {
+    "onDataChange": true,
+    "onForeground": true,
+    "periodicPolling": true,
+    "minimumIntervalSeconds": 1800,
+    "batchMaxRecords": 500,
+    "batchMaxBytes": 1048576
+  }
+}

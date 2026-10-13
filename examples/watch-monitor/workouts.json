@@ -1,0 +1,53 @@
+{
+  "schemaVersion": 1,
+  "id": "00000000-0000-4000-8000-000000000005",
+  "revision": 1,
+  "name": "锻炼摘要（示例）",
+  "enabled": false,
+  "device": "iPhone",
+  "data": {
+    "family": "workout",
+    "selections": [
+      {
+        "typeIdentifier": "HKWorkoutType",
+        "sources": []
+      }
+    ],
+    "excludedSources": [],
+    "workoutOptions": {
+      "includeRoutes": false,
+      "includeMetrics": false,
+      "metricGrouping": "minutes"
+    }
+  },
+  "range": {
+    "mode": "defaultRange"
+  },
+  "export": {
+    "format": "hea.v2",
+    "mode": "raw",
+    "grouping": "none",
+    "statistics": [],
+    "timeZone": "Asia/Shanghai",
+    "deletionPolicy": "reject"
+  },
+  "destination": {
+    "kind": "http",
+    "url": "https://health.example.com/ingest/workouts",
+    "method": "POST",
+    "headers": {},
+    "requiredSecretHeaders": [
+      "X-API-Key"
+    ],
+    "timeoutSeconds": 30,
+    "acknowledgement": "http2xx"
+  },
+  "execution": {
+    "onDataChange": true,
+    "onForeground": true,
+    "periodicPolling": true,
+    "minimumIntervalSeconds": 1800,
+    "batchMaxRecords": 500,
+    "batchMaxBytes": 1048576
+  }
+}
