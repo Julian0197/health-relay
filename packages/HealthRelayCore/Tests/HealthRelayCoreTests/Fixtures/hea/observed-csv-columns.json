@@ -1,0 +1,769 @@
+{
+  "classification": "synthetic-values-observed-schema",
+  "observedHeaders": [
+    "日期/时间",
+    "Apple 活动时间 (分钟)",
+    "Apple 睡眠手腕温度 (ºC)",
+    "Apple 站立小时 (小时)",
+    "Apple 站立时间 (分钟)",
+    "Apple锻炼时间 (分钟)",
+    "下楼梯速度 (米/秒)",
+    "体温 (ºC)",
+    "体脂百分比 (%)",
+    "体重 (千克)",
+    "六分钟步行测试距离 (m)",
+    "刷牙 (秒)",
+    "单不饱和脂肪 (克)",
+    "去脂体重 (千克)",
+    "叶酸 (微克)",
+    "吸入器使用 (计数)",
+    "呼吸障碍 (计数)",
+    "呼吸频率 (count/min)",
+    "咖啡因 (mg)",
+    "基础体温 (ºC)",
+    "外周灌注指数 (%)",
+    "多不饱和脂肪 (克)",
+    "峰值呼气流量 (L/分)",
+    "心率 [最小值] (bpm)",
+    "心率 [最大] (bpm)",
+    "心率 [平均值] (bpm)",
+    "心率变异性 (ms)",
+    "心肺恢复 (count/min)",
+    "性生活 [未指定] (次)",
+    "性生活 [已使用防护措施] (次)",
+    "性生活 [未使用保护措施] (次)",
+    "总脂肪 (克)",
+    "恢复HRV (ms)",
+    "房颤负荷 (%)",
+    "推动次数 (计数)",
+    "攀登楼层数 (计数)",
+    "日照时长 (分钟)",
+    "最大摄氧量（VO2 Max） (ml/(kg·min))",
+    "核黄素 (mg)",
+    "正念分钟数 (分钟)",
+    "步幅长度 (cm)",
+    "步幅长度 (m)",
+    "步数 (步)",
+    "步行 + 跑步距离 (km)",
+    "步行不对称百分比 (%)",
+    "步行双支撑百分比 (%)",
+    "步行心率均值 (bpm)",
+    "步行速度 (公里/小时)",
+    "氯化物 (mg)",
+    "水下体温 (ºC)",
+    "水下深度 (m)",
+    "泛酸 (mg)",
+    "洗手次数 (秒)",
+    "活动能量 (kJ)",
+    "游泳划水次数 (划水次数)",
+    "游泳距离 (m)",
+    "烟酸 (mg)",
+    "爬楼速度：上 (米/秒)",
+    "环境音频暴露 (dBASPL)",
+    "生物素 (微克)",
+    "用力肺活量 (L)",
+    "皮肤电活动 (mcS)",
+    "睡眠分析 [Total] (小时)",
+    "睡眠分析 [睡眠时长] (小时)",
+    "睡眠分析 [在床上] (小时)",
+    "睡眠分析 [核心] (小时)",
+    "睡眠分析 [深度] (小时)",
+    "睡眠分析 [快速动眼期] (小时)",
+    "睡眠分析 [清醒] (小时)",
+    "硒 (微克)",
+    "硫胺素 (mg)",
+    "碘 (微克)",
+    "碳水化合物 (克)",
+    "磷 (mg)",
+    "第一秒用力呼气量 (L)",
+    "糖 (克)",
+    "紫外线暴露 (计数)",
+    "维生素 B12 (微克)",
+    "维生素 C (mg)",
+    "维生素 D (微克)",
+    "维生素 E (mg)",
+    "维生素A (微克)",
+    "维生素B6 (mg)",
+    "维生素K (微克)",
+    "耳机音频暴露 (dBASPL)",
+    "胆固醇 (mg)",
+    "胰岛素输注 (国际单位)",
+    "腰围 (cm)",
+    "膳食纤维 (克)",
+    "膳食能量 (kJ)",
+    "蛋白质 (克)",
+    "血压 [收缩压] (毫米汞柱)",
+    "血压 [舒张压] (毫米汞柱)",
+    "血氧饱和度 (%)",
+    "血液酒精含量 (%)",
+    "血糖 (mmol/L)",
+    "跌倒次数 (次)",
+    "跑步功率 (瓦特)",
+    "跑步垂直振幅 (cm)",
+    "跑步接地时间 (ms)",
+    "跑步速度 (公里/小时)",
+    "身体努力 (kcal/hr·kg)",
+    "身体质量指数 (计数)",
+    "身高 (m)",
+    "轮椅距离 (km)",
+    "酒精摄入 (计数)",
+    "钙 (mg)",
+    "钠 (mg)",
+    "钼 (微克)",
+    "钾 (mg)",
+    "铁 (mg)",
+    "铜 (mg)",
+    "铬 (微克)",
+    "锌 (mg)",
+    "锰 (mg)",
+    "镁 (mg)",
+    "静息心率 (bpm)",
+    "静息能量 (kJ)",
+    "饮水 (mL)",
+    "饱和脂肪 (克)",
+    "骑行功率 (瓦特)",
+    "骑行功能性阈值功率 (瓦特)",
+    "骑行距离 (km)",
+    "骑行踏频 (count/min)",
+    "骑行速度 (公里/小时)",
+    "高山雪上运动距离 (km)"
+  ],
+  "quantities": [
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierAppleMoveTime",
+      "header": "Apple 活动时间 (分钟)",
+      "unit": "min",
+      "order": 1
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierAppleSleepingWristTemperature",
+      "header": "Apple 睡眠手腕温度 (ºC)",
+      "unit": "degC",
+      "order": 2
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierAppleStandTime",
+      "header": "Apple 站立时间 (分钟)",
+      "unit": "min",
+      "order": 4
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierAppleExerciseTime",
+      "header": "Apple锻炼时间 (分钟)",
+      "unit": "min",
+      "order": 5
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierStairDescentSpeed",
+      "header": "下楼梯速度 (米/秒)",
+      "unit": "m/s",
+      "order": 6
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierBodyTemperature",
+      "header": "体温 (ºC)",
+      "unit": "degC",
+      "order": 7
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierBodyFatPercentage",
+      "header": "体脂百分比 (%)",
+      "unit": "%",
+      "order": 8
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierBodyMass",
+      "header": "体重 (千克)",
+      "unit": "kg",
+      "order": 9
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierSixMinuteWalkTestDistance",
+      "header": "六分钟步行测试距离 (m)",
+      "unit": "m",
+      "order": 10
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierDietaryFatMonounsaturated",
+      "header": "单不饱和脂肪 (克)",
+      "unit": "g",
+      "order": 12
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierLeanBodyMass",
+      "header": "去脂体重 (千克)",
+      "unit": "kg",
+      "order": 13
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierDietaryFolate",
+      "header": "叶酸 (微克)",
+      "unit": "mcg",
+      "order": 14
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierInhalerUsage",
+      "header": "吸入器使用 (计数)",
+      "unit": "count",
+      "order": 15
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierAppleSleepingBreathingDisturbances",
+      "header": "呼吸障碍 (计数)",
+      "unit": "count",
+      "order": 16
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierRespiratoryRate",
+      "header": "呼吸频率 (count/min)",
+      "unit": "count/min",
+      "order": 17
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierDietaryCaffeine",
+      "header": "咖啡因 (mg)",
+      "unit": "mg",
+      "order": 18
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierBasalBodyTemperature",
+      "header": "基础体温 (ºC)",
+      "unit": "degC",
+      "order": 19
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierPeripheralPerfusionIndex",
+      "header": "外周灌注指数 (%)",
+      "unit": "%",
+      "order": 20
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierDietaryFatPolyunsaturated",
+      "header": "多不饱和脂肪 (克)",
+      "unit": "g",
+      "order": 21
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierPeakExpiratoryFlowRate",
+      "header": "峰值呼气流量 (L/分)",
+      "unit": "L/min",
+      "order": 22
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierHeartRate",
+      "header": "心率 [最小值] (bpm)",
+      "unit": "bpm",
+      "order": 23
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierHeartRateVariabilitySDNN",
+      "header": "心率变异性 (ms)",
+      "unit": "ms",
+      "order": 26
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierHeartRateRecoveryOneMinute",
+      "header": "心肺恢复 (count/min)",
+      "unit": "count/min",
+      "order": 27
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierDietaryFatTotal",
+      "header": "总脂肪 (克)",
+      "unit": "g",
+      "order": 31
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierAtrialFibrillationBurden",
+      "header": "房颤负荷 (%)",
+      "unit": "%",
+      "order": 33
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierPushCount",
+      "header": "推动次数 (计数)",
+      "unit": "count",
+      "order": 34
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierFlightsClimbed",
+      "header": "攀登楼层数 (计数)",
+      "unit": "count",
+      "order": 35
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierTimeInDaylight",
+      "header": "日照时长 (分钟)",
+      "unit": "min",
+      "order": 36
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierVO2Max",
+      "header": "最大摄氧量（VO2 Max） (ml/(kg·min))",
+      "unit": "mL/(kg*min)",
+      "order": 37
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierDietaryRiboflavin",
+      "header": "核黄素 (mg)",
+      "unit": "mg",
+      "order": 38
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierWalkingStepLength",
+      "header": "步幅长度 (cm)",
+      "unit": "cm",
+      "order": 40
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierRunningStrideLength",
+      "header": "步幅长度 (m)",
+      "unit": "m",
+      "order": 41
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierStepCount",
+      "header": "步数 (步)",
+      "unit": "count",
+      "order": 42
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierDistanceWalkingRunning",
+      "header": "步行 + 跑步距离 (km)",
+      "unit": "km",
+      "order": 43
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierWalkingAsymmetryPercentage",
+      "header": "步行不对称百分比 (%)",
+      "unit": "%",
+      "order": 44
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierWalkingDoubleSupportPercentage",
+      "header": "步行双支撑百分比 (%)",
+      "unit": "%",
+      "order": 45
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierWalkingHeartRateAverage",
+      "header": "步行心率均值 (bpm)",
+      "unit": "bpm",
+      "order": 46
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierWalkingSpeed",
+      "header": "步行速度 (公里/小时)",
+      "unit": "km/hr",
+      "order": 47
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierDietaryChloride",
+      "header": "氯化物 (mg)",
+      "unit": "mg",
+      "order": 48
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierWaterTemperature",
+      "header": "水下体温 (ºC)",
+      "unit": "degC",
+      "order": 49
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierUnderwaterDepth",
+      "header": "水下深度 (m)",
+      "unit": "m",
+      "order": 50
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierDietaryPantothenicAcid",
+      "header": "泛酸 (mg)",
+      "unit": "mg",
+      "order": 51
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierActiveEnergyBurned",
+      "header": "活动能量 (kJ)",
+      "unit": "kJ",
+      "order": 53
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierSwimmingStrokeCount",
+      "header": "游泳划水次数 (划水次数)",
+      "unit": "count",
+      "order": 54
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierDistanceSwimming",
+      "header": "游泳距离 (m)",
+      "unit": "m",
+      "order": 55
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierDietaryNiacin",
+      "header": "烟酸 (mg)",
+      "unit": "mg",
+      "order": 56
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierStairAscentSpeed",
+      "header": "爬楼速度：上 (米/秒)",
+      "unit": "m/s",
+      "order": 57
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierEnvironmentalAudioExposure",
+      "header": "环境音频暴露 (dBASPL)",
+      "unit": "dBASPL",
+      "order": 58
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierDietaryBiotin",
+      "header": "生物素 (微克)",
+      "unit": "mcg",
+      "order": 59
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierForcedVitalCapacity",
+      "header": "用力肺活量 (L)",
+      "unit": "L",
+      "order": 60
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierElectrodermalActivity",
+      "header": "皮肤电活动 (mcS)",
+      "unit": "mcS",
+      "order": 61
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierDietarySelenium",
+      "header": "硒 (微克)",
+      "unit": "mcg",
+      "order": 69
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierDietaryThiamin",
+      "header": "硫胺素 (mg)",
+      "unit": "mg",
+      "order": 70
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierDietaryIodine",
+      "header": "碘 (微克)",
+      "unit": "mcg",
+      "order": 71
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierDietaryCarbohydrates",
+      "header": "碳水化合物 (克)",
+      "unit": "g",
+      "order": 72
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierDietaryPhosphorus",
+      "header": "磷 (mg)",
+      "unit": "mg",
+      "order": 73
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierForcedExpiratoryVolume1",
+      "header": "第一秒用力呼气量 (L)",
+      "unit": "L",
+      "order": 74
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierDietarySugar",
+      "header": "糖 (克)",
+      "unit": "g",
+      "order": 75
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierUVExposure",
+      "header": "紫外线暴露 (计数)",
+      "unit": "count",
+      "order": 76
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierDietaryVitaminB12",
+      "header": "维生素 B12 (微克)",
+      "unit": "mcg",
+      "order": 77
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierDietaryVitaminC",
+      "header": "维生素 C (mg)",
+      "unit": "mg",
+      "order": 78
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierDietaryVitaminD",
+      "header": "维生素 D (微克)",
+      "unit": "mcg",
+      "order": 79
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierDietaryVitaminE",
+      "header": "维生素 E (mg)",
+      "unit": "mg",
+      "order": 80
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierDietaryVitaminA",
+      "header": "维生素A (微克)",
+      "unit": "mcg",
+      "order": 81
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierDietaryVitaminB6",
+      "header": "维生素B6 (mg)",
+      "unit": "mg",
+      "order": 82
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierDietaryVitaminK",
+      "header": "维生素K (微克)",
+      "unit": "mcg",
+      "order": 83
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierHeadphoneAudioExposure",
+      "header": "耳机音频暴露 (dBASPL)",
+      "unit": "dBASPL",
+      "order": 84
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierDietaryCholesterol",
+      "header": "胆固醇 (mg)",
+      "unit": "mg",
+      "order": 85
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierInsulinDelivery",
+      "header": "胰岛素输注 (国际单位)",
+      "unit": "IU",
+      "order": 86
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierWaistCircumference",
+      "header": "腰围 (cm)",
+      "unit": "cm",
+      "order": 87
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierDietaryFiber",
+      "header": "膳食纤维 (克)",
+      "unit": "g",
+      "order": 88
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierDietaryEnergyConsumed",
+      "header": "膳食能量 (kJ)",
+      "unit": "kJ",
+      "order": 89
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierDietaryProtein",
+      "header": "蛋白质 (克)",
+      "unit": "g",
+      "order": 90
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierOxygenSaturation",
+      "header": "血氧饱和度 (%)",
+      "unit": "%",
+      "order": 93
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierBloodAlcoholContent",
+      "header": "血液酒精含量 (%)",
+      "unit": "%",
+      "order": 94
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierBloodGlucose",
+      "header": "血糖 (mmol/L)",
+      "unit": "mmol/L",
+      "order": 95
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierNumberOfTimesFallen",
+      "header": "跌倒次数 (次)",
+      "unit": "count",
+      "order": 96
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierRunningPower",
+      "header": "跑步功率 (瓦特)",
+      "unit": "W",
+      "order": 97
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierRunningVerticalOscillation",
+      "header": "跑步垂直振幅 (cm)",
+      "unit": "cm",
+      "order": 98
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierRunningGroundContactTime",
+      "header": "跑步接地时间 (ms)",
+      "unit": "ms",
+      "order": 99
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierRunningSpeed",
+      "header": "跑步速度 (公里/小时)",
+      "unit": "km/hr",
+      "order": 100
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierPhysicalEffort",
+      "header": "身体努力 (kcal/hr·kg)",
+      "unit": "kcal/(hr*kg)",
+      "order": 101
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierBodyMassIndex",
+      "header": "身体质量指数 (计数)",
+      "unit": "count",
+      "order": 102
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierHeight",
+      "header": "身高 (m)",
+      "unit": "m",
+      "order": 103
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierDistanceWheelchair",
+      "header": "轮椅距离 (km)",
+      "unit": "km",
+      "order": 104
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierNumberOfAlcoholicBeverages",
+      "header": "酒精摄入 (计数)",
+      "unit": "count",
+      "order": 105
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierDietaryCalcium",
+      "header": "钙 (mg)",
+      "unit": "mg",
+      "order": 106
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierDietarySodium",
+      "header": "钠 (mg)",
+      "unit": "mg",
+      "order": 107
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierDietaryMolybdenum",
+      "header": "钼 (微克)",
+      "unit": "mcg",
+      "order": 108
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierDietaryPotassium",
+      "header": "钾 (mg)",
+      "unit": "mg",
+      "order": 109
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierDietaryIron",
+      "header": "铁 (mg)",
+      "unit": "mg",
+      "order": 110
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierDietaryCopper",
+      "header": "铜 (mg)",
+      "unit": "mg",
+      "order": 111
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierDietaryChromium",
+      "header": "铬 (微克)",
+      "unit": "mcg",
+      "order": 112
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierDietaryZinc",
+      "header": "锌 (mg)",
+      "unit": "mg",
+      "order": 113
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierDietaryManganese",
+      "header": "锰 (mg)",
+      "unit": "mg",
+      "order": 114
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierDietaryMagnesium",
+      "header": "镁 (mg)",
+      "unit": "mg",
+      "order": 115
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierRestingHeartRate",
+      "header": "静息心率 (bpm)",
+      "unit": "bpm",
+      "order": 116
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierBasalEnergyBurned",
+      "header": "静息能量 (kJ)",
+      "unit": "kJ",
+      "order": 117
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierDietaryWater",
+      "header": "饮水 (mL)",
+      "unit": "mL",
+      "order": 118
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierDietaryFatSaturated",
+      "header": "饱和脂肪 (克)",
+      "unit": "g",
+      "order": 119
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierCyclingPower",
+      "header": "骑行功率 (瓦特)",
+      "unit": "W",
+      "order": 120
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierCyclingFunctionalThresholdPower",
+      "header": "骑行功能性阈值功率 (瓦特)",
+      "unit": "W",
+      "order": 121
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierDistanceCycling",
+      "header": "骑行距离 (km)",
+      "unit": "km",
+      "order": 122
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierCyclingCadence",
+      "header": "骑行踏频 (count/min)",
+      "unit": "count/min",
+      "order": 123
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierCyclingSpeed",
+      "header": "骑行速度 (公里/小时)",
+      "unit": "km/hr",
+      "order": 124
+    },
+    {
+      "typeIdentifier": "HKQuantityTypeIdentifierDistanceDownhillSnowSports",
+      "header": "高山雪上运动距离 (km)",
+      "unit": "km",
+      "order": 125
+    }
+  ]
+}

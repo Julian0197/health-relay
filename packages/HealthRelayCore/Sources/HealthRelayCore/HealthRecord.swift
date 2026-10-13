@@ -62,9 +62,9 @@ public struct EncodedBatch: Sendable {
     public let contentType: String
 }
 public enum BatchEncoder {
-    public static func encode(_ batch: UploadBatch, format: String = "healthrelay.v1", timeZone: String = "UTC", heaDataType: HEADataType? = nil) throws -> EncodedBatch {
+    public static func encode(_ batch: UploadBatch, format: String = "healthrelay.v1", timeZone: String = "UTC", heaDataType: HEADataType? = nil, selectedTypeIdentifiers: [String]? = nil) throws -> EncodedBatch {
         let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
-        if format == "hea.csv" { return try HEACSVEncoder.encode(batch, timeZone: timeZone, heaDataType: heaDataType) }
+        if format == "hea.csv" { return try HEACSVEncoder.encode(batch, timeZone: timeZone, heaDataType: heaDataType, selectedTypeIdentifiers: selectedTypeIdentifiers) }
         if ["hea.v1", "hea.v2"].contains(format) { return try HEAEncoder.encode(batch, timeZone: timeZone, version: format == "hea.v1" ? 1 : 2, heaDataType: heaDataType) }
         if format == "healthrelay.v1" {
             return EncodedBatch(body: try encoder.encode(batch), contentType: "application/json")
@@ -103,13 +103,32 @@ public extension AutomationConfig {
                     guard let metric = MetricCatalog.bundled.metric(selection.id), metric.family == .quantity, !metric.statistics.isEmpty else {
                         issues.append("HEA CSV 仅支持可汇总数量指标与睡眠"); continue
                     }
+                    do { try HEACSVEncoder.validateType(selection.id) }
+                    catch { issues.append(error.localizedDescription) }
+                    let chosen = statistics(for: selection)
+                    if selection.id == "HKQuantityTypeIdentifierHeartRate" {
+                        if chosen.isEmpty || chosen.contains(.sum) { issues.append("HEA CSV 心率只支持最小值、最大值与平均值统计") }
+                    } else if chosen.count != 1 {
+                        issues.append("HEA CSV 单列指标只能选择一种统计，请选择单一统计或使用 HealthRelay JSON")
+                    }
                 }
             }
         }
         return issues
     }
-    var executionIssues: [String] {
-        var issues = executionCapabilityIssues
+    /// Frozen requests need valid configuration, credentials and identity; new reads also need current format support.
+    func executionStartIssues(pending: PendingUpload?, automatic: Bool = false, systemMajorVersion: Int = 27) -> [String] {
+        var issues = validationIssues(systemMajorVersion: systemMajorVersion, device: device)
+            + (pending == nil ? executionIssues : executionDestinationIssues)
+        if let pending, (try? SyncIdentity.fingerprint(self)) != pending.configurationFingerprint {
+            issues.append("有待上传批次，请恢复原配置并重试后再修改接口或数据规则")
+        }
+        if device == .watch, !enabled, automatic || pending == nil { issues.append("Watch 任务尚未启用；仅可手动重试现有待上传批次") }
+        return issues
+    }
+    var executionIssues: [String] { executionCapabilityIssues + executionDestinationIssues }
+    internal var executionDestinationIssues: [String] {
+        var issues: [String] = []
         if destination.requiredSecretHeaders?.isEmpty == false { issues.append("请重新填写导入配置的认证值") }
         if destination.credentialHeader != nil && destination.credentialRef == nil { issues.append("请填写认证值") }
         return issues

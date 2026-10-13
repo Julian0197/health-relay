@@ -97,7 +97,7 @@ HEA JSON 的 data 根据记录分别包含 metrics、workouts、symptoms、cycle
 
 `export.deletionPolicy` 仅影响 HEA：省略或 `reject` 停止，`omit` 跳过并记录删除数。原生始终传播删除。HEA 的整个窗口清空无法表达；选择 omit 后旧窗口可能留在远端。
 
-HEA 自动 Header 为 automation-name/id/aggregation/period、session-id，重试时冻结。具体 profile、日期映射和 CSV 捕获边界见[核心实现](implementation-automation-core.md#hea-兼容边界)。
+HEA 自动 Header 为 automation-name/id/aggregation/period、session-id，重试时冻结。具体日期映射见[核心实现](implementation-automation-core.md#hea-兼容边界)，最新 CSV profile 与实机捕获边界见[HEA 验收](implementation-hea.md#csv-实机样本修正)。CSV 固定采用捕获的中文列名/单位、每批一张数量/睡眠宽表；当前仍按指标分页。非心率数量只能选一种统计，同一指标同一时间的重复值会报错。
 
 ## Confirmation 与重试
 

@@ -12,7 +12,7 @@ An open-source iPhone and Apple Watch app for configurable Apple Health exports.
 | --- | --- | --- |
 | 通用任务配置 | 新建/编辑/复制/删除、指标混选、来源/单位/日期范围、HTTPS/Header/认证、导入导出 | Core 与原生模拟器保存/重启通过；文件导出脱敏，认证存本机 Keychain |
 | 健康数据读取 | 数量、分类、关联、完整锻炼及 ECG/情绪/用药事件；按类型分页、anchor、新增/删除 | iPhone SDNN、RMSSD、步数、睡眠已有真实样本上传证据，不能推定全部类型已验收 |
-| 导出与汇总 | 原生 JSON/CSV/Markdown；HEA v1/v2 各数据族、106 项数量映射及指标 CSV profile；每指标汇总、日历窗口、迟到/删除修正、跨午夜睡眠 | 合成契约及 SDK 桥接通过；已有真实心率汇总 JSON，运动/百分比与汇总数值待逐项对照；CSV 已确认布局不同，仍为实验性 |
+| 导出与汇总 | 原生 JSON/CSV/Markdown；HEA v1/v2 各数据族、106 项数量映射及指标 CSV profile；每指标汇总、日历窗口、迟到/删除修正、跨午夜睡眠 | 合成契约及 SDK 桥接通过；已有真实心率汇总 JSON，运动/百分比与汇总数值待逐项对照；CSV 按实机中文宽表修正；跨指标整包及 REST 兼容仍未验收 |
 | 历史补传与恢复 | 独立固定日期 job、公平串行队列、继续/取消、持久待上传批次、退避与确认后提交游标 | iPhone 补传真机通过；本地及模拟器已验证失败重试、相同批次/正文、无变化不再上传 |
 | iPhone 自动运行 | HealthKit 变化、前台补跑/间隔检查、BGTask、后台 AppIntent、Shortcuts 时间触发 | 真机前台间隔及 App 未在前台时的 Shortcuts 自动上传通过；自然后台恢复仍待验收 |
 | iPhone 后台生命周期 | 启动阶段注册 Observer、处理结束/到期才释放回调、受保护配置解锁后重载、到期申请恢复机会 | 原生生命周期测试及真机启动注册诊断通过；不等同于锁屏持续上传 |
@@ -75,7 +75,7 @@ xcodebuild -project ios/HealthRelay.xcodeproj -scheme HealthRelayWatch \
 
 组合构建使用 `-destination`，不要全局指定 `-sdk iphonesimulator` 覆盖 Watch 依赖的 SDK。`CODE_SIGNING_ALLOWED=NO` 适用于编译检查；Watch 模拟器运行涉及 Keychain 时需本地签名（`CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=-`）。原生测试选择具体 iPhone 模拟器运行 `HealthRelay` scheme，Watch 生命周期测试选择独立 watchOS 模拟器运行 `HealthRelayWatch` scheme 的 `HealthRelayWatchTests`；涉及 HTTPS 的 UI 用例先按[执行验收步骤](docs/implementation-execution.md)启动本机合成接收器。
 
-本轮运动与 HEA 回归：Core 132 项通过、2 项可选外网测试跳过；接收器 11 项、iPhone 原生 41 项、Watch 原生 42 项通过；新增 HEA 版本/数据族保存与重启 UI 场景通过。iPhone + Watch 模拟器组合构建和双平台 Release 真机目标编译通过。Release 检查未签名、未安装，不算真机运行验收。外网集成须另行提供明确授权的私有验收配置；默认测试不会读取凭据或上传真实健康数据。
+当前 CSV 修正回归：Core 153 项通过、2 项可选外网测试跳过；接收器 15 项通过。此前本轮运动/HEA 集成中，iPhone 原生 41 项、Watch 原生 42 项和 HEA 版本/数据族保存重启 UI 场景通过。iPhone + Watch 模拟器组合构建和双平台 Release 真机目标编译通过。Release 检查未签名、未安装，不算真机运行验收。外网集成须另行提供明确授权的私有验收配置；默认测试不会读取凭据或上传真实健康数据。
 
 原生运动测试覆盖全部路线分段、数量内部 series、来源筛选、取消和查询失败；HEA 固定样例与 SDK 桥接覆盖两版运动格式、单位换算和专用数据族。用户提供的实际 HEA 心率 JSON 已用于修正单位和汇总来源字段；其余真实文件与自然后台能力的未完成项见[对照记录](docs/implementation-hea.md)。
 
@@ -99,7 +99,7 @@ xcodebuild -project ios/HealthRelay.xcodeproj -scheme HealthRelayWatch \
 
 - [ ] **P0 无人干预可靠性**：iPhone 自然 HealthKit/BGTask 唤醒、锁屏/解锁、503→200 自动续传，核对同批次/相同正文/仅提交一次；补上断网、系统到期和长期挂起场景。
 - [ ] **P0 Watch 真机闭环**：iPhone→Watch 配置及接收确认、本机认证/健康读取、手机锁屏时的自然上传、断网恢复、配置更新/删除、执行设备切换、延迟回执；至少一个日夜周期记录延迟与耗电。
-- [ ] **P1 数据与 HEA 对照**：已实现 HEA v1/v2 编码和 106 项数量映射；继续对照真实运动/CSV、百分比、HealthKit 汇总值、多来源与跨午夜睡眠。补齐用药及站立/刷牙/洗手的 HEA 语义；CSV 当前仅开放指标汇总，布局与 HEA 手动导出的合并宽表不同。
+- [ ] **P1 数据与 HEA 对照**：已实现 HEA v1/v2 编码和 106 项数量映射；继续对照真实运动、CSV REST、百分比、HealthKit 汇总值、多来源与跨午夜睡眠。补齐用药及站立/刷牙/洗手的 HEA 语义；CSV 当前仅开放数量与睡眠汇总，使用捕获的中文宽表；跨指标整包、其他语言/单位偏好、运动数据行和 REST multipart 仍待验证。
 - [ ] **P1 专用数据验收与补齐**：运动路线/关联时序、ECG、State of Mind/Medication 已实现，补充真机样本及父运动确认后迟到路线/关联数据的增量重查验收；Activity Summary/Characteristics、Audiogram、独立 heartbeat series 与临床/受限类型仍需单独接入。
 - [ ] **P1 通知完整验收**：通知动作的冷/热启动、与前台补跑并发、停用/删除后的提醒清理。
 - [ ] **P2 配置与生态**：批量管理、HEA 配置迁移、通过深链创建任务、自动备份恢复、多目的地适配、桌面查询/MCP、Widgets。当前 AppIntent 仅运行已有任务。

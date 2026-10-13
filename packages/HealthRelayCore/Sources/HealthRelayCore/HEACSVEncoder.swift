@@ -1,90 +1,93 @@
 import Foundation
 import CryptoKit
 
-/// Multipart CSV compatibility profile, one `file` part per metric.
-/// Experimental legacy profile: an observed HEA manual export combines health
-/// metrics into one localized wide table. This per-metric layout differs; REST
-/// multipart field names and file organization have not been captured.
+/// Observed manual zh-CN aggregate table, one stable file per batch.
+/// The multipart `file` envelope remains provisional until a REST capture exists.
 public enum HEACSVEncoder {
-    public static func encode(_ batch: UploadBatch, timeZone: String, heaDataType: HEADataType? = nil) throws -> EncodedBatch {
+    public static func encode(_ batch: UploadBatch, timeZone: String, heaDataType: HEADataType? = nil, selectedTypeIdentifiers: [String]? = nil) throws -> EncodedBatch {
         if let family = heaDataType, ![.automatic, .healthMetrics].contains(family) { throw ConfigurationError("HEA CSV 仅支持健康指标") }
+        let types = Set(selectedTypeIdentifiers ?? []).union(batch.records.map(\.typeIdentifier))
+        for type in types { try validateType(type) }
+        let columns = HEACSVProfile.columns.filter { types.contains($0.typeIdentifier) }
+        let dates = try HEADates(timeZone: timeZone)
+        dates.formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        let sleepDate = DateFormatter(); sleepDate.locale = Locale(identifier: "en_US_POSIX")
+        sleepDate.calendar = Calendar(identifier: .gregorian); sleepDate.timeZone = dates.formatter.timeZone
+        sleepDate.dateFormat = "yyyy-MM-dd"; sleepDate.isLenient = false
+        var rows: [String: [String]] = [:], seen: [String: Set<String>] = [:]
+        let statistics = ["sum", "average", "minimum", "maximum"]
         for record in batch.records {
-            guard try HEAEncoder.family(for: record.typeIdentifier, selection: heaDataType) == .healthMetrics else { throw ConfigurationError("HEA CSV 不支持非健康指标或混合数据，请使用 JSON") }
+            guard record.op == .upsert else { throw ConfigurationError("HEA CSV 不支持删除事件，请使用 HealthRelay JSON 同步删除") }
+            guard let payload = record.payload, payload["aggregation"] == .bool(true) else { throw ConfigurationError("HEA CSV 仅支持汇总记录，明细请使用 JSON") }
+            let indices = columns.indices.filter { columns[$0].typeIdentifier == record.typeIdentifier }
+            let isSleep = record.typeIdentifier == "HKCategoryTypeIdentifierSleepAnalysis"
+            let isHeart = record.typeIdentifier == "HKQuantityTypeIdentifierHeartRate"
+            let allowed: Set<String> = isSleep
+                ? ["aggregation", "unit", "sleepDate", "totalSleep", "asleep", "inBed", "core", "deep", "rem", "awake", "sleepStart", "sleepEnd", "inBedStart", "inBedEnd"]
+                : Set(["aggregation", "unit", "value"] + statistics)
+            guard Set(payload.keys).isSubset(of: allowed) else { throw ConfigurationError("HEA CSV 包含无法映射的汇总字段，请使用 HealthRelay JSON") }
+            guard let unit = payload["unit"]?.text else { throw ConfigurationError("HEA CSV 汇总缺少单位") }
+            let date: String
+            if isSleep {
+                guard let text = payload["sleepDate"]?.text, let day = sleepDate.date(from: text), sleepDate.string(from: day) == text else {
+                    throw ConfigurationError("HEA CSV 睡眠汇总缺少合法日期")
+                }
+                guard ["hr", "min", "s"].contains(unit) else { throw ConfigurationError("HEA CSV 睡眠时长单位无效") }
+                _ = try HEAValue.number(payload["totalSleep"], "totalSleep")
+                date = dates.formatter.string(from: day)
+            } else {
+                date = try dates.string(record.start)
+                let outputUnit = columns[indices[0]].unit
+                guard MetricCatalog.bundled.metric(record.typeIdentifier)?.units.contains(unit) == true || unit == outputUnit else {
+                    throw ConfigurationError("HEA CSV 指标单位无效：\(record.typeIdentifier) / \(unit)")
+                }
+                let present = statistics.filter { payload[$0] != nil }
+                if isHeart {
+                    guard payload["sum"] == nil, !present.isEmpty else { throw ConfigurationError("HEA CSV 心率只支持最小值、最大值与平均值统计") }
+                    // Native preferred value is average, then minimum, then maximum.
+                    if let value = payload["value"], try HEAValue.number(value, "value") != HEAValue.number(payload[present[0]], present[0]) {
+                        throw ConfigurationError("HEA CSV 心率汇总值与所选统计不一致")
+                    }
+                } else {
+                    guard present.count <= 1 else { throw ConfigurationError("HEA CSV 单列指标只能选择一种统计，请选择单一统计或使用 HealthRelay JSON") }
+                    let value = try HEAValue.number(payload["value"], "value")
+                    if let statistic = present.first, try HEAValue.number(payload[statistic], statistic) != value {
+                        throw ConfigurationError("HEA CSV 汇总值与所选统计不一致")
+                    }
+                }
+            }
+            guard seen[date, default: []].insert(record.typeIdentifier).inserted else {
+                throw ConfigurationError("HEA CSV 同一指标和时间存在重复汇总；请使用单一来源，或使用 HealthRelay JSON 保留来源")
+            }
+            var row = rows[date] ?? Array(repeating: "", count: columns.count)
+            for index in indices {
+                let column = columns[index]
+                guard let field = payload[column.field] else { continue }
+                let value = try HEACSVProfile.convert(HEAValue.number(field, column.field), from: unit, to: column.unit)
+                row[index] = String(decoding: try JSONEncoder().encode(value), as: UTF8.self)
+            }
+            rows[date] = row
         }
-        let encoded = try HEAEncoder.encode(batch, timeZone: timeZone, heaDataType: heaDataType)
-        let document = try JSONDecoder().decode(Document.self, from: encoded.body)
+        let header = (["日期/时间"] + columns.map(\.header)).map(quote).joined(separator: ",")
+        let csv = ([header] + rows.keys.sorted().map { ([quote($0)] + rows[$0]!).joined(separator: ",") }).joined(separator: "\n") + "\n"
         let boundary = "HEA-" + SHA256.hash(data: Data(batch.batchId.utf8)).map { String(format: "%02x", $0) }.joined()
-        var body = ""
-        for metric in document.data.metrics ?? [] {
-            body += "--\(boundary)\r\n"
-            body += "Content-Disposition: form-data; name=\"file\"; filename=\"\(metric.name).csv\"\r\n"
-            body += "Content-Type: text/csv; charset=utf-8\r\n\r\n"
-            body += try csv(metric)
-            body += "\r\n"
-        }
-        body += "--\(boundary)--\r\n"
+        let body = "--\(boundary)\r\n"
+            + "Content-Disposition: form-data; name=\"file\"; filename=\"HealthAutoExport.csv\"\r\n"
+            + "Content-Type: text/csv; charset=utf-8\r\n\r\n"
+            + csv + "\r\n--\(boundary)--\r\n"
         return EncodedBatch(body: Data(body.utf8), contentType: "multipart/form-data; boundary=\(boundary)")
     }
 
-    private struct Document: Decodable {
-        var data: Payload
-        struct Payload: Decodable { var metrics: [Metric]? }
-    }
-    private struct Metric: Decodable {
-        var name: String
-        var units: String
-        var data: [[String: JSONValue]]
-    }
-
-    private static func csv(_ metric: Metric) throws -> String {
-        let preferredOrder = ["date", "startDate", "endDate", "qty", "value", "Min", "Avg", "Max",
-                              "totalSleep", "asleep", "core", "deep", "rem", "awake", "inBed",
-                              "sleepStart", "sleepEnd", "inBedStart", "inBedEnd", "systolic", "diastolic", "source"]
-        let keys = Set(metric.data.flatMap { $0.keys })
-        let columns = preferredOrder.filter { keys.contains($0) } + keys.subtracting(preferredOrder).sorted()
-        let headers = columns.map { quote(heading($0, metric: metric)) }.joined(separator: ",")
-        let rows = try metric.data.map { point in
-            try columns.map { try cell(point[$0]) }.joined(separator: ",")
-        }
-        return ([headers] + rows).joined(separator: "\r\n") + "\r\n"
-    }
-
-    private static func heading(_ key: String, metric: Metric) -> String {
-        let title = metric.name.replacingOccurrences(of: "_", with: " ").capitalized(with: Locale(identifier: "en_US_POSIX"))
-        let unit = " (\(metric.units))"
-        switch key {
-        case "qty": return (metric.name == "sleep_analysis" ? "Duration" : title) + unit
-        case "Min", "Avg", "Max": return title + " " + key + unit
-        case "totalSleep": return "Total Sleep" + unit
-        case "asleep", "core", "deep", "rem", "awake", "inBed":
-            return (key == "inBed" ? "In Bed" : key == "rem" ? "REM" : key.capitalized) + unit
-        case "startDate": return "Start Date"
-        case "endDate": return "End Date"
-        case "sleepStart": return "Sleep Start"
-        case "sleepEnd": return "Sleep End"
-        case "inBedStart": return "In Bed Start"
-        case "inBedEnd": return "In Bed End"
-        case "value": return metric.name == "sleep_analysis" ? "Stage" : "Value"
-        case "systolic", "diastolic": return key.capitalized + unit
-        default: return key.capitalized
+    static func validateType(_ type: String) throws {
+        guard HEACSVProfile.supportedTypes.contains(type) else {
+            throw ConfigurationError("HEA CSV 尚无此指标的可靠汇总列映射，请使用 HealthRelay JSON：\(type)")
         }
     }
-
-    private static func cell(_ value: JSONValue?) throws -> String {
-        switch value {
-        case .string(let text): return quote(text)
-        case .number, .bool:
-            return "\"" + String(decoding: try JSONEncoder().encode(value), as: UTF8.self) + "\""
-        case nil, .null: return "\"\""
-        default: throw ConfigurationError("HEA CSV 不支持嵌套单元格")
-        }
-    }
-
-    private static func quote(_ text: String) -> String {
+    static func quote(_ text: String) -> String {
         let first = text.trimmingCharacters(in: .whitespacesAndNewlines).first
         let formula = first.map { "=+-@".contains($0) } ?? false
-        let controlPrefix = text.first.map { "\t\r\n".contains($0) } ?? false
+        let controlPrefix = text.unicodeScalars.first.map { CharacterSet(charactersIn: "\t\r\n").contains($0) } ?? false
         let safe = (formula || controlPrefix ? "'" : "") + text
-        return "\"" + safe.replacingOccurrences(of: "\"", with: "\"\"") + "\""
+        return safe.rangeOfCharacter(from: CharacterSet(charactersIn: ",\"\r\n")) != nil ? "\"" + safe.replacingOccurrences(of: "\"", with: "\"\"") + "\"" : safe
     }
 }

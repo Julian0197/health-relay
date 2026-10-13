@@ -206,6 +206,13 @@ final class AutomationStore {
         await configureObservers()
     }
 
+    func executionStartIssues(_ task: AutomationConfig) -> [String] {
+        do {
+            return task.executionStartIssues(pending: try journal.load(task.id).pending,
+                systemMajorVersion: ProcessInfo.processInfo.operatingSystemVersion.majorVersion)
+        } catch { return ["同步状态无法读取，已停止以保护原文件"] }
+    }
+
     func run(_ task: AutomationConfig, automatic: Bool = false, trigger: String = "manual", deadline: Date? = nil) async {
         do { try requirePhone(task) }
         catch { outcomes[task.id] = RunLog(state: .failed, message: error.localizedDescription); return }
@@ -219,7 +226,13 @@ final class AutomationStore {
         UserDefaults.standard.set(Array(dirtyAtStart), forKey: dirtyKey)
         outcomes[task.id] = RunLog(state: .running, message: "正在读取并上传")
         do {
-            if !automatic && trigger != "shortcut" {
+            let previous: SyncState
+            do { previous = try journal.load(task.id) }
+            catch { throw ConfigurationError("同步状态无法读取，已停止以保护原文件") }
+            let issues = task.executionStartIssues(pending: previous.pending, automatic: automatic,
+                systemMajorVersion: ProcessInfo.processInfo.operatingSystemVersion.majorVersion)
+            guard issues.isEmpty else { throw ConfigurationError(issues.joined(separator: "；")) }
+            if !automatic && trigger != "shortcut" && previous.pending == nil {
                 #if DEBUG && targetEnvironment(simulator)
                 if !ProcessInfo.processInfo.arguments.contains("--synthetic-health") { try await health.authorize(task) }
                 #else
@@ -240,7 +253,7 @@ final class AutomationStore {
                 try? await UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: task.id.uuidString, content: content, trigger: nil))
             }
         } catch {
-            outcomes[task.id] = RunLog(state: .failed, message: "健康数据暂不可读，请解锁并检查健康读取权限")
+            outcomes[task.id] = RunLog(state: .failed, message: (error as? ConfigurationError)?.message ?? "健康数据暂不可读，请解锁并检查健康读取权限")
             markDirty(task.id)
         }
     }
