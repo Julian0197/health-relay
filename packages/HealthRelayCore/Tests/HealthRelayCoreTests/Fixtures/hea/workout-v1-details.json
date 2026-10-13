@@ -1,0 +1,168 @@
+{
+  "name": "workout-v1-routes-and-heart-rate",
+  "source": "https://help.healthyapps.dev/en/health-auto-export/export-format/workouts/",
+  "provenance": "Synthetic records; two route segments deliberately reversed to verify global timestamp ordering. Native-only location fields are omitted by HEA projection. Heart rate count/s is converted to bpm; v1 count label follows official legacy example. No real HEA capture.",
+  "format": "hea.v1",
+  "timeZone": "UTC",
+  "records": [
+    {
+      "op": "upsert",
+      "typeIdentifier": "HKWorkoutType",
+      "recordId": "00000000-0000-0000-0000-000000000001",
+      "start": "2026-01-01T00:00:00.000Z",
+      "end": "2026-01-01T00:10:00.000Z",
+      "source": {
+        "id": "test.watch",
+        "name": "Fixture Watch"
+      },
+      "payload": {
+        "activityType": 37,
+        "durationSeconds": 540,
+        "statistics": {
+          "HKQuantityTypeIdentifierActiveEnergyBurned": {
+            "sum": 120,
+            "unit": "kcal"
+          },
+          "HKQuantityTypeIdentifierBasalEnergyBurned": {
+            "sum": 30,
+            "unit": "kcal"
+          }
+        },
+        "totals": {
+          "energyBurned": {
+            "value": 100,
+            "unit": "kcal"
+          },
+          "distance": {
+            "value": 5000,
+            "unit": "m"
+          }
+        },
+        "routes": [
+          {
+            "op": "upsert",
+            "typeIdentifier": "HKWorkoutRouteTypeIdentifier",
+            "recordId": "route-b",
+            "start": "2026-01-01T00:00:02.000Z",
+            "end": "2026-01-01T00:00:02.000Z",
+            "payload": {
+              "locations": [
+                {
+                  "timestamp": "2026-01-01T00:00:02.000Z",
+                  "latitude": 23,
+                  "longitude": 114,
+                  "altitude": 25,
+                  "ellipsoidalAltitude": 28,
+                  "horizontalAccuracy": 3,
+                  "verticalAccuracy": 4,
+                  "course": 80,
+                  "courseAccuracy": 2,
+                  "speed": 2.5,
+                  "speedAccuracy": 0.4,
+                  "floor": 1,
+                  "sourceInformation": {
+                    "isSimulatedBySoftware": true,
+                    "isProducedByAccessory": false
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "op": "upsert",
+            "typeIdentifier": "HKWorkoutRouteTypeIdentifier",
+            "recordId": "route-a",
+            "start": "2026-01-01T00:00:01.000Z",
+            "end": "2026-01-01T00:00:01.000Z",
+            "payload": {
+              "locations": [
+                {
+                  "timestamp": "2026-01-01T00:00:01.000Z",
+                  "latitude": 22,
+                  "longitude": 114,
+                  "altitude": 25,
+                  "ellipsoidalAltitude": 28,
+                  "horizontalAccuracy": 3,
+                  "verticalAccuracy": 4,
+                  "course": 80,
+                  "courseAccuracy": 2,
+                  "speed": 2.5,
+                  "speedAccuracy": 0.4,
+                  "floor": 1,
+                  "sourceInformation": {
+                    "isSimulatedBySoftware": true,
+                    "isProducedByAccessory": false
+                  }
+                }
+              ]
+            }
+          }
+        ],
+        "metrics": {
+          "HKQuantityTypeIdentifierHeartRate": {
+            "unit": "count/s",
+            "grouping": "minutes",
+            "aggregation": "discrete",
+            "samples": [],
+            "data": [
+              {
+                "start": "2026-01-01T00:00:00.000Z",
+                "end": "2026-01-01T00:01:00.000Z",
+                "count": 2,
+                "sourceId": "test.watch",
+                "source": "Fixture Watch",
+                "minimum": 1.5,
+                "average": 2,
+                "maximum": 2.5
+              }
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "expected": {
+    "data": {
+      "workouts": [
+        {
+          "name": "Running",
+          "start": "2026-01-01 00:00:00 +0000",
+          "end": "2026-01-01 00:10:00 +0000",
+          "totalEnergy": {
+            "qty": 150,
+            "units": "kcal"
+          },
+          "distance": {
+            "qty": 5,
+            "units": "km"
+          },
+          "activeEnergy": {
+            "qty": 120,
+            "units": "kcal"
+          },
+          "route": [
+            {
+              "lat": 22,
+              "lon": 114,
+              "altitude": 25,
+              "timestamp": "2026-01-01 00:00:01 +0000"
+            },
+            {
+              "lat": 23,
+              "lon": 114,
+              "altitude": 25,
+              "timestamp": "2026-01-01 00:00:02 +0000"
+            }
+          ],
+          "heartRateData": [
+            {
+              "date": "2026-01-01 00:00:00 +0000",
+              "qty": 120,
+              "units": "count"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

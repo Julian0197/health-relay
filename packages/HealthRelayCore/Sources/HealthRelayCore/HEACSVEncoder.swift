@@ -2,15 +2,20 @@ import Foundation
 import CryptoKit
 
 /// Multipart CSV compatibility profile, one `file` part per metric.
-/// HEA documents multipart/form-data, but its exact field names and CSV layout
-/// are not a published contract. These choices require real HEA capture verification.
+/// Experimental legacy profile: an observed HEA manual export combines health
+/// metrics into one localized wide table. This per-metric layout differs; REST
+/// multipart field names and file organization have not been captured.
 public enum HEACSVEncoder {
-    public static func encode(_ batch: UploadBatch, timeZone: String) throws -> EncodedBatch {
-        let encoded = try HEAEncoder.encode(batch, timeZone: timeZone)
+    public static func encode(_ batch: UploadBatch, timeZone: String, heaDataType: HEADataType? = nil) throws -> EncodedBatch {
+        if let family = heaDataType, ![.automatic, .healthMetrics].contains(family) { throw ConfigurationError("HEA CSV 仅支持健康指标") }
+        for record in batch.records {
+            guard try HEAEncoder.family(for: record.typeIdentifier, selection: heaDataType) == .healthMetrics else { throw ConfigurationError("HEA CSV 不支持非健康指标或混合数据，请使用 JSON") }
+        }
+        let encoded = try HEAEncoder.encode(batch, timeZone: timeZone, heaDataType: heaDataType)
         let document = try JSONDecoder().decode(Document.self, from: encoded.body)
         let boundary = "HEA-" + SHA256.hash(data: Data(batch.batchId.utf8)).map { String(format: "%02x", $0) }.joined()
         var body = ""
-        for metric in document.data.metrics {
+        for metric in document.data.metrics ?? [] {
             body += "--\(boundary)\r\n"
             body += "Content-Disposition: form-data; name=\"file\"; filename=\"\(metric.name).csv\"\r\n"
             body += "Content-Type: text/csv; charset=utf-8\r\n\r\n"
@@ -23,7 +28,7 @@ public enum HEACSVEncoder {
 
     private struct Document: Decodable {
         var data: Payload
-        struct Payload: Decodable { var metrics: [Metric] }
+        struct Payload: Decodable { var metrics: [Metric]? }
     }
     private struct Metric: Decodable {
         var name: String

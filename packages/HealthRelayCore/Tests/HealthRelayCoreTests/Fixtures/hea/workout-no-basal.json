@@ -1,0 +1,61 @@
+{
+  "name": "workout-v2-unknown-basal-is-not-zero",
+  "source": "https://help.healthyapps.dev/en/health-auto-export/export-format/workouts/",
+  "provenance": "Synthetic values. An absent basal energy must not turn active energy into total energy.",
+  "format": "hea.v2",
+  "timeZone": "UTC",
+  "records": [
+    {
+      "op": "upsert",
+      "typeIdentifier": "HKWorkoutType",
+      "recordId": "00000000-0000-0000-0000-000000000001",
+      "start": "2026-01-01T00:00:00.000Z",
+      "end": "2026-01-01T00:10:00.000Z",
+      "source": {
+        "id": "test.watch",
+        "name": "Fixture Watch"
+      },
+      "payload": {
+        "activityType": 37,
+        "durationSeconds": 540,
+        "statistics": {
+          "HKQuantityTypeIdentifierActiveEnergyBurned": {
+            "sum": 120,
+            "unit": "kcal"
+          }
+        },
+        "totals": {
+          "energyBurned": {
+            "value": 100,
+            "unit": "kcal"
+          },
+          "distance": {
+            "value": 5000,
+            "unit": "m"
+          }
+        }
+      }
+    }
+  ],
+  "expected": {
+    "data": {
+      "workouts": [
+        {
+          "name": "Running",
+          "start": "2026-01-01 00:00:00 +0000",
+          "end": "2026-01-01 00:10:00 +0000",
+          "distance": {
+            "qty": 5,
+            "units": "km"
+          },
+          "id": "00000000-0000-0000-0000-000000000001",
+          "duration": 540,
+          "activeEnergyBurned": {
+            "qty": 120,
+            "units": "kcal"
+          }
+        }
+      ]
+    }
+  }
+}

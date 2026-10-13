@@ -1,0 +1,67 @@
+{
+  "name": "workout-v1-energy-and-pauses",
+  "source": "https://help.healthyapps.dev/en/health-auto-export/export-format/workouts/",
+  "provenance": "Synthetic contract fixture; values are invented. Metric units are this profile choice. No real HEA capture. Active summary uses statistics over legacy total; total energy requires active plus basal.",
+  "format": "hea.v1",
+  "timeZone": "UTC",
+  "records": [
+    {
+      "op": "upsert",
+      "typeIdentifier": "HKWorkoutType",
+      "recordId": "00000000-0000-0000-0000-000000000001",
+      "start": "2026-01-01T00:00:00.000Z",
+      "end": "2026-01-01T00:10:00.000Z",
+      "source": {
+        "id": "test.watch",
+        "name": "Fixture Watch"
+      },
+      "payload": {
+        "activityType": 37,
+        "durationSeconds": 540,
+        "statistics": {
+          "HKQuantityTypeIdentifierActiveEnergyBurned": {
+            "sum": 120,
+            "unit": "kcal"
+          },
+          "HKQuantityTypeIdentifierBasalEnergyBurned": {
+            "sum": 30,
+            "unit": "kcal"
+          }
+        },
+        "totals": {
+          "energyBurned": {
+            "value": 100,
+            "unit": "kcal"
+          },
+          "distance": {
+            "value": 5000,
+            "unit": "m"
+          }
+        }
+      }
+    }
+  ],
+  "expected": {
+    "data": {
+      "workouts": [
+        {
+          "name": "Running",
+          "start": "2026-01-01 00:00:00 +0000",
+          "end": "2026-01-01 00:10:00 +0000",
+          "totalEnergy": {
+            "qty": 150,
+            "units": "kcal"
+          },
+          "distance": {
+            "qty": 5,
+            "units": "km"
+          },
+          "activeEnergy": {
+            "qty": 120,
+            "units": "kcal"
+          }
+        }
+      ]
+    }
+  }
+}

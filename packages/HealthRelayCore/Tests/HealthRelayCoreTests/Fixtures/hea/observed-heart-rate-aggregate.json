@@ -1,0 +1,70 @@
+{
+  "name": "synthetic-observed-aggregate-heart-rate-shape",
+  "provenance": "Schema-only reconstruction of one user-provided HEA JSON export. All record IDs, source names, dates and health values below are synthetic. Original HEA version and export settings are unknown; both supported HealthRelay JSON versions apply this observed health-metric shape.",
+  "format": "hea.v2",
+  "timeZone": "Asia/Shanghai",
+  "records": [
+    {
+      "op": "upsert",
+      "typeIdentifier": "HKQuantityTypeIdentifierHeartRate",
+      "recordId": "synthetic-heart-0",
+      "start": "2000-01-01T00:00:00Z",
+      "end": "2000-01-01T00:01:00Z",
+      "source": {
+        "id": "synthetic.watch",
+        "name": "Synthetic Watch"
+      },
+      "payload": {
+        "aggregation": true,
+        "unit": "count/min",
+        "value": 60,
+        "minimum": 48,
+        "average": 60,
+        "maximum": 90
+      }
+    },
+    {
+      "op": "upsert",
+      "typeIdentifier": "HKQuantityTypeIdentifierHeartRate",
+      "recordId": "synthetic-heart-1",
+      "start": "2000-01-01T00:01:00Z",
+      "end": "2000-01-01T00:02:00Z",
+      "source": {
+        "id": "synthetic.watch",
+        "name": "Synthetic Watch"
+      },
+      "payload": {
+        "aggregation": true,
+        "unit": "count/min",
+        "value": 75,
+        "minimum": 60,
+        "average": 75,
+        "maximum": 105
+      }
+    }
+  ],
+  "expected": {
+    "data": {
+      "metrics": [
+        {
+          "name": "heart_rate",
+          "units": "count/min",
+          "data": [
+            {
+              "date": "2000-01-01 08:00:00 +0800",
+              "Min": 48,
+              "Avg": 60,
+              "Max": 90
+            },
+            {
+              "date": "2000-01-01 08:01:00 +0800",
+              "Min": 60,
+              "Avg": 75,
+              "Max": 105
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

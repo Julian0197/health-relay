@@ -87,13 +87,16 @@ public struct ReadPage: Sendable {
                         }
                         if records.isEmpty { upload = nil; break }
                         let batch = UploadBatch(task: task, records: records)
-                        let encoded = try BatchEncoder.encode(batch, format: task.export.format, timeZone: task.export.timeZone)
+                        let encoded = try BatchEncoder.encode(batch, format: task.export.format, timeZone: task.export.timeZone, heaDataType: task.export.heaDataType)
                         if encoded.body.count <= task.execution.batchMaxBytes {
                             upload = PendingUpload(batchID: batch.batchId, body: encoded.body, contentType: encoded.contentType, recordCount: records.count, checkpointKey: key, checkpoint: next, configurationFingerprint: fingerprint)
                             if task.export.format.hasPrefix("hea.") { upload?.headers = HEARequestMetadata.headers(task: task, batchID: batch.batchId) }
                             break
                         }
-                        guard limit > 1 else { throw ConfigurationError("单条记录超过批次大小上限，请提高每批 KiB 上限") }
+                        guard limit > 1 && records.count > 1 else {
+                            let sizeKiB = (encoded.body.count + 1023) / 1024
+                            throw ConfigurationError("单条完整记录约 \(sizeKiB) KiB，超过批次上限；请提高每批 KiB 上限。运动可关闭路线或关联指标后重试，当前读取游标未提交")
+                        }
                         limit = max(1, limit / 2)
                     }
                     omitted += pageOmitted

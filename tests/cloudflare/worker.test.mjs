@@ -95,3 +95,50 @@ test('fault controls require the same authentication as ingestion', async () => 
   const response = await worker.fetch(new Request('https://test.example/faults', { method: 'POST', body: '{}' }), { TEST_API_KEY: 'synthetic-key' });
   assert.equal(response.status, 401);
 });
+
+test('HEA receiver accepts workout and specialized families without a metrics array', () => {
+  const start = '2026-10-13 10:00:00 +0800', end = '2026-10-13 10:30:00 +0800';
+  const data = {
+    workouts: [{ id: 'synthetic-workout', name: 'Running', start, end, duration: 1800, route: [{ latitude: 0, longitude: 0 }] }],
+    symptoms: [{ start, end, name: 'Headache', severity: 'Mild', userEntered: true, source: 'Synthetic' }],
+    cycleTracking: [{ start, end, name: 'Menstrual Flow', value: 'Medium' }],
+    ecg: [{ start, end, classification: 'Sinus Rhythm', averageHeartRate: 70, voltageMeasurements: [], numberOfVoltageMeasurements: 0, samplingFrequency: 512, source: 'Synthetic' }],
+    heartRateNotifications: [{ start, end, threshold: 100, heartRate: [], heartRateVariation: [] }],
+    stateOfMind: [{ id: 'synthetic-mood', start: '2026-10-13T00:00:00Z', end: '2026-10-13T00:00:00Z', kind: 'daily_mood', valence: 0.5, labels: [], associations: [], valenceClassification: 'pleasant' }],
+    medications: [{ start, end: null, displayText: 'Synthetic medication', form: 'Tablet', status: 'Taken', isArchived: false, dosage: 1, codings: [] }]
+  };
+  const result = normalizeHEA({ data }, 'all-families', 'task');
+  assert.equal(result.records.length, 7);
+  assert.equal(result.records[0].recordId, 'synthetic-workout');
+  assert.deepEqual(result.records[0].payload.route, data.workouts[0].route);
+  assert.deepEqual(result.records.map(record => record.typeIdentifier), Object.keys(data));
+  assert.throws(() => normalizeHEA({ data: { workouts: [{ ...data.workouts[0], start: null }] } }, 'invalid', 'task'));
+  assert.throws(() => normalizeHEA({ data: { unrecognizedFamily: [{}] } }, 'unknown', 'task'));
+});
+
+test('HEA paired and categorical metrics retain fields and stable correction identity', () => {
+  const date = '2026-10-13 10:00:00 +0800';
+  const data = { metrics: [
+    { name: 'blood_pressure', units: 'mmHg', data: [{ date, systolic: 120, diastolic: 80 }] },
+    { name: 'sexual_activity', units: 'count', data: [{ date, Unspecified: 0, 'Protection Used': 1, 'Protection Not Used': 0 }] }
+  ] };
+  const result = normalizeHEA({ data }, 'paired', 'task');
+  assert.equal(result.records.length, 2);
+  assert.equal(result.records[0].payload.systolic, 120);
+  const firstID = result.records[0].recordId;
+  data.metrics[0].data[0].systolic = 125;
+  assert.equal(normalizeHEA({ data }, 'corrected', 'task').records[0].recordId, firstID);
+});
+
+test('acceptance receiver supports a complete workout above one MiB within the configured ten MiB limit', async () => {
+  const { db, request } = receiverFixture();
+  try {
+    const workout = { ...batch, batchId: 'large-workout', records: [{ ...batch.records[0], typeIdentifier: 'HKWorkoutType',
+      payload: { durationSeconds: 3600, routeEvidence: 'x'.repeat(1_048_576) } }] };
+    const response = await request('/ingest', workout);
+    assert.equal(response.status, 200);
+    assert.equal((await response.json()).accepted, 1);
+    assert.equal((await request('/ingest', workout)).status, 200);
+    assert.equal(db.prepare('SELECT COUNT(*) AS n FROM batches').get().n, 1);
+  } finally { db.close(); }
+});

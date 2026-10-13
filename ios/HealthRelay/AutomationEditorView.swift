@@ -154,7 +154,7 @@ struct AutomationEditorView: View {
                 Toggle("包含运动路线", isOn: Binding(get: { task.data.workoutOptions?.includeRoutes ?? false }, set: { value in
                     var options = task.data.workoutOptions ?? WorkoutOptions(); options.includeRoutes = value; task.data.workoutOptions = options
                 }))
-                Toggle("包含运动期间的指标", isOn: Binding(get: { task.data.workoutOptions?.includeMetrics ?? false }, set: { value in
+                Toggle("包含运动关联指标", isOn: Binding(get: { task.data.workoutOptions?.includeMetrics ?? false }, set: { value in
                     var options = task.data.workoutOptions ?? WorkoutOptions(); options.includeMetrics = value; task.data.workoutOptions = options
                 }))
                 if task.data.workoutOptions?.includeMetrics == true {
@@ -196,14 +196,28 @@ struct AutomationEditorView: View {
             Picker("导出格式", selection: $task.export.format) {
                 Text("HealthRelay JSON · v1").tag("healthrelay.v1")
                 Text("HEA JSON · v2").tag("hea.v2")
-                Text("HEA CSV · 兼容配置").tag("hea.csv")
-                Text("HEA JSON · v1（尚未支持）").tag("hea.v1")
+                Text("HEA CSV · 实验性").tag("hea.csv")
+                Text("HEA JSON · v1").tag("hea.v1")
                 Text("HealthRelay CSV").tag("csv")
                 Text("Markdown").tag("markdown")
-            }.onChange(of: task.export.format) { _, format in
+            }.accessibilityIdentifier("export-format")
+            .onChange(of: task.export.format) { _, format in
                 if format.hasPrefix("hea."), task.export.deletionPolicy == nil { task.export.deletionPolicy = .reject }
+                if format == "hea.csv", task.supportsAggregation {
+                    task.export.mode = .aggregate
+                    if task.export.grouping == .none { task.export.grouping = .days }
+                }
             }
             if task.export.format.hasPrefix("hea.") {
+                Picker("HEA 数据类型", selection: Binding(get: { task.export.heaDataType ?? .automatic }, set: { task.export.heaDataType = $0 == .automatic ? nil : $0 })) {
+                    ForEach(HEADataType.allCases, id: \.self) { Text($0.title).tag($0) }
+                }.accessibilityIdentifier("hea-data-type")
+                Text("自动按记录选择结构；同一种记录用于不同导出时，可指定健康指标、症状或周期记录。")
+                    .font(.footnote).foregroundStyle(.secondary)
+                if task.export.format == "hea.csv" {
+                    Text("仅支持健康指标汇总，每指标一个文件；与 HEA 手动导出的合并表格布局不同。需要兼容 HEA 时请使用 JSON。")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
                 Picker("健康记录被删除时", selection: Binding(get: { task.export.deletionPolicy ?? .reject }, set: { task.export.deletionPolicy = $0 })) {
                     Text("停止并提示").tag(ExportSettings.DeletionPolicy.reject)
                     Text("跳过删除事件").tag(ExportSettings.DeletionPolicy.omit)
@@ -212,7 +226,7 @@ struct AutomationEditorView: View {
                     .font(.footnote).foregroundStyle(.secondary)
             }
             Picker("数据形式", selection: $task.export.mode) {
-                Text("原始明细").tag(ExportSettings.Mode.raw)
+                Text("原始明细").tag(ExportSettings.Mode.raw).disabled(task.export.format == "hea.csv")
                 Text("汇总数据").tag(ExportSettings.Mode.aggregate).disabled(!task.supportsAggregation)
             }.onChange(of: task.export.mode) { _, mode in
                 task.export.grouping = mode == .raw ? .none : .days

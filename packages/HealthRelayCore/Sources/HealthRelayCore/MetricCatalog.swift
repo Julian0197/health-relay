@@ -29,7 +29,7 @@ public struct MetricCatalog: Codable, Sendable {
     public func metric(_ id: String) -> MetricDescriptor? { metrics.first { $0.id == id } }
     public func search(_ text: String, family: DataFamily) -> [MetricDescriptor] {
         metrics.filter {
-            ($0.family == family || (family == .healthMetrics && [.quantity, .category, .correlation].contains($0.family))) &&
+            ($0.family == family || (family == .healthMetrics && [.quantity, .category, .correlation, .special].contains($0.family))) &&
             (text.isEmpty || "\($0.title) \($0.category) \($0.id)".localizedCaseInsensitiveContains(text))
         }.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
     }

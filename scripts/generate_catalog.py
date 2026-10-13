@@ -132,6 +132,13 @@ for line in HEADER.read_text().splitlines():
     })
 
 metrics.append({"id": "HKWorkoutType", "title": "锻炼记录", "category": "活动与运动", "family": "workout", "minimumIOS": 8, "minimumWatchOS": 2, "units": [], "statistics": []})
+for identifier, title, category, ios, watch in [
+    ("HKDataTypeIdentifierElectrocardiogram", "心电图", "心脏", 14, 7),
+    ("HKDataTypeStateOfMind", "心境", "心理健康", 18, 11),
+    ("HKMedicationDoseEventTypeIdentifierMedicationDoseEvent", "用药记录", "用药", 26, 26),
+]:
+    metrics.append({"id": identifier, "title": title, "category": category, "family": "special",
+                    "minimumIOS": ios, "minimumWatchOS": watch, "units": [], "statistics": []})
 assert sum(m["family"] == "quantity" for m in metrics) == 121
 assert sum(m["family"] == "category" for m in metrics) == 72
 output = ROOT / "packages/HealthRelayCore/Sources/HealthRelayCore/Resources/catalog.json"

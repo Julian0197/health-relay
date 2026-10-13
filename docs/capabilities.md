@@ -10,10 +10,10 @@
 | Quantity 明细 | 通用 anchored 分页、单位映射、新增/删除 | SDNN、RMSSD、步数原生上传真机验收；不代表全部数量类型 |
 | Category 明细 | 原始枚举、起止时间、新增/删除 | 睡眠原生上传真机验收；不代表全部分类类型 |
 | Correlation 明细 | 父子记录、子单位、来源、metadata | 已实现；复杂关联实际样本待逐项验收 |
-| Workout 摘要 | 活动类型、时长、事件、已有统计 | 已实现；路线/关联时序未开放 |
+| Workout 完整读取 | 活动、暂停后的时长、事件/统计/metadata、全部路线分段、关联数量与内部 series、按来源分组 | 15 项 iPhone 与 Watch 合成读取测试通过；真实运动/路线样本待验收 |
 | healthrelay.v1 / CSV / Markdown | 标准记录编码，原生 JSON 支持 upsert/delete | 原生 JSON 真机 Cloudflare receipt 通过；CSV/Markdown 为合成编码验收 |
-| HEA v2 / HEA CSV | 20 项显式映射；数量/睡眠汇总、自动 Header、删除拒绝/跳过，CSV multipart profile | 真机 HEA JSON/CSV 测试接口回执通过；真实 HEA CSV 与百分比尺度仍待对照 |
-| HEA v1 | 配置可保存 | 未开放执行 |
+| HEA v1 / v2 JSON | 106 项数量清单及 RMSSD 扩展；血压/睡眠/正念/性行为、运动、症状/周期、ECG/通知/情绪；运动按版本编码 | 合成契约与 SDK 桥接测试通过，已取得真实心率汇总文件；其余实际文件及数值待对照 |
+| HEA CSV | 可汇总健康指标的 multipart profile；非指标/混合家族明确拒绝 | 既有测试接口回执通过；手动导出预览已确认布局不同；REST multipart 参数未验证，不算完整兼容 |
 | 汇总与分组 | 每指标统计、完整窗口查询、迟到/删除修正、睡眠跨午夜合并 | Core 窗口/DST/缓存回归及模拟器流程通过；真实健康汇总值待核对 |
 | 历史补传 | 独立固定范围 job、持久进度、继续/取消；不重置父任务 | Core 隔离、模拟器流程与真机补传回执通过 |
 | 增量与持久化 | 固定首次下界；每任务一个待上传批次，确认后提交 anchor | 失败重启、同 ID/正文重试、不重复发送已验收 |
@@ -22,8 +22,8 @@
 | 独立提醒 | 每小时/每天/指定星期，本地通知与打开并同步 | Core 日期/DST、模拟器保存恢复及真机自然送达通过；通知动作与清理待完整真机验收 |
 | Watch companion | 配置同步、设备归属、本机认证/授权、后台文件上传、回执与持久游标 | Core 和模拟器系统传输已验收；真实 Watch 双端链路、自然唤醒与耗电待验收，见 [Watch 记录](implementation-watch.md) |
 | Activity Summary / Characteristics | 快照设计 | 未接入 |
-| ECG / Audiogram / Series | 专用查询设计 | 未接入 |
-| State of Mind / Medication | 结构化读取设计 | 未接入 |
+| ECG / 数量内部 series | 全部电压点、毫秒时间偏移；运动/通知关联数量的内部 series | 专用读取合成测试及两端编译通过；真实 ECG 待验收，Audiogram/独立 heartbeat series 未接入 |
+| State of Mind / Medication | 情绪原始枚举；iOS/watchOS 26+ 剂量事件与可用药物注释，按对象授权 | 16 项专用读取合成测试在两端通过；真实记录与 HEA 用药语义待验收 |
 | Clinical / restricted | 需独立权限与接入条件 | 未接入，不保证普通签名即可读取 |
 
 当前仅以下四个类型标记 `deviceVerified`（原生明细读取→隔离测试接口提交回执，不包含汇总）：
@@ -33,7 +33,7 @@
 - HKQuantityTypeIdentifierStepCount
 - HKCategoryTypeIdentifierSleepAnalysis
 
-HEA v2 映射以 [HEAEncoder.swift](../packages/HealthRelayCore/Sources/HealthRelayCore/HEAEncoder.swift) 为准。新类型可能有额外授权或专用 API，运行时不支持会明确报错，不用空结果冒充成功。
+HEA 映射以 [HEAMetricCatalog.swift](../packages/HealthRelayCore/Sources/HealthRelayCore/HEAMetricCatalog.swift) 和各数据族编码器为准；用药、站立小时、洗手/刷牙的 HEA 语义未确认，执行时提示使用原生 JSON。详见[完整运动与 HEA 对照](implementation-hea.md)。新类型可能有额外授权或专用 API，运行时不支持会明确报错，不用空结果冒充成功。
 
 ## 已验收的引擎边界
 

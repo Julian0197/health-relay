@@ -30,7 +30,7 @@ final class HEACompatibilityTests: XCTestCase {
             "aggregation": .bool(true), "unit": .string("count/min"), "value": .number(72),
             "minimum": .number(65), "average": .number(72), "maximum": .number(85)
         ])]).first)
-        XCTAssertEqual(metric["units"] as? String, "bpm")
+        XCTAssertEqual(metric["units"] as? String, "count/min")
         let point = try firstPoint(metric)
         XCTAssertEqual(point["date"] as? String, "2026-10-12 11:00:00 +0800")
         XCTAssertEqual(point["Min"] as? Double, 65)
@@ -132,9 +132,9 @@ final class HEACompatibilityTests: XCTestCase {
         let text = String(decoding: encoded.body, as: UTF8.self)
         XCTAssertTrue(text.contains("Content-Disposition: form-data; name=\"file\"; filename=\"heart_rate.csv\"\r\n"))
         XCTAssertTrue(text.contains("Content-Disposition: form-data; name=\"file\"; filename=\"step_count.csv\"\r\n"))
-        XCTAssertTrue(text.contains("\"Date\",\"Heart Rate Min (bpm)\",\"Heart Rate Avg (bpm)\",\"Heart Rate Max (bpm)\",\"Source\"\r\n"))
+        XCTAssertTrue(text.contains("\"Date\",\"Heart Rate Min (count/min)\",\"Heart Rate Avg (count/min)\",\"Heart Rate Max (count/min)\"\r\n"))
         XCTAssertTrue(text.contains("\"Step Count (count)\""))
-        XCTAssertTrue(text.contains("\"2026-10-12 11:00:00 +0800\",\"65\",\"72\",\"85\",\"Synthetic Watch\""))
+        XCTAssertTrue(text.contains("\"2026-10-12 11:00:00 +0800\",\"65\",\"72\",\"85\""))
         XCTAssertTrue(text.hasSuffix("--\(boundary)--\r\n"))
         XCTAssertEqual(text.components(separatedBy: "Content-Disposition: form-data;").count - 1, 2)
         batch.batchId = "different-csv-batch"

@@ -62,10 +62,10 @@ public struct EncodedBatch: Sendable {
     public let contentType: String
 }
 public enum BatchEncoder {
-    public static func encode(_ batch: UploadBatch, format: String = "healthrelay.v1", timeZone: String = "UTC") throws -> EncodedBatch {
+    public static func encode(_ batch: UploadBatch, format: String = "healthrelay.v1", timeZone: String = "UTC", heaDataType: HEADataType? = nil) throws -> EncodedBatch {
         let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
-        if format == "hea.csv" { return try HEACSVEncoder.encode(batch, timeZone: timeZone) }
-        if format == "hea.v2" { return try HEAEncoder.encode(batch, timeZone: timeZone) }
+        if format == "hea.csv" { return try HEACSVEncoder.encode(batch, timeZone: timeZone, heaDataType: heaDataType) }
+        if ["hea.v1", "hea.v2"].contains(format) { return try HEAEncoder.encode(batch, timeZone: timeZone, version: format == "hea.v1" ? 1 : 2, heaDataType: heaDataType) }
         if format == "healthrelay.v1" {
             return EncodedBatch(body: try encoder.encode(batch), contentType: "application/json")
         }
@@ -87,12 +87,24 @@ public enum BatchEncoder {
 public extension AutomationConfig {
     var executionCapabilityIssues: [String] {
         var issues: [String] = []
-        if !["healthrelay.v1", "hea.v2", "hea.csv", "csv", "markdown"].contains(export.format) { issues.append("HEA v1 执行尚未开放，请使用 v2 或 HealthRelay JSON") }
-        if ["hea.v2", "hea.csv"].contains(export.format) && data.selections.contains(where: { HEAEncoder.metricNames[$0.id] == nil }) {
-            issues.append("所选指标的 HEA v2 格式尚未验证，请使用 HealthRelay JSON")
-        }
-        if data.workoutOptions?.includeRoutes == true || data.workoutOptions?.includeMetrics == true {
-            issues.append("运动路线和关联时序尚未开放，请先关闭这两个选项")
+        if !["healthrelay.v1", "hea.v1", "hea.v2", "hea.csv", "csv", "markdown"].contains(export.format) { issues.append("未知导出格式") }
+        if export.format.hasPrefix("hea.") {
+            if export.heaDataType == .medications { issues.append("HEA 用药需真实 HEA 抓包确认疗程与剂量单位，请使用 HealthRelay JSON") }
+            for selection in data.selections {
+                do {
+                    let family = try HEAEncoder.family(for: selection.id, selection: export.heaDataType)
+                    if export.format == "hea.csv", family != .healthMetrics { issues.append("HEA CSV 仅支持健康指标，其他数据类型需要真实 HEA 抓包") }
+                } catch { issues.append((error as? ConfigurationError)?.message ?? error.localizedDescription) }
+            }
+            if export.format == "hea.csv" {
+                if let family = export.heaDataType, ![.automatic, .healthMetrics].contains(family) { issues.append("HEA CSV 仅支持健康指标") }
+                if export.mode != .aggregate { issues.append("HEA CSV REST 导出必须使用汇总模式") }
+                for selection in data.selections where selection.id != "HKCategoryTypeIdentifierSleepAnalysis" {
+                    guard let metric = MetricCatalog.bundled.metric(selection.id), metric.family == .quantity, !metric.statistics.isEmpty else {
+                        issues.append("HEA CSV 仅支持可汇总数量指标与睡眠"); continue
+                    }
+                }
+            }
         }
         return issues
     }

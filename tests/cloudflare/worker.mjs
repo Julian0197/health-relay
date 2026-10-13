@@ -13,18 +13,41 @@ export function validateBatch(batch, idempotencyKey) {
 
 // Acceptance adapter only. This verifies the chosen HEA profile, not every HEA receiver.
 export function normalizeHEA(document, batchId, taskId) {
-  const metrics = document?.data?.metrics;
-  if (!batchId || !taskId || !Array.isArray(metrics)) throw new Error('invalid_hea');
-  const records = metrics.flatMap(metric => {
-    if (typeof metric.name !== 'string' || !Array.isArray(metric.data)) throw new Error('invalid_metric');
-    return metric.data.map(point => {
-      const date = point.date ?? point.startDate;
-      if (typeof date !== 'string' || !date || ![point.qty, point.Avg, point.Min, point.Max, point.totalSleep].some(Number.isFinite)) throw new Error('invalid_point');
-      return { op: 'upsert', typeIdentifier: metric.name,
-        recordId: JSON.stringify([date, point.endDate ?? '', point.source ?? '', point.value ?? '']), payload: { ...point, unit: metric.units } };
-    });
-  });
-  if (!records.length || records.length > 500) throw new Error('invalid_count');
+  const data = document?.data;
+  const families = ['workouts', 'symptoms', 'cycleTracking', 'ecg', 'heartRateNotifications', 'stateOfMind', 'medications'];
+  if (!batchId || !taskId || !data || typeof data !== 'object' || Array.isArray(data) ||
+      Object.keys(data).some(key => key !== 'metrics' && !families.includes(key))) throw new Error('invalid_hea');
+  const records = [];
+  if (data.metrics !== undefined) {
+    if (!Array.isArray(data.metrics)) throw new Error('invalid_hea');
+    for (const metric of data.metrics) {
+      if (typeof metric?.name !== 'string' || !Array.isArray(metric.data)) throw new Error('invalid_metric');
+      for (const point of metric.data) {
+        const date = point?.date ?? point?.startDate;
+        const quantity = [point?.qty, point?.Avg, point?.Min, point?.Max, point?.totalSleep].some(Number.isFinite);
+        const pressure = Number.isFinite(point?.systolic) && Number.isFinite(point?.diastolic);
+        const categorical = ['Unspecified', 'Protection Used', 'Protection Not Used'].some(key => Number.isFinite(point?.[key]));
+        if (typeof date !== 'string' || !date || !(quantity || pressure || categorical)) throw new Error('invalid_point');
+        records.push({ op: 'upsert', typeIdentifier: metric.name,
+          recordId: JSON.stringify([date, point.endDate ?? '', point.source ?? '', point.value ?? '']),
+          payload: { ...point, unit: metric.units } });
+      }
+    }
+  }
+  for (const family of families) {
+    if (data[family] === undefined) continue;
+    if (!Array.isArray(data[family])) throw new Error('invalid_family');
+    for (const point of data[family]) {
+      if (!point || typeof point.start !== 'string' || !point.start ||
+          (point.end != null && typeof point.end !== 'string') ||
+          (point.id !== undefined && (typeof point.id !== 'string' || !point.id))) throw new Error('invalid_entry');
+      records.push({ op: 'upsert', typeIdentifier: family,
+        recordId: point.id ?? JSON.stringify([point.start, point.end ?? '', point.name ?? point.displayText ?? '',
+                                             point.source ?? '', point.kind ?? '', point.scheduledDate ?? '']),
+        payload: point });
+    }
+  }
+  if (!records.length || records.length > 5000) throw new Error('invalid_count');
   return { batchId, taskId, records };
 }
 
@@ -120,7 +143,7 @@ export class HealthRelayAcceptance {
     while (true) {
       const { done, value } = await reader.read(); if (done) break;
       size += value.byteLength;
-      if (size > 1_048_576) { await reader.cancel(); return json({ error: 'body_too_large' }, 413); }
+      if (size > 10_485_760) { await reader.cancel(); return json({ error: 'body_too_large' }, 413); }
       chunks.push(value);
     }
     const bytes = new Uint8Array(size); let offset = 0;

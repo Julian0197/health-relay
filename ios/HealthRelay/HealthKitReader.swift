@@ -4,6 +4,8 @@ import HealthRelayCore
 
 @MainActor final class HealthKitReader: HealthDataReader, AggregateSource {
     let health = HKHealthStore()
+    let workoutQueries: WorkoutQueries?
+    init(workoutQueries: WorkoutQueries? = nil) { self.workoutQueries = workoutQueries }
 
     func sampleType(_ id: String) throws -> HKSampleType {
         guard let metric = MetricCatalog.bundled.metric(id) else {
@@ -20,6 +22,16 @@ import HealthRelayCore
         case .category: type = HKObjectType.categoryType(forIdentifier: .init(rawValue: id))
         case .correlation: type = HKObjectType.correlationType(forIdentifier: .init(rawValue: id))
         case .workout: type = HKObjectType.workoutType()
+        case .special:
+            switch id {
+            case "HKDataTypeIdentifierElectrocardiogram":
+                if #available(iOS 14, watchOS 7, *) { type = HKObjectType.electrocardiogramType() } else { type = nil }
+            case "HKDataTypeStateOfMind":
+                if #available(iOS 18, watchOS 11, *) { type = HKObjectType.stateOfMindType() } else { type = nil }
+            case "HKMedicationDoseEventTypeIdentifierMedicationDoseEvent":
+                if #available(iOS 26, watchOS 26, *) { type = HKObjectType.medicationDoseEventType() } else { type = nil }
+            default: type = nil
+            }
         case .healthMetrics: type = nil
         }
         guard let type else { throw ConfigurationError("当前系统无法创建所选健康数据类型") }
@@ -27,6 +39,16 @@ import HealthRelayCore
     }
     func authorize(_ task: AutomationConfig) async throws {
         guard HKHealthStore.isHealthDataAvailable() else { throw ConfigurationError("此设备无法访问健康数据") }
+        let types = try authorizationTypes(task)
+        let perObject = types.filter { $0.requiresPerObjectAuthorization() }
+        let standard = types.subtracting(perObject)
+        if !standard.isEmpty { try await health.requestAuthorization(toShare: [], read: standard) }
+        // Per-object prompts always reappear; only an explicit manual authorization invokes this path.
+        for type in perObject.sorted(by: { $0.identifier < $1.identifier }) {
+            try await health.requestPerObjectReadAuthorization(for: type, predicate: nil)
+        }
+    }
+    func authorizationTypes(_ task: AutomationConfig) throws -> Set<HKObjectType> {
         var types = Set<HKObjectType>()
         for selection in task.data.selections {
             let type = try sampleType(selection.id)
@@ -38,7 +60,17 @@ import HealthRelayCore
                 for id in identifiers { types.insert(try sampleType(id)) }
             } else { types.insert(type) }
         }
-        try await health.requestAuthorization(toShare: [], read: types)
+        if task.data.selections.contains(where: { $0.id == "HKWorkoutType" }) {
+            if task.data.workoutOptions?.includeRoutes == true { types.insert(HKSeriesType.workoutRoute()) }
+            if task.data.workoutOptions?.includeMetrics == true { types.formUnion(WorkoutReader.metricTypes(reader: self)) }
+        }
+        if task.data.selections.contains(where: { SpecializedHealthReader.notificationIDs.contains($0.id) }) {
+            types.formUnion(SpecializedHealthReader.notificationTypes)
+        }
+        if #available(iOS 26, watchOS 26, *), task.data.selections.contains(where: { $0.id == "HKMedicationDoseEventTypeIdentifierMedicationDoseEvent" }) {
+            types.insert(HKObjectType.userAnnotatedMedicationType())
+        }
+        return types
     }
     func read(task: AutomationConfig, selection: MetricSelection, checkpoint: TypeCheckpoint, limit: Int) async throws -> ReadPage {
         if task.export.mode == .aggregate { return try await AggregationReader(source: self).read(task: task, selection: selection, checkpoint: checkpoint, limit: limit) }
@@ -56,17 +88,52 @@ import HealthRelayCore
         let start = aggregate ? try AggregateWindow.containing(checkpoint.start, grouping: task.export.grouping, timeZone: task.export.timeZone, sleep: isSleep).start : checkpoint.start
         let end = aggregate ? try checkpoint.end.map { try AggregateWindow.containing($0.addingTimeInterval(-0.001), grouping: task.export.grouping, timeZone: task.export.timeZone, sleep: isSleep).end } : checkpoint.end
         let predicate = HKQuery.predicateForSamples(withStart: start, end: end, options: aggregate ? [] : .strictStartDate)
-        let descriptor = HKAnchoredObjectQueryDescriptor(predicates: [.sample(type: type, predicate: predicate)], anchor: anchor, limit: limit)
+        // A single detailed workout can already exceed an ordinary metrics batch.
+        let detailedWorkout = type is HKWorkoutType && (task.data.workoutOptions?.includeRoutes == true || task.data.workoutOptions?.includeMetrics == true)
+        let pageLimit = detailedWorkout || type is HKElectrocardiogramType ? 1 : limit
+        try Task.checkCancellation()
+        let descriptor = HKAnchoredObjectQueryDescriptor(predicates: [.sample(type: type, predicate: predicate)], anchor: anchor, limit: pageLimit)
         let result = try await descriptor.result(for: health)
-        let allowed = result.addedSamples.filter { sample in
+        let proposedAnchor = try NSKeyedArchiver.archivedData(withRootObject: result.newAnchor, requiringSecureCoding: true)
+        return try await makePage(samples: result.addedSamples, deletedIDs: result.deletedObjects.map(\.uuid),
+            anchor: proposedAnchor, hasMore: result.addedSamples.count + result.deletedObjects.count >= pageLimit,
+            end: end, task: task, selection: selection)
+    }
+
+    // Build a page only after every selected sample's asynchronous details succeed.
+    // The proposed anchor remains local until this method returns successfully.
+    func makePage(samples: [HKSample], deletedIDs: [UUID], anchor: Data, hasMore: Bool,
+                  end: Date?, task: AutomationConfig, selection: MetricSelection) async throws -> ReadPage {
+        try Task.checkCancellation()
+        let allowed = samples.filter { sample in
             let source = sample.sourceRevision.source.bundleIdentifier
             return (selection.sources.isEmpty || selection.sources.contains(source)) && !task.data.excludedSources.contains(source)
                 && (end == nil || sample.startDate < end!)
         }
-        var records = try allowed.map { try record($0, unit: selection.unit) }
+        var annotations: [NSObject: [String: JSONValue]] = [:]
+        if #available(iOS 26, watchOS 26, *), allowed.contains(where: { $0 is HKMedicationDoseEvent }) {
+            annotations = try await SpecializedHealthReader.medicationAnnotations(reader: self)
+        }
+        var records: [HealthRecord] = []
+        for sample in allowed {
+            try Task.checkCancellation()
+            if let workout = sample as? HKWorkout { records.append(try await WorkoutReader.read(workout, reader: self, task: task, selection: selection)) }
+            else {
+                var value = try record(sample, unit: selection.unit)
+                if let ecg = sample as? HKElectrocardiogram {
+                    value.payload?.merge(try await SpecializedHealthReader.readECG(ecg, reader: self)) { _, new in new }
+                } else if let category = sample as? HKCategorySample, SpecializedHealthReader.notificationIDs.contains(category.sampleType.identifier) {
+                    value = try await SpecializedHealthReader.notification(category, record: value, reader: self, task: task, selection: selection)
+                } else if #available(iOS 26, watchOS 26, *), let dose = sample as? HKMedicationDoseEvent {
+                    value.payload?.merge(try SpecializedHealthReader.medication(dose, annotation: annotations[dose.medicationConceptIdentifier])) { _, new in new }
+                }
+                records.append(value)
+            }
+        }
+        try Task.checkCancellation()
         // Deletions have only a UUID. Receivers ignore delete events for UUIDs they never imported.
-        records += result.deletedObjects.map { HealthRecord(op: .delete, typeIdentifier: selection.id, recordId: $0.uuid.uuidString.lowercased()) }
-        return ReadPage(records: records, anchor: try NSKeyedArchiver.archivedData(withRootObject: result.newAnchor, requiringSecureCoding: true), hasMore: result.addedSamples.count + result.deletedObjects.count >= limit)
+        records += deletedIDs.map { HealthRecord(op: .delete, typeIdentifier: selection.id, recordId: $0.uuidString.lowercased()) }
+        return ReadPage(records: records, anchor: anchor, hasMore: hasMore)
     }
     func snapshot(task: AutomationConfig, selection: MetricSelection, window: AggregateWindow) async throws -> [String: JSONValue]? {
         let type = try sampleType(selection.id)
@@ -103,14 +170,14 @@ import HealthRelayCore
         return payload
     }
 
-    private func record(_ sample: HKSample, unit: String?) throws -> HealthRecord {
+    func record(_ sample: HKSample, unit: String?) throws -> HealthRecord {
         var payload: [String: JSONValue] = [:]
         if let quantity = sample as? HKQuantitySample {
             let code = unit ?? MetricCatalog.bundled.metric(sample.sampleType.identifier)?.units.first
             guard let code else { throw ConfigurationError("数量指标缺少输出单位") }
             let native = try Self.unit(code)
             guard quantity.quantity.is(compatibleWith: native) else { throw ConfigurationError("所选单位与 HealthKit 数据不兼容：\(code)") }
-            payload["value"] = .number(quantity.quantity.doubleValue(for: native)); payload["unit"] = .string(code)
+            payload["value"] = try WorkoutReader.number(quantity.quantity.doubleValue(for: native)); payload["unit"] = .string(code)
         } else if let category = sample as? HKCategorySample {
             payload["value"] = .number(Double(category.value))
         } else if let correlation = sample as? HKCorrelation {
@@ -121,36 +188,21 @@ import HealthRelayCore
             }
             payload["objects"] = .array(objects)
         } else if let workout = sample as? HKWorkout {
-            payload["activityType"] = .number(Double(workout.workoutActivityType.rawValue))
-            payload["durationSeconds"] = .number(workout.duration)
-            payload["events"] = .array((workout.workoutEvents ?? []).map {
-                .object(["type": .number(Double($0.type.rawValue)), "start": .string(Self.date($0.dateInterval.start)), "end": .string(Self.date($0.dateInterval.end))])
-            })
-            var statistics: [String: JSONValue] = [:]
-            for (type, stats) in workout.allStatistics {
-                guard let code = MetricCatalog.bundled.metric(type.identifier)?.units.first else { continue }
-                let unit = try Self.unit(code)
-                var values: [String: JSONValue] = ["unit": .string(code)]
-                for (name, quantity) in [("sum", stats.sumQuantity()), ("average", stats.averageQuantity()), ("minimum", stats.minimumQuantity()), ("maximum", stats.maximumQuantity())] {
-                    if let quantity, quantity.is(compatibleWith: unit) { values[name] = .number(quantity.doubleValue(for: unit)) }
-                }
-                statistics[type.identifier] = .object(values)
-            }
-            payload["statistics"] = .object(statistics)
+            payload = try WorkoutReader.summary(workout)
+            payload["nativeTypeIdentifier"] = .string(sample.sampleType.identifier)
+        } else if sample is HKElectrocardiogram {
+            // Waveform and summary are filled asynchronously before publishing the page.
+        } else if #available(iOS 26, watchOS 26, *), let dose = sample as? HKMedicationDoseEvent {
+            payload = try SpecializedHealthReader.medication(dose, annotation: nil)
+        } else if sample is HKWorkoutRoute {
+            // Locations are loaded asynchronously only when the route option is enabled.
+        } else if #available(iOS 18, watchOS 11, *), let state = sample as? HKStateOfMind {
+            payload = SpecializedHealthReader.stateOfMind(state)
         } else { throw ConfigurationError("该 HealthKit 记录需要独立读取器") }
-        var metadata: [String: JSONValue] = [:]
-        var unsupported: [JSONValue] = []
-        for (key, value) in sample.metadata ?? [:] {
-            if let text = value as? String { metadata[key] = .string(text) }
-            else if let date = value as? Date { metadata[key] = .string(Self.date(date)) }
-            else if let number = value as? NSNumber {
-                metadata[key] = CFGetTypeID(number) == CFBooleanGetTypeID() ? .bool(number.boolValue) : .number(number.doubleValue)
-            } else { unsupported.append(.string(key)) }
-        }
+        let metadata = try WorkoutReader.metadata(sample.metadata)
         if !metadata.isEmpty { payload["metadata"] = .object(metadata) }
-        if !unsupported.isEmpty { payload["unsupportedMetadataKeys"] = .array(unsupported) }
         let revision = sample.sourceRevision
-        return HealthRecord(op: .upsert, typeIdentifier: sample.sampleType.identifier, recordId: sample.uuid.uuidString.lowercased(), start: Self.date(sample.startDate), end: Self.date(sample.endDate), source: RecordSource(id: revision.source.bundleIdentifier, name: revision.source.name, version: revision.version, device: sample.device?.model), payload: payload)
+        return HealthRecord(op: .upsert, typeIdentifier: sample is HKWorkout ? "HKWorkoutType" : sample.sampleType.identifier, recordId: sample.uuid.uuidString.lowercased(), start: Self.date(sample.startDate), end: Self.date(sample.endDate), source: RecordSource(id: revision.source.bundleIdentifier, name: revision.source.name, version: revision.version, device: sample.device?.model), payload: payload)
     }
     static func date(_ date: Date) -> String { HealthTimestamp.string(date) }
     static func unit(_ code: String) throws -> HKUnit {

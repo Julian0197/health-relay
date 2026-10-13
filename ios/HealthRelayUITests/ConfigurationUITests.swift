@@ -164,6 +164,56 @@ final class ConfigurationUITests: XCTestCase {
         capture(app, "提醒配置持久化")
     }
 
+    @MainActor
+    func testHEAVersionAndDataFamilyPersist() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["--ui-testing", "--reset-configurations"]
+        app.launch()
+        XCTAssertTrue(app.buttons["new-task"].waitForExistence(timeout: 10))
+        app.buttons["new-task"].tap()
+        let name = app.textFields["task-name"]
+        name.tap()
+        if let value = name.value as? String { name.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: value.count)) }
+        name.typeText("HEA周期配置验收")
+        app.buttons["metric-picker"].tap()
+        let search = app.searchFields.firstMatch
+        XCTAssertTrue(search.waitForExistence(timeout: 5))
+        search.tap(); search.typeText("SexualActivity")
+        let metric = app.buttons["metric-HKCategoryTypeIdentifierSexualActivity"]
+        XCTAssertTrue(metric.waitForExistence(timeout: 5)); metric.tap()
+        app.buttons["metrics-done"].tap()
+
+        let format = app.buttons["export-format"]
+        reveal(format, in: app)
+        XCTAssertTrue(format.isHittable); format.tap()
+        app.buttons["HEA JSON · v1"].tap()
+        let family = app.buttons["hea-data-type"]
+        reveal(family, in: app)
+        XCTAssertTrue(family.isHittable); family.tap()
+        app.buttons["周期记录"].tap()
+        let endpoint = app.textFields["endpoint-url"]
+        reveal(endpoint, in: app)
+        XCTAssertTrue(endpoint.isHittable); endpoint.tap(); endpoint.typeText("https://api.example.com/ingest")
+        app.buttons["save-task"].tap()
+        let edit = app.buttons["task-HEA周期配置验收"]
+        XCTAssertTrue(edit.waitForExistence(timeout: 5))
+        app.terminate(); app.launchArguments = ["--ui-testing"]; app.launch()
+        XCTAssertTrue(edit.waitForExistence(timeout: 10)); edit.tap()
+        reveal(format, in: app)
+        XCTAssertTrue(format.label.contains("HEA JSON · v1") || (format.value as? String) == "HEA JSON · v1")
+        reveal(family, in: app)
+        XCTAssertTrue(family.label.contains("周期记录") || (family.value as? String) == "周期记录")
+        capture(app, "HEA版本与数据族重启恢复")
+    }
+
+    @MainActor private func reveal(_ element: XCUIElement, in app: XCUIApplication) {
+        for _ in 0..<20 where !element.isHittable {
+            let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.60))
+            let end = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.35))
+            start.press(forDuration: 0.1, thenDragTo: end)
+        }
+    }
+
     @MainActor private func capture(_ app: XCUIApplication, _ name: String) {
         let attachment = XCTAttachment(screenshot: app.screenshot())
         attachment.name = name

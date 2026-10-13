@@ -144,14 +144,17 @@ import CryptoKit
         watch.destination.credentialHeader = "Authorization"
         XCTAssertNoThrow(try WatchConfigurationSnapshot(tasks: [watch]))
         watch.export.format = "hea.v1"
-        XCTAssertThrowsError(try WatchConfigurationSnapshot(tasks: [watch]))
+        XCTAssertNoThrow(try WatchConfigurationSnapshot(tasks: [watch]))
         watch.export.format = "hea.v2"
         watch.data.family = .workout; watch.data.selections = [MetricSelection(typeIdentifier: "HKWorkoutType")]
+        XCTAssertNoThrow(try WatchConfigurationSnapshot(tasks: [watch]))
+        watch.export.heaDataType = .medications
         XCTAssertThrowsError(try WatchConfigurationSnapshot(tasks: [watch]))
+        watch.export.heaDataType = nil
         watch.export.format = "healthrelay.v1"
         var options = WorkoutOptions(); options.includeRoutes = true
         watch.data.workoutOptions = options
-        XCTAssertThrowsError(try WatchConfigurationSnapshot(tasks: [watch]))
+        XCTAssertNoThrow(try WatchConfigurationSnapshot(tasks: [watch]))
     }
     func testLegacyImplicitAuthorizationSurvivesSanitizationAndRepeatedBinding() throws {
         var watch = task(); watch.device = .watch

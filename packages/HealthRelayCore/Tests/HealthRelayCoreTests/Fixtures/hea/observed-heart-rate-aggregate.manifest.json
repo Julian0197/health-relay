@@ -1,0 +1,50 @@
+{
+  "fixture": "observed-heart-rate-aggregate.json",
+  "classification": "synthetic-values-observed-schema",
+  "capture": {
+    "sha256": "13cc4729cf8cda0f885cf1d71a60a8ea9a22b6bd72e9be32a1c7051cbcbd0468",
+    "byteCount": 42733,
+    "retainedInRepository": false
+  },
+  "observed": {
+    "rootKeys": [
+      "data"
+    ],
+    "dataKeys": [
+      "metrics"
+    ],
+    "metricKeys": [
+      "data",
+      "name",
+      "units"
+    ],
+    "metricName": "heart_rate",
+    "units": "count/min",
+    "pointCount": 284,
+    "everyPointKeys": [
+      "Avg",
+      "Max",
+      "Min",
+      "date"
+    ],
+    "sourcePresent": false,
+    "dateFormat": "yyyy-MM-dd HH:mm:ss Z"
+  },
+  "unknown": [
+    "HEA application version",
+    "HEA export version",
+    "Export settings and aggregation interval",
+    "Raw heart-rate export shape",
+    "Other health metrics",
+    "Workout JSON",
+    "CSV contents and transport"
+  ],
+  "implementationScope": [
+    "Apply count/min only to generic HKQuantityTypeIdentifierHeartRate metrics; convert count/s by 60 and preserve the numeric value of bpm.",
+    "Omit source only for aggregated HKQuantityTypeIdentifierHeartRate points.",
+    "Keep raw heart-rate source, other metrics and workout heart-rate projection unchanged.",
+    "Use this metric shape in hea.v1 and hea.v2; this does not identify the original capture version.",
+    "CSV inherits the JSON projection; no CSV compatibility claim follows from this JSON capture."
+  ],
+  "privacy": "No original health values, record IDs, sources or timestamps are retained. The fixture uses independently chosen synthetic data and reproduces schema only."
+}

@@ -6,7 +6,7 @@ public enum ExecutionDevice: String, Codable, CaseIterable, Sendable {
 }
 
 public enum DataFamily: String, Codable, CaseIterable, Sendable {
-    case healthMetrics, quantity, category, correlation, workout
+    case healthMetrics, quantity, category, correlation, workout, special
     public var title: String {
         switch self {
         case .healthMetrics: "健康指标（全部）"
@@ -14,6 +14,7 @@ public enum DataFamily: String, Codable, CaseIterable, Sendable {
         case .category: "分类记录"
         case .correlation: "关联记录"
         case .workout: "锻炼"
+        case .special: "专用记录"
         }
     }
 }
@@ -69,6 +70,23 @@ public struct DateRange: Codable, Equatable, Sendable {
     }
 }
 
+public enum HEADataType: String, Codable, CaseIterable, Sendable {
+    case automatic, healthMetrics, workouts, symptoms, cycleTracking, ecg, heartRateNotifications, stateOfMind, medications
+    public var title: String {
+        switch self {
+        case .automatic: "自动分配"
+        case .healthMetrics: "健康指标"
+        case .workouts: "锻炼"
+        case .symptoms: "症状"
+        case .cycleTracking: "周期记录"
+        case .ecg: "心电图"
+        case .heartRateNotifications: "心率通知"
+        case .stateOfMind: "心理状态"
+        case .medications: "用药"
+        }
+    }
+}
+
 public struct ExportSettings: Codable, Equatable, Sendable {
     public enum Mode: String, Codable, CaseIterable, Sendable { case raw, aggregate }
     public enum Grouping: String, Codable, CaseIterable, Sendable {
@@ -89,6 +107,7 @@ public struct ExportSettings: Codable, Equatable, Sendable {
     public enum Statistic: String, Codable, CaseIterable, Sendable { case sum, average, minimum, maximum }
     public enum DeletionPolicy: String, Codable, CaseIterable, Sendable { case reject, omit }
     public var deletionPolicy: DeletionPolicy?
+    public var heaDataType: HEADataType?
     public var format = "healthrelay.v1"
     public var mode: Mode = .raw
     public var grouping: Grouping = .none
@@ -193,7 +212,7 @@ public struct AutomationConfig: Codable, Equatable, Identifiable, Sendable {
                 issues.append("未知指标：\(selection.id)"); continue
             }
             let matches = metric.family == data.family ||
-                (data.family == .healthMetrics && [.quantity, .category, .correlation].contains(metric.family))
+                (data.family == .healthMetrics && [.quantity, .category, .correlation, .special].contains(metric.family))
             if !matches { issues.append("\(metric.title) 不属于当前数据类型") }
             if platform == .watch {
                 if let minimum = metric.minimumWatchOS {

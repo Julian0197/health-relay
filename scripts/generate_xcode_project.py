@@ -121,7 +121,8 @@ unit_target = obj("unitTarget", "PBXNativeTarget", f'buildConfigurationList = {u
 unit_group = obj("unitGroup", "PBXGroup", f'children = {array(unit_files)}; name = Tests; sourceTree = "<group>";')
 
 watch_unit_files, watch_unit_build = [], []
-for source in sorted((ROOT / "watch/HealthRelayWatchTests").glob("*.swift")) + [ROOT / "ios/HealthRelayTests/ObserverWorkTests.swift"]:
+shared_unit_sources = [ROOT / "ios/HealthRelayTests" / name for name in ["ObserverWorkTests.swift", "WorkoutReaderTests.swift", "SpecializedHealthReaderTests.swift", "HEANativeIntegrationTests.swift"]]
+for source in sorted((ROOT / "watch/HealthRelayWatchTests").glob("*.swift")) + shared_unit_sources:
     path = os.path.relpath(source, ROOT / "ios")
     ref = identifier("file:" + path) if source.parent.name == "HealthRelayTests" else obj("file:" + path, "PBXFileReference", f"lastKnownFileType = sourcecode.swift; path = {q(path)}; sourceTree = SOURCE_ROOT;")
     watch_unit_files.append(ref)
@@ -137,7 +138,7 @@ watch_unit_configs = configs("watchUnit", {
     "BUNDLE_LOADER": "$(TEST_HOST)", "TARGETED_DEVICE_FAMILY": "4",
 })
 watch_unit_target = obj("watchUnitTarget", "PBXNativeTarget", f'buildConfigurationList = {watch_unit_configs}; buildPhases = {array([watch_unit_phase, watch_unit_frameworks])}; buildRules = (); dependencies = {array([watch_dependency])}; name = HealthRelayWatchTests; productName = HealthRelayWatchTests; productReference = {watch_unit_product}; productType = "com.apple.product-type.bundle.unit-test";')
-watch_unit_group = obj("watchUnitGroup", "PBXGroup", f'children = {array(watch_unit_files)}; name = WatchTests; sourceTree = "<group>";')
+watch_unit_group = obj("watchUnitGroup", "PBXGroup", f'children = {array([ref for ref in watch_unit_files if ref not in unit_files])}; name = WatchTests; sourceTree = "<group>";')
 
 source_group = obj("sourceGroup", "PBXGroup", f"children = {array(app_files)}; name = App; sourceTree = \"<group>\";")
 test_group = obj("testGroup", "PBXGroup", f"children = {array(test_files)}; name = UITests; sourceTree = \"<group>\";")

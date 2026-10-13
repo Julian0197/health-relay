@@ -1,0 +1,132 @@
+{
+  "name": "correlated-blood-pressure-and-quantity-metadata",
+  "source": "https://help.healthyapps.dev/en/health-auto-export/export-format/health-metrics/",
+  "provenance": "Synthetic values and source. Blood pressure pairs only its correlation children, regardless of child order. Metadata keys are public SDK runtime values. No real HEA capture.",
+  "format": "hea.v2",
+  "timeZone": "UTC",
+  "records": [
+    {
+      "op": "upsert",
+      "typeIdentifier": "HKQuantityTypeIdentifierInsulinDelivery",
+      "recordId": "synthetic-insulin",
+      "start": "2026-01-01T00:00:00.000Z",
+      "end": "2026-01-01T00:00:00.000Z",
+      "source": {
+        "id": "synthetic.sensor",
+        "name": "Fixture Sensor"
+      },
+      "payload": {
+        "unit": "IU",
+        "value": 3,
+        "metadata": {
+          "HKInsulinDeliveryReason": 2
+        }
+      }
+    },
+    {
+      "op": "upsert",
+      "typeIdentifier": "HKCorrelationTypeIdentifierBloodPressure",
+      "recordId": "synthetic-bp",
+      "start": "2026-01-01T00:00:00.000Z",
+      "end": "2026-01-01T00:00:00.000Z",
+      "source": {
+        "id": "synthetic.sensor",
+        "name": "Fixture Sensor"
+      },
+      "payload": {
+        "objects": [
+          {
+            "op": "upsert",
+            "typeIdentifier": "HKQuantityTypeIdentifierBloodPressureDiastolic",
+            "recordId": "synthetic-dia",
+            "start": "2026-01-01T00:00:00.000Z",
+            "end": "2026-01-01T00:00:00.000Z",
+            "source": {
+              "id": "synthetic.sensor",
+              "name": "Fixture Sensor"
+            },
+            "payload": {
+              "unit": "mmHg",
+              "value": 77
+            }
+          },
+          {
+            "op": "upsert",
+            "typeIdentifier": "HKQuantityTypeIdentifierBloodPressureSystolic",
+            "recordId": "synthetic-sys",
+            "start": "2026-01-01T00:00:00.000Z",
+            "end": "2026-01-01T00:00:00.000Z",
+            "source": {
+              "id": "synthetic.sensor",
+              "name": "Fixture Sensor"
+            },
+            "payload": {
+              "unit": "mmHg",
+              "value": 118
+            }
+          }
+        ]
+      }
+    },
+    {
+      "op": "upsert",
+      "typeIdentifier": "HKQuantityTypeIdentifierBloodGlucose",
+      "recordId": "synthetic-glucose",
+      "start": "2026-01-01T00:00:00.000Z",
+      "end": "2026-01-01T00:00:00.000Z",
+      "source": {
+        "id": "synthetic.sensor",
+        "name": "Fixture Sensor"
+      },
+      "payload": {
+        "unit": "mg/dL",
+        "value": 97,
+        "metadata": {
+          "HKBloodGlucoseMealTime": 1
+        }
+      }
+    }
+  ],
+  "expected": {
+    "data": {
+      "metrics": [
+        {
+          "name": "blood_pressure",
+          "units": "mmHg",
+          "data": [
+            {
+              "date": "2026-01-01 00:00:00 +0000",
+              "source": "Fixture Sensor",
+              "systolic": 118,
+              "diastolic": 77
+            }
+          ]
+        },
+        {
+          "name": "blood_glucose",
+          "units": "mg/dL",
+          "data": [
+            {
+              "date": "2026-01-01 00:00:00 +0000",
+              "source": "Fixture Sensor",
+              "qty": 97,
+              "mealTime": "Before Meal"
+            }
+          ]
+        },
+        {
+          "name": "insulin_delivery",
+          "units": "IU",
+          "data": [
+            {
+              "date": "2026-01-01 00:00:00 +0000",
+              "source": "Fixture Sensor",
+              "qty": 3,
+              "reason": "Bolus"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

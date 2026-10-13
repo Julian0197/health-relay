@@ -104,29 +104,22 @@ struct SourcePickerView: View {
 
     @MainActor private func load() async {
         guard HKHealthStore.isHealthDataAvailable() else { message = "此设备无法访问健康数据。"; return }
-        let type: HKSampleType?
-        switch metric.family {
-        case .healthMetrics: type = nil
-        case .quantity: type = HKObjectType.quantityType(forIdentifier: .init(rawValue: metric.id))
-        case .category: type = HKObjectType.categoryType(forIdentifier: .init(rawValue: metric.id))
-        case .correlation: type = HKObjectType.correlationType(forIdentifier: .init(rawValue: metric.id))
-        case .workout: type = HKObjectType.workoutType()
-        }
-        guard let type else { message = "当前系统不支持该数据类型。"; return }
+        let reader = HealthKitReader()
+        guard let type = try? reader.sampleType(metric.id) else { message = "当前系统不支持该数据类型。"; return }
         loading = true; defer { loading = false }
         do {
-            let health = HKHealthStore()
-            let readTypes: Set<HKObjectType>
             if metric.family == .correlation {
                 message = "关联记录来源选择将在对应读取器接入后开放。"; return
-            } else { readTypes = [type] }
-            try await health.requestAuthorization(toShare: [], read: readTypes)
+            }
+            var task = AutomationConfig()
+            task.data.selections = [metric.selection]
+            try await reader.authorize(task)
             let results: [HKSource] = try await withCheckedThrowingContinuation { continuation in
                 let query = HKSourceQuery(sampleType: type, samplePredicate: nil) { _, found, error in
                     if let error { continuation.resume(throwing: error) }
                     else { continuation.resume(returning: Array(found ?? [])) }
                 }
-                health.execute(query)
+                reader.health.execute(query)
             }
             sources = results.map { (id: $0.bundleIdentifier, name: $0.name) }.sorted { $0.name < $1.name }
             message = sources.isEmpty ? "未读到来源。可能没有记录，也可能尚未允许读取；可到健康 App 检查。" : ""

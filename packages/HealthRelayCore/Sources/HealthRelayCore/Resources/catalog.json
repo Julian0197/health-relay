@@ -2725,6 +2725,36 @@
       "minimumWatchOS": 2,
       "units": [],
       "statistics": []
+    },
+    {
+      "id": "HKDataTypeIdentifierElectrocardiogram",
+      "title": "心电图",
+      "category": "心脏",
+      "family": "special",
+      "minimumIOS": 14,
+      "minimumWatchOS": 7,
+      "units": [],
+      "statistics": []
+    },
+    {
+      "id": "HKDataTypeStateOfMind",
+      "title": "心境",
+      "category": "心理健康",
+      "family": "special",
+      "minimumIOS": 18,
+      "minimumWatchOS": 11,
+      "units": [],
+      "statistics": []
+    },
+    {
+      "id": "HKMedicationDoseEventTypeIdentifierMedicationDoseEvent",
+      "title": "用药记录",
+      "category": "用药",
+      "family": "special",
+      "minimumIOS": 26,
+      "minimumWatchOS": 26,
+      "units": [],
+      "statistics": []
     }
   ]
 }
