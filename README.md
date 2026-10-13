@@ -2,7 +2,7 @@
 
 An open-source iOS app for configurable Apple Health exports and reliable automation. Swift-first; bring your own endpoint.
 
-用配置建立 Apple Health 自动化任务：选择数据、来源、单位、日期范围、明细或汇总、执行条件和上传接口。
+用配置建立 Apple Health 自动化任务：选择数据、来源、单位、日期范围、明细或汇总、执行条件和上传接口。保存并启用后，由数据变化和系统调度自动同步，无需点击提醒；提醒是独立可选功能。
 
 **当前状态：通用导出、汇总、HEA v2/CSV、历史补传、前台定时、后台快捷指令和独立提醒已实现。真机已验证前台定时、Shortcuts 系统时间触发与测试接口上传，提醒已自然送达；通知动作和自然后台唤醒仍待完整验收，不能保证锁屏准点上传。**
 
