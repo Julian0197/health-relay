@@ -4,7 +4,7 @@ An open-source iOS app for configurable Apple Health exports and reliable automa
 
 用配置建立 Apple Health 自动化任务：选择数据、来源、单位、日期范围、明细或汇总、执行条件和上传接口。
 
-**当前状态：通用导出、汇总、HEA v2/CSV、历史补传、前台定时、后台快捷指令和独立提醒已实现。真机已验证前台定时与测试接口上传；系统时间触发、提醒通知和自然后台唤醒仍待验收，不能保证锁屏准点上传。**
+**当前状态：通用导出、汇总、HEA v2/CSV、历史补传、前台定时、后台快捷指令和独立提醒已实现。真机已验证前台定时、Shortcuts 系统时间触发与测试接口上传，提醒已自然送达；通知动作和自然后台唤醒仍待完整验收，不能保证锁屏准点上传。**
 
 ## 当前可用
 
@@ -37,7 +37,7 @@ xcodebuild -project ios/HealthRelay.xcodeproj -scheme HealthRelay -sdk iphonesim
 
 当前 74 项 Core 测试（含隔离 Swift→Cloudflare 集成）通过，5 项原生模拟器 UI 用例分别通过，最终 iPhone 签名构建通过。此前 5 项接收器测试通过，本轮未修改接收器。详见[定时与提醒验收](docs/implementation-scheduling.md)和[自动化核心实现](docs/implementation-automation-core.md)。
 
-真机已完成原生明细、HEA JSON/CSV、独立补传、持续前台定时，以及 Shortcuts 内调用后台动作。系统时间触发和提醒通知因手机断连仍待验收；HEA 原始导出文件对照及汇总数值语义仍待核对。所有上传验收仅使用独立测试接口。
+真机已完成原生明细、HEA JSON/CSV、独立补传、持续前台定时，以及 Shortcuts 内调用和系统时间自动触发。10 月 13 日 15:12，HealthRelay 未在前台时，系统定时完成 2 条/2 批上传并收到提交回执；提醒自然送达且未自行运行。通知动作仍待完整验收，HEA 原始文件和汇总值仍待对照。所有上传验收仅使用独立测试接口。
 
 ## 界面
 
