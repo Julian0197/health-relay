@@ -112,6 +112,7 @@ public struct ExecutionSettings: Codable, Equatable, Sendable {
     public var onDataChange = true
     public var onForeground = true
     public var periodicPolling: Bool?
+    public var reminder: ReminderSettings?
     public var minimumIntervalSeconds = 1800
     public var batchMaxRecords = 500
     public var batchMaxBytes = 1_048_576
@@ -224,6 +225,7 @@ public struct AutomationConfig: Codable, Equatable, Identifiable, Sendable {
             issues.append("认证 Header 名称无效")
         }
         if Self.containsHeaderLineBreak(destination.credentialPrefix ?? "") { issues.append("认证前缀不能包含换行") }
+        issues += execution.reminder?.validationIssues ?? []
         if !(60...604800).contains(execution.minimumIntervalSeconds) { issues.append("期望间隔须为 1 分钟至 7 天") }
         if !(1...5000).contains(execution.batchMaxRecords) { issues.append("每批记录数须为 1–5000") }
         if !(1024...10_485_760).contains(execution.batchMaxBytes) { issues.append("每批大小须为 1 KiB–10 MiB") }

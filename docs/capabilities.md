@@ -1,8 +1,8 @@
 # 能力覆盖与验收
 
-2026-10-12。配置目录、执行实现与真机验收分别记录。SDK 标识符盘点不是完整 HealthKit 能力证明；一个家族的通用读取器也不代表其中每个类型都有真机样本。
+2026-10-13。配置目录、执行实现与真机验收分别记录。SDK 标识符盘点不是完整 HealthKit 能力证明；一个家族的通用读取器也不代表其中每个类型都有真机样本。
 
-完整的配置与执行差距、协议差异和实施顺序见 [HEA 自动化对照盘点](hea-automation-gap-audit-2026-10-12.md)。盘点保留实现前基线，最新补齐说明见[核心实现](implementation-automation-core.md)。
+完整的配置与执行差距、协议差异和实施顺序见 [HEA 自动化对照盘点](hea-automation-gap-audit-2026-10-12.md)。盘点保留实现前基线，最新补齐说明见[核心实现](implementation-automation-core.md)和[定时与提醒验收](implementation-scheduling.md)。
 
 | 能力 | 当前实现 | 验收边界 |
 | --- | --- | --- |
@@ -12,13 +12,14 @@
 | Correlation 明细 | 父子记录、子单位、来源、metadata | 已实现；复杂关联实际样本待逐项验收 |
 | Workout 摘要 | 活动类型、时长、事件、已有统计 | 已实现；路线/关联时序未开放 |
 | healthrelay.v1 / CSV / Markdown | 标准记录编码，原生 JSON 支持 upsert/delete | 原生 JSON 真机 Cloudflare receipt 通过；CSV/Markdown 为合成编码验收 |
-| HEA v2 / HEA CSV | 20 项显式映射；数量/睡眠汇总、自动 Header、删除拒绝/跳过，CSV multipart profile | Swift→Cloudflare 合成修正/回执通过；真实 HEA CSV 与百分比尺度仍待对照 |
+| HEA v2 / HEA CSV | 20 项显式映射；数量/睡眠汇总、自动 Header、删除拒绝/跳过，CSV multipart profile | 真机 HEA JSON/CSV 测试接口回执通过；真实 HEA CSV 与百分比尺度仍待对照 |
 | HEA v1 | 配置可保存 | 未开放执行 |
 | 汇总与分组 | 每指标统计、完整窗口查询、迟到/删除修正、睡眠跨午夜合并 | Core 窗口/DST/缓存回归及模拟器流程通过；真实健康汇总值待核对 |
-| 历史补传 | 独立固定范围 job、持久进度、继续/取消；不重置父任务 | Core 隔离测试、模拟器补传后日常无重复通过 |
+| 历史补传 | 独立固定范围 job、持久进度、继续/取消；不重置父任务 | Core 隔离、模拟器流程与真机补传回执通过 |
 | 增量与持久化 | 固定首次下界；每任务一个待上传批次，确认后提交 anchor | 失败重启、同 ID/正文重试、不重复发送已验收 |
-| 手动、前台、Observer、BGTask | 全局串行与公平队列，共享预算、跨午夜续跑；显式定期补查 | 真机手动链路通过；后台延迟/锁屏/低电量待验收 |
-| AppIntent | 选择已有任务，打开 App 并运行同一引擎 | 已构建；快捷指令 App 实际调用待验收 |
+| 手动、前台、Observer、BGTask | 全局串行与公平队列，共享预算、跨午夜续跑；前台定时与后台期望调度 | 真机持续前台定时通过；自然后台延迟/锁屏/低电量待验收 |
+| AppIntent | 不打开 App，启用检查、自动重试语义，返回文本 | 真机 Shortcuts 内调用通过；最后的启停/退避修复与系统时间触发待真机复测 |
+| 独立提醒 | 每小时/每天/指定星期，本地通知与打开并同步 | Core 日期/DST、模拟器保存恢复通过；通知送达/点击/清理待真机验收 |
 | Activity Summary / Characteristics | 快照设计 | 未接入 |
 | ECG / Audiogram / Series | 专用查询设计 | 未接入 |
 | State of Mind / Medication | 结构化读取设计 | 未接入 |
@@ -35,7 +36,7 @@ HEA v2 映射以 [HEAEncoder.swift](../packages/HealthRelayCore/Sources/HealthRe
 
 ## 已验收的引擎边界
 
-当前 63 项 Core 测试通过（44 XCTest 含主动开启的 Cloudflare 集成 + 19 Swift Testing），3 项原生模拟器 UI 测试、5 项 Node 测试和 iOS 构建通过。未配置私有 Cloudflare 验收文件时，外网测试跳过。
+当前 74 项 Core 测试通过（55 XCTest 含主动开启的 Cloudflare 集成 + 19 Swift Testing），5 项原生模拟器 UI 用例分别通过，最终 iPhone 签名构建通过。此前 5 项 Node 测试通过，本轮未改接收器。未配置私有 Cloudflare 验收文件时，外网测试跳过。
 
 | 场景 | 结果 |
 | --- | --- |
@@ -57,5 +58,5 @@ HEA v2 映射以 [HEAEncoder.swift](../packages/HealthRelayCore/Sources/HealthRe
 2. 特殊家族专用查询、完整子数据与删除机制验收。
 3. 真机核对 HealthKit 统计与多来源睡眠冲突语义，不将合成窗口测试视为真实值证明。
 4. 真机记录与接收端结果核对；无实际样本只标 implemented。
-5. 后台与快捷指令记录真实触发、延迟和失败恢复。
+5. 自然后台、系统时间快捷指令与通知记录真实触发、延迟和失败恢复。
 6. 服务端幂等与回执持久化验收；HTTP 200 本身不等于去重或数据库提交。

@@ -72,6 +72,11 @@ struct AutomationEditorView: View {
             destinationSection
             headerSection
             executionSection
+            Section {
+                NavigationLink { ReminderEditorView(settings: $task.execution.reminder) } label: {
+                    LabeledContent("安排提醒", value: task.execution.reminder?.enabled == true ? "已开启" : "已关闭")
+                }.accessibilityIdentifier("reminder-settings")
+            }
             if !task.executionIssues.isEmpty {
                 Section("执行能力") {
                     ForEach(task.executionIssues, id: \.self) { Text($0).font(.footnote).foregroundStyle(.secondary) }
@@ -287,8 +292,8 @@ struct AutomationEditorView: View {
         Section {
             Toggle("健康数据变化时处理", isOn: $task.execution.onDataChange)
             Toggle("打开 App 时检查", isOn: $task.execution.onForeground)
-            Toggle("定期补查", isOn: Binding(get: { task.execution.periodicPolling ?? false }, set: { task.execution.periodicPolling = $0 }))
-            Text("默认依靠数据变化触发；定期补查仅申请系统执行机会，不能保证固定分钟数。")
+            Toggle("定期检查", isOn: Binding(get: { task.execution.periodicPolling ?? false }, set: { task.execution.periodicPolling = $0 }))
+            Text("开启后，App 保持前台时按期望间隔检查；后台由 iOS 决定执行时机。无新数据时不上传。")
                 .font(.footnote).foregroundStyle(.secondary)
             HStack {
                 Text("期望间隔（分钟）")

@@ -32,6 +32,26 @@ final class SyncTests: XCTestCase {
         XCTAssertNil(after.pending)
         XCTAssertEqual(after.checkpoints.values.first?.anchor, Data("next".utf8))
     }
+    func testShortcutAutomaticRunRespectsRetryAfterAndManualOnlyPending() async throws {
+        let task = task(), journal = journal(), reader = FakeReader(), sender = FakeSender()
+        sender.failure = ConfigurationError("offline")
+        let engine = SyncEngine(reader: reader, sender: sender, journal: journal)
+        _ = await engine.run(task)
+        var state = try journal.load(task.id)
+        state.pending?.automaticRetry = true
+        state.pending?.nextAttempt = Date().addingTimeInterval(3600)
+        try journal.save(state, for: task.id)
+        sender.failure = nil
+        let waiting = await engine.run(task, automatic: true, trigger: "shortcut")
+        XCTAssertEqual(waiting.state, .queued)
+        XCTAssertEqual(sender.uploads.count, 1); XCTAssertEqual(reader.anchors.count, 1)
+        state.pending?.nextAttempt = .distantPast; state.pending?.automaticRetry = false
+        try journal.save(state, for: task.id)
+        let manualOnly = await engine.run(task, automatic: true, trigger: "shortcut")
+        XCTAssertEqual(manualOnly.state, .queued)
+        XCTAssertEqual(sender.uploads.count, 1); XCTAssertEqual(reader.anchors.count, 1)
+        XCTAssertEqual(try journal.load(task.id).pending?.body, state.pending?.body)
+    }
     func testNoDataDoesNotSendAndRetainsBootstrapBoundary() async throws {
         let task = task(), journal = journal(), reader = FakeReader(), sender = FakeSender()
         reader.empty = true

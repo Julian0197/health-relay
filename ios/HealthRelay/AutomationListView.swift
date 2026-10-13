@@ -34,6 +34,9 @@ struct AutomationListView: View {
                     Text("支持手动上报、健康数据变化触发和系统后台调度。新任务保存后默认关闭。")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
+                if let reminderError = store.reminderError {
+                    Section { Text(reminderError).font(.footnote).foregroundStyle(.orange) }
+                }
                 if let failure = store.loadError {
                     Section { Label("无法读取本地配置", systemImage: "exclamationmark.triangle"); Text(failure).font(.footnote) }
                 } else if store.tasks.isEmpty {
@@ -117,6 +120,14 @@ struct AutomationListView: View {
                     }
                     .navigationTitle("导入配置")
                     .toolbar { Button("取消") { importCandidate = nil } }
+                }
+            }
+            .onChange(of: store.reminderRoute?.id, initial: true) { _, _ in
+                guard let route = store.reminderRoute else { return }
+                editing = nil; importCandidate = nil; viewing = nil
+                store.reminderRoute = nil
+                DispatchQueue.main.async {
+                    viewing = store.tasks.first { $0.id == route.taskID && $0.enabled }
                 }
             }
             .fileImporter(isPresented: $importing, allowedContentTypes: [.json]) { result in

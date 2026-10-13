@@ -94,6 +94,64 @@ final class ConfigurationUITests: XCTestCase {
         capture(app, "补传未重置日常进度")
     }
 
+    @MainActor
+    func testForegroundIntervalRunsAgainWithoutNavigationOrManualRun() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["--ui-testing", "--reset-configurations", "--synthetic-health", "--synthetic-periodic", "--delay-observer-setup"]
+        app.launchEnvironment = ["HEALTHRELAY_ACCEPTANCE_ENDPOINT": "https://localhost:18443/ingest", "HEALTHRELAY_ACCEPTANCE_KEY": "synthetic-local-acceptance-key"]
+        app.launch()
+        let run = app.buttons["run-task-合成数据链路验收"]
+        XCTAssertTrue(run.waitForExistence(timeout: 10)); run.tap()
+        let result = app.staticTexts["execution-result"]
+        expectation(for: NSPredicate(format: "label CONTAINS %@", "已上传并确认 1 条"), evaluatedWith: result)
+        waitForExpectations(timeout: 15)
+        // Leave this page open. A scene-change-only scheduler never reaches this outcome.
+        expectation(for: NSPredicate(format: "label CONTAINS %@", "没有可读取的新记录"), evaluatedWith: result)
+        waitForExpectations(timeout: 75)
+        capture(app, "保持前台到期自动检查")
+    }
+
+    @MainActor
+    func testReminderPreferencesPersistWithoutEnablingAutomation() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["--ui-testing", "--reset-configurations"]
+        app.launch()
+        XCTAssertTrue(app.buttons["new-task"].waitForExistence(timeout: 10))
+        app.buttons["new-task"].tap()
+        let name = app.textFields["task-name"]
+        name.tap()
+        if let value = name.value as? String { name.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: value.count)) }
+        name.typeText("提醒配置验收")
+        app.buttons["metric-picker"].tap()
+        let search = app.searchFields.firstMatch
+        XCTAssertTrue(search.waitForExistence(timeout: 5)); search.tap(); search.typeText("BodyMass")
+        app.buttons["metric-HKQuantityTypeIdentifierBodyMass"].tap()
+        app.buttons["metrics-done"].tap()
+        let endpoint = app.textFields["endpoint-url"]
+        for _ in 0..<6 where !endpoint.isHittable { app.swipeUp() }
+        endpoint.tap(); endpoint.typeText("https://api.example.com/ingest")
+        let reminders = app.buttons["reminder-settings"]
+        for _ in 0..<10 where !reminders.isHittable { app.swipeUp() }
+        XCTAssertTrue(reminders.isHittable); reminders.tap()
+        let enabled = app.switches["reminder-enabled"]
+        XCTAssertTrue(enabled.waitForExistence(timeout: 5))
+        enabled.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+        XCTAssertTrue(app.staticTexts["保存后下次提醒"].waitForExistence(timeout: 3))
+        app.navigationBars["安排提醒"].buttons.element(boundBy: 0).tap()
+        app.buttons["save-task"].tap()
+        XCTAssertTrue(app.navigationBars["新建自动化"].waitForNonExistence(timeout: 5))
+        XCTAssertFalse(app.alerts["保存失败"].exists)
+        let edit = app.buttons["task-提醒配置验收"]
+        XCTAssertTrue(edit.waitForExistence(timeout: 5))
+        app.terminate(); app.launchArguments = ["--ui-testing"]; app.launch()
+        XCTAssertTrue(edit.waitForExistence(timeout: 10)); edit.tap()
+        XCTAssertTrue(app.staticTexts["已关闭"].exists)
+        for _ in 0..<10 where !reminders.isHittable { app.swipeUp() }
+        reminders.tap()
+        XCTAssertTrue(enabled.waitForExistence(timeout: 5)); XCTAssertEqual(enabled.value as? String, "1")
+        capture(app, "提醒配置持久化")
+    }
+
     @MainActor private func capture(_ app: XCUIApplication, _ name: String) {
         let attachment = XCTAttachment(screenshot: app.screenshot())
         attachment.name = name

@@ -17,7 +17,15 @@ final class AutomationStore {
     private let backfillRepository: BackfillRepository
     private let coordinator = RunCoordinator()
     private let observerCoordinator = RunCoordinator()
+    private let reminderCoordinator = RunCoordinator()
+    @ObservationIgnored private let reminders = AutomationReminders()
+    private(set) var reminderError: String?
+    struct ReminderRoute: Identifiable { let id = UUID(); let taskID: UUID? }
+    var reminderRoute: ReminderRoute?
     private var checkingDue = false
+    @ObservationIgnored private var foregroundActive = false
+    @ObservationIgnored private var foregroundWake: Task<Void, Never>?
+
     private(set) var backfills: [BackfillJob] = []
     let journal: SyncJournal
     private(set) var outcomes: [UUID: RunLog] = [:]
@@ -62,6 +70,11 @@ final class AutomationStore {
             if ProcessInfo.processInfo.arguments.contains("--synthetic-aggregate") {
                 fixture.export.mode = .aggregate; fixture.export.grouping = .hours
                 fixture.data.selections.append(MetricSelection(typeIdentifier: "HKQuantityTypeIdentifierStepCount", unit: "count"))
+            }
+            if ProcessInfo.processInfo.arguments.contains("--synthetic-periodic") {
+                fixture.enabled = true
+                fixture.execution.onDataChange = false; fixture.execution.onForeground = false
+                fixture.execution.periodicPolling = true; fixture.execution.minimumIntervalSeconds = 60
             }
             fixture.destination.url = endpoint; fixture.destination.acknowledgement = .receipt
             do {
@@ -154,7 +167,7 @@ final class AutomationStore {
         UserDefaults.standard.set(Array(dirtyAtStart), forKey: dirtyKey)
         outcomes[task.id] = RunLog(state: .running, message: "正在读取并上传")
         do {
-            if !automatic {
+            if !automatic && trigger != "shortcut" {
                 #if DEBUG && targetEnvironment(simulator)
                 if !ProcessInfo.processInfo.arguments.contains("--synthetic-health") { try await health.authorize(task) }
                 #else
@@ -187,7 +200,7 @@ final class AutomationStore {
         let log = RunLog(state: .queued, message: "已取消待上传批次，未推进游标；下次从上次确认的位置重新读取")
         state.logs.insert(log, at: 0); state.logs = Array(state.logs.prefix(30))
         try journal.save(state, for: task.id)
-        outcomes[task.id] = log; markDirty(task.id)
+        outcomes[task.id] = log; markDirty(task.id); scheduleRefresh()
     }
 
     private func ensureEditable(_ task: AutomationConfig) throws {
@@ -252,20 +265,11 @@ final class AutomationStore {
         for candidate in ordered {
             guard !Task.isCancelled, Date() < deadline else { break }
             guard let state = try? journal.load(candidate.id) else { continue }
-            if let pending = state.pending {
-                guard pending.automaticRetry, (pending.nextAttempt ?? .distantPast) <= Date() else { continue }
-            } else if candidate.job != nil {
-                if let log = state.logs.first, log.state == .failed, Date().timeIntervalSince(log.date) < 300 { continue }
-            } else {
-                let task = candidate.task
-                let dirty = Set(UserDefaults.standard.stringArray(forKey: dirtyKey) ?? [])
-                let foreground = !dataChangeOnly && trigger == "foreground" && task.execution.onForeground
-                let polling = !dataChangeOnly && task.execution.periodicPolling == true
-                guard state.nextSelectionID != nil || foreground || polling || dirty.contains(task.id.uuidString) else { continue }
-                if state.nextSelectionID == nil {
-                    guard Date().timeIntervalSince(state.lastAttempt ?? .distantPast) >= Double(task.execution.minimumIntervalSeconds) else { continue }
-                }
-            }
+            let dirty = Set(UserDefaults.standard.stringArray(forKey: dirtyKey) ?? [])
+            guard let due = AutomationSchedule.nextDate(candidate.task.execution, state: state,
+                dirty: dirty.contains(candidate.id.uuidString),
+                foregroundCheck: !dataChangeOnly && trigger == "foreground", periodicCheck: !dataChangeOnly,
+                backfill: candidate.job != nil, now: Date()), due <= Date() else { continue }
             if let job = candidate.job { await runBackfill(job, automatic: true, deadline: deadline) }
             else { await run(candidate.task, automatic: true, trigger: dataChangeOnly ? "healthChange" : trigger, deadline: deadline) }
         }
@@ -301,27 +305,62 @@ final class AutomationStore {
                 }
             }
         }
+        await configureReminders()
         scheduleRefresh()
     }
 
-    private func scheduleRefresh() {
-        BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: Self.refreshIdentifier)
-        let dirty = Set(UserDefaults.standard.stringArray(forKey: dirtyKey) ?? [])
-        var dates = tasks.filter(\.enabled).compactMap { task -> Date? in
-            guard let state = try? journal.load(task.id) else { return Date().addingTimeInterval(300) }
-            if let pending = state.pending { return pending.automaticRetry ? pending.nextAttempt ?? Date() : nil }
-            if state.nextSelectionID != nil { return Date().addingTimeInterval(60) }
-            guard task.execution.periodicPolling == true || dirty.contains(task.id.uuidString) else { return nil }
-            return (state.lastAttempt ?? Date()).addingTimeInterval(Double(task.execution.minimumIntervalSeconds))
+    func configureReminders() async {
+        guard loadError == nil else { return }
+        await reminderCoordinator.acquire()
+        defer { reminderCoordinator.release() }
+        do { try await reminders.replace(tasks: tasks); reminderError = nil }
+        catch { reminderError = "提醒未能安排，请检查通知权限后重新保存任务。" }
+    }
+
+    func openReminder(_ id: UUID, run: Bool) async {
+        guard let task = tasks.first(where: { $0.id == id }), task.enabled, !active.contains(id) else {
+            reminderRoute = ReminderRoute(taskID: nil); return
         }
-        for job in backfills where job.completedAt == nil {
-            if let state = try? journal.load(job.id), let pending = state.pending {
-                if pending.automaticRetry { dates.append(pending.nextAttempt ?? Date()) }
-            } else { dates.append(Date().addingTimeInterval(300)) }
+        reminderRoute = ReminderRoute(taskID: id)
+        if run { await self.run(task, trigger: "reminder") }
+    }
+
+    func setForegroundActive(_ active: Bool) {
+        guard foregroundActive != active else { return }
+        foregroundActive = active
+        scheduleRefresh()
+        if active { Task { await runDue() } }
+    }
+
+    private func scheduleRefresh() {
+        foregroundWake?.cancel(); foregroundWake = nil
+        BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: Self.refreshIdentifier)
+        guard loadError == nil else { return }
+        let now = Date()
+        let dirty = Set(UserDefaults.standard.stringArray(forKey: dirtyKey) ?? [])
+        var dates = tasks.filter { $0.enabled && !active.contains($0.id) }.compactMap { task -> Date? in
+            guard let state = try? journal.load(task.id) else { return now.addingTimeInterval(300) }
+            return AutomationSchedule.nextDate(task.execution, state: state,
+                dirty: dirty.contains(task.id.uuidString), now: now)
+        }
+        for job in backfills where job.completedAt == nil && !active.contains(job.id) {
+            if let state = try? journal.load(job.id),
+               let due = AutomationSchedule.nextDate(job.task.execution, state: state, backfill: true, now: now) {
+                dates.append(due)
+            }
         }
         guard let earliest = dates.min() else { return }
+        if foregroundActive {
+            let delay = max(1, earliest.timeIntervalSince(now))
+            foregroundWake = Task { [weak self] in
+                do { try await Task.sleep(for: .seconds(delay)) } catch { return }
+                guard let self, self.foregroundActive, !Task.isCancelled else { return }
+                self.foregroundWake = nil
+                await self.runDue(trigger: "interval")
+            }
+        }
         let request = BGAppRefreshTaskRequest(identifier: Self.refreshIdentifier)
-        request.earliestBeginDate = max(Date().addingTimeInterval(60), earliest)
+        request.earliestBeginDate = max(now.addingTimeInterval(60), earliest)
         try? BGTaskScheduler.shared.submit(request)
     }
 

@@ -22,16 +22,20 @@ struct AutomationTaskQuery: EntityQuery {
 struct RunAutomationIntent: AppIntent {
     static let title: LocalizedStringResource = "运行健康导出"
     static let description = IntentDescription("读取指定任务的健康数据，重试待上传批次并上传新记录。")
-    static let openAppWhenRun = true
+    static let openAppWhenRun = false
+    static let authenticationPolicy: IntentAuthenticationPolicy = .requiresLocalDeviceAuthentication
     @Parameter(title: "任务") var task: AutomationTaskEntity
     static var parameterSummary: some ParameterSummary { Summary("运行 \(\.$task)") }
-    @MainActor func perform() async throws -> some IntentResult & ProvidesDialog {
+    @MainActor func perform() async throws -> some IntentResult & ReturnsValue<String> {
         let store = AutomationStore.shared
         guard let configuration = store.tasks.first(where: { $0.id.uuidString == task.id }) else { throw ConfigurationError("任务不存在") }
-        await store.run(configuration)
+        guard configuration.enabled else { throw ConfigurationError("任务已关闭，请先在 App 中启用") }
+        guard !store.active.contains(configuration.id) else { throw ConfigurationError("任务正在运行，请稍后重试") }
+        // Permissions must be granted in the app before unattended execution.
+        await store.run(configuration, automatic: true, trigger: "shortcut")
         guard let result = store.outcomes[configuration.id] else { throw ConfigurationError("任务未能运行") }
         if result.state == .failed { throw ConfigurationError(result.message) }
-        return .result(dialog: "\(result.message)")
+        return .result(value: result.message)
     }
 }
 struct HealthRelayShortcuts: AppShortcutsProvider {

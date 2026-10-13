@@ -4,7 +4,7 @@ An open-source iOS app for configurable Apple Health exports and reliable automa
 
 用配置建立 Apple Health 自动化任务：选择数据、来源、单位、日期范围、明细或汇总、执行条件和上传接口。
 
-**当前状态：通用明细、数量/睡眠汇总、HEA v2 兼容、独立历史补传和后台续跑已实现。模拟器与独立 Cloudflare 测试接口已通过；本轮新增能力的真机验收待继续，iOS 决定实际后台调度。**
+**当前状态：通用导出、汇总、HEA v2/CSV、历史补传、前台定时、后台快捷指令和独立提醒已实现。真机已验证前台定时与测试接口上传；系统时间触发、提醒通知和自然后台唤醒仍待验收，不能保证锁屏准点上传。**
 
 ## 当前可用
 
@@ -19,7 +19,8 @@ An open-source iOS app for configurable Apple Health exports and reliable automa
 - 每指标独立汇总，完整时间窗口与迟到/删除修正；睡眠按跨午夜窗口归属和时段去重。
 - 固定日期历史补传，独立进度、继续/取消；普通任务与补传共享公平串行队列。
 - 手动运行、读取检查、活动日志、失败后保留并重试；已确认后推进游标，没有新记录不发送 HTTP 请求。
-- HealthKit 数据变化、前台补跑、系统后台刷新与运行已有任务的 AppIntent。
+- HealthKit 数据变化、前台补跑、保持前台按期望间隔检查、系统后台刷新。
+- 无需打开 App 的 Shortcuts 任务动作，以及每小时/每天/指定星期提醒与“打开并同步”通知入口。
 
 配置能力比执行能力更广。**HEA v1、运动路线/关联时序和特殊对象读取尚未开放执行**；不支持的组合会显示原因并阻止运行。HEA v2 只支持 [显式映射](packages/HealthRelayCore/Sources/HealthRelayCore/HEAEncoder.swift)，不能表达删除事件，可明确选择拒绝或跳过；HEA CSV 字段布局尚未对照真实 HEA 捕获，不宣称 HEA 全功能对等或全部 HealthKit 类型已验收。
 
@@ -34,9 +35,9 @@ xcodebuild -project ios/HealthRelay.xcodeproj -scheme HealthRelay -sdk iphonesim
 
 [执行阶段说明](docs/implementation-execution.md)包含运行步骤、失败恢复、测试证据和实际限制；[配置阶段记录](docs/implementation-configuration.md)保留第一阶段的历史验收。
 
-本轮通过 63 项 Core 测试（含显式开启的 Swift→Cloudflare 集成）、5 项接收器测试、3 项原生模拟器 UI 测试和 iOS 构建。覆盖窗口修正、无变化不重算、503 重启重试、跨午夜续跑、独立补传和 multipart 请求。详见[自动化核心实现与验收](docs/implementation-automation-core.md)。
+当前 74 项 Core 测试（含隔离 Swift→Cloudflare 集成）通过，5 项原生模拟器 UI 用例分别通过，最终 iPhone 签名构建通过。此前 5 项接收器测试通过，本轮未修改接收器。详见[定时与提醒验收](docs/implementation-scheduling.md)和[自动化核心实现](docs/implementation-automation-core.md)。
 
-此前真机已将 SDNN、RMSSD、步数和睡眠原生明细上传到独立测试接口，691 条/16 批确认，随后无新数据时计数不变。该结果不证明本轮新汇总、HEA 格式和自然后台唤醒已验收；用户使用手机期间暂缓真机操作。未向既有生产接口写入。
+真机已完成原生明细、HEA JSON/CSV、独立补传、持续前台定时，以及 Shortcuts 内调用后台动作。系统时间触发和提醒通知因手机断连仍待验收；HEA 原始导出文件对照及汇总数值语义仍待核对。所有上传验收仅使用独立测试接口。
 
 ## 界面
 
@@ -61,6 +62,7 @@ xcodebuild -project ios/HealthRelay.xcodeproj -scheme HealthRelay -sdk iphonesim
 ## 方案与示例
 
 - [技术设计（中文）](docs/design.md)
+- [定时、快捷指令与提醒验收](docs/implementation-scheduling.md)
 - [自动化核心实现与验收](docs/implementation-automation-core.md)
 - [导出执行实现与验收](docs/implementation-execution.md)
 - [App 导出与可选 Docker 自部署](docs/self-hosting.md)

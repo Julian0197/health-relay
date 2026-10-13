@@ -1,6 +1,6 @@
 # 配置与上传契约 v1
 
-2026-10-12。本文区分当前实现与后续协议。HealthRelay 配置文件不是 HEA 配置文件；示例均为合成数据。
+2026-10-13。本文区分当前实现与后续协议。HealthRelay 配置文件不是 HEA 配置文件；示例均为合成数据。
 
 ## AutomationConfig
 
@@ -17,7 +17,11 @@
 | range | 增量或日历范围 |
 | export | 格式、明细/汇总、分组、统计、IANA 时区 |
 | destination | HTTPS URL、POST、Header、Keychain 引用、超时、确认模式 |
-| execution | 数据变化、前台补跑、可选 periodicPolling、最小间隔、批次上限、通知偏好 |
+| execution | 数据变化、前台补跑、可选 periodicPolling、最小间隔、批次上限、结果通知偏好、可选 reminder |
+
+`execution.minimumIntervalSeconds` 为 60–604800 秒。开启 `periodicPolling` 后，App 保持前台时到期检查，后台通过 BGTask 申请机会；未开启时不会按固定周期扫描无变化历史。Shortcuts 动作只运行启用任务，遵守待上传批次的自动重试限制；App 内手动运行仍可强制重试。
+
+可选 `execution.reminder` 包含 `enabled`、`frequency`（hourly/daily/selectedDays）、`hour`（0–23）、`minute`（0–59）、`weekdays`（Sunday=1…Saturday=7）；未设置相当于无提醒。提醒按手机当地时间，不使用导出时区；提醒和任务均开启才安排本地通知，通知到达本身不执行读取和上传。详见[定时与提醒](implementation-scheduling.md)。
 
 来源筛选使用 `HKSource.bundleIdentifier`，不是可修改的显示名称。关联记录按父对象来源筛选，子样本在原生载荷中保留各自来源。删除通知仅包含 UUID；接收端应忽略未导入过的 UUID。
 
