@@ -215,7 +215,7 @@ struct AutomationEditorView: View {
                 Text("自动按记录选择结构；同一种记录用于不同导出时，可指定健康指标、症状或周期记录。")
                     .font(.footnote).foregroundStyle(.secondary)
                 if task.export.format == "hea.csv" {
-                    Text("仅支持健康指标汇总，每指标一个文件；与 HEA 手动导出的合并表格布局不同。需要兼容 HEA 时请使用 JSON。")
+                    Text("按实机样本使用中文表头和固定单位，每批生成一张指标表。心率支持最小值、最大值和平均值；其他数量指标请选择一种统计。上传仍按指标分页，尚未验证完整 HEA REST 兼容。")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
                 Picker("健康记录被删除时", selection: Binding(get: { task.export.deletionPolicy ?? .reject }, set: { task.export.deletionPolicy = $0 })) {

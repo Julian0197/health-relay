@@ -115,9 +115,9 @@ final class HEACompatibilityTests: XCTestCase {
         XCTAssertEqual(try firstPoint(metric)["qty"] as? Double, 97)
     }
 
-    func testCSVUsesDeterministicMultipartFilesWithHumanReadableColumns() throws {
+    func testCSVUsesDeterministicSingleMultipartFileWithObservedColumns() throws {
         var batch = UploadBatch(task: .newTask(), records: [
-            record(steps, payload: ["unit": .string("count"), "value": .number(120)]),
+            record(steps, payload: ["aggregation": .bool(true), "unit": .string("count"), "value": .number(120)]),
             record(heartRate, payload: ["aggregation": .bool(true), "unit": .string("count/min"), "value": .number(72),
                                        "minimum": .number(65), "average": .number(72), "maximum": .number(85)])
         ])
@@ -130,36 +130,37 @@ final class HEACompatibilityTests: XCTestCase {
         let boundary = String(encoded.contentType.dropFirst("multipart/form-data; boundary=".count))
         XCTAssertLessThanOrEqual(boundary.count, 70)
         let text = String(decoding: encoded.body, as: UTF8.self)
-        XCTAssertTrue(text.contains("Content-Disposition: form-data; name=\"file\"; filename=\"heart_rate.csv\"\r\n"))
-        XCTAssertTrue(text.contains("Content-Disposition: form-data; name=\"file\"; filename=\"step_count.csv\"\r\n"))
-        XCTAssertTrue(text.contains("\"Date\",\"Heart Rate Min (count/min)\",\"Heart Rate Avg (count/min)\",\"Heart Rate Max (count/min)\"\r\n"))
-        XCTAssertTrue(text.contains("\"Step Count (count)\""))
-        XCTAssertTrue(text.contains("\"2026-10-12 11:00:00 +0800\",\"65\",\"72\",\"85\""))
+        XCTAssertTrue(text.contains("Content-Disposition: form-data; name=\"file\"; filename=\"HealthAutoExport.csv\"\r\n"))
+        XCTAssertTrue(text.contains("日期/时间,心率 [最小值] (bpm),心率 [最大] (bpm),心率 [平均值] (bpm),步数 (步)\n"))
+        XCTAssertTrue(text.contains("2026-10-12 11:00:00,65,85,72,120\n"))
         XCTAssertTrue(text.hasSuffix("--\(boundary)--\r\n"))
-        XCTAssertEqual(text.components(separatedBy: "Content-Disposition: form-data;").count - 1, 2)
+        XCTAssertEqual(text.components(separatedBy: "Content-Disposition: form-data;").count - 1, 1)
         batch.batchId = "different-csv-batch"
         XCTAssertNotEqual(try HEACSVEncoder.encode(batch, timeZone: "UTC").contentType, encoded.contentType)
     }
 
-    func testCSVQuotesTextAndNeutralizesSpreadsheetFormulas() throws {
+    func testCSVHasNoSourceColumnOrUntrustedSourceText() throws {
         for sourceName in ["=HYPERLINK(\"x\",\"y\")\r\nWatch", "+SUM(1,2)", "-1+2", "@SUM(1)", " \t=1", "\tWatch"] {
-            var sample = record(hrv, payload: ["unit": .string("ms"), "value": .number(45)])
+            var sample = record(hrv, payload: ["aggregation": .bool(true), "unit": .string("ms"), "value": .number(45)])
             sample.source?.name = sourceName
             let encoded = try HEACSVEncoder.encode(UploadBatch(task: .newTask(), records: [sample]), timeZone: "UTC")
             let text = String(decoding: encoded.body, as: UTF8.self)
-            XCTAssertTrue(text.contains("\"'" + sourceName.replacingOccurrences(of: "\"", with: "\"\"") + "\""))
+            XCTAssertFalse(text.contains(sourceName))
+            XCTAssertFalse(text.contains("Source"))
             XCTAssertFalse(text.contains("\"payload\""))
         }
     }
 
-    func testCSVSleepSummariesHaveSeparateDurationAndTimestampColumns() throws {
+    func testCSVSleepSummariesUseSevenDurationColumnsWithoutAncillaryTimestamps() throws {
         let sample = record(sleep, payload: ["aggregation": .bool(true), "unit": .string("hr"),
                                            "sleepDate": .string("2026-10-12"), "totalSleep": .number(7.5), "core": .number(4),
                                            "sleepStart": .string("2026-10-11T15:00:00Z")])
         let encoded = try HEACSVEncoder.encode(UploadBatch(task: .newTask(), records: [sample]), timeZone: "UTC")
         let text = String(decoding: encoded.body, as: UTF8.self)
-        XCTAssertTrue(text.contains("\"Date\",\"Total Sleep (hr)\",\"Core (hr)\",\"Sleep Start\",\"Source\""))
-        XCTAssertTrue(text.contains("\"2026-10-12\",\"7.5\",\"4\",\"2026-10-11 15:00:00 +0000\""))
+        XCTAssertTrue(text.contains("日期/时间,睡眠分析 [Total] (小时),睡眠分析 [睡眠时长] (小时),睡眠分析 [在床上] (小时),睡眠分析 [核心] (小时),睡眠分析 [深度] (小时),睡眠分析 [快速动眼期] (小时),睡眠分析 [清醒] (小时)\n"))
+        XCTAssertTrue(text.contains("2026-10-12 00:00:00,7.5,,,4,,,\n"))
+        XCTAssertFalse(text.contains("2026-10-11 15:00:00"))
+        XCTAssertFalse(text.contains("Source"))
     }
 
     func testRequestMetadataIsStableAndHeaderSafe() {

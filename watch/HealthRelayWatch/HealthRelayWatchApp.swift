@@ -40,6 +40,7 @@ private struct WatchTaskView: View {
     var body: some View {
         List {
             if let task {
+                let startIssues = store.executionStartIssues(task)
                 Section {
                     Text(task.name).font(.headline)
                     Text("\(task.data.selections.count) 个指标 · \(URL(string: task.destination.url)?.host ?? "无效接口")").font(.footnote)
@@ -60,7 +61,8 @@ private struct WatchTaskView: View {
                 Button(task.enabled ? "停用" : "授权并启用") { Task {
                     do { try await store.setEnabled(id, enabled: !task.enabled) } catch { self.error = error.localizedDescription }
                 } }.disabled(store.active.contains(id))
-                Button("运行一次") { Task { await store.run(id) } }.disabled(!task.enabled || store.active.contains(id))
+                Button("运行一次") { Task { await store.run(id) } }.disabled(!startIssues.isEmpty || store.active.contains(id))
+                if !startIssues.isEmpty { ForEach(startIssues, id: \.self) { Text($0).font(.footnote) } }
                 if (try? store.journal.load(id).pending) != nil {
                     Button("取消未确认批次", role: .destructive) { confirmingCancel = true }.disabled(store.active.contains(id))
                         .confirmationDialog("取消传输并保留已确认位置？下次会重新读取未确认数据。", isPresented: $confirmingCancel) {

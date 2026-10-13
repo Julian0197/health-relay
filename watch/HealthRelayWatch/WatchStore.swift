@@ -122,6 +122,14 @@ import HealthRelayCore
         guard !Task.isCancelled else { return }
         do { try drainCompletions() } catch { status = error.localizedDescription }
     }
+    func executionStartIssues(_ task: AutomationConfig) -> [String] {
+        guard configurationReady, task.device == .watch else { return ["任务不可用"] }
+        do {
+            return task.executionStartIssues(pending: try journal.load(task.id).pending,
+                systemMajorVersion: ProcessInfo.processInfo.operatingSystemVersion.majorVersion)
+        } catch { return ["同步状态无法读取，已停止以保护原文件"] }
+    }
+
     func run(_ id: UUID, automatic: Bool = false, trigger: String = "manual") async {
         guard configurationReady, active.insert(id).inserted else { return }
         defer { active.remove(id); scheduleRefresh() }
@@ -129,11 +137,14 @@ import HealthRelayCore
         do {
             try Task.checkCancellation()
             try drainCompletions()
-            guard let task = tasks.first(where: { $0.id == id }), task.device == .watch, task.enabled else { return }
+            guard let task = tasks.first(where: { $0.id == id }), task.device == .watch else { return }
             #if DEBUG && targetEnvironment(simulator)
             if WatchAcceptanceFixture.active { try WatchAcceptanceFixture.validate(task) }
             #endif
             let previous = try journal.load(id)
+            let issues = task.executionStartIssues(pending: previous.pending, automatic: automatic,
+                systemMajorVersion: ProcessInfo.processInfo.operatingSystemVersion.majorVersion)
+            guard issues.isEmpty else { throw ConfigurationError(issues.joined(separator: "；")) }
             if automatic, let pending = previous.pending,
                !pending.automaticRetry || (pending.nextAttempt ?? .distantPast) > Date() { return }
             var dirtyAtStart = Set(UserDefaults.standard.stringArray(forKey: dirtyKey) ?? [])
@@ -141,7 +152,7 @@ import HealthRelayCore
             UserDefaults.standard.set(Array(dirtyAtStart), forKey: dirtyKey)
             let log = await engine.run(task, automatic: automatic, timeBudget: 12, trigger: trigger, prepareOnly: true)
             outcomes[id] = log
-            if let pending = try journal.load(id).pending {
+            if log.state == .queued, let pending = try journal.load(id).pending {
                 let identity = BatchIdentity(taskID: id, batchID: pending.batchID, fingerprint: pending.configurationFingerprint)
                 do {
                     try await uploader.enqueue(task: task, pending: pending)

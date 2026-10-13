@@ -63,6 +63,92 @@ import XCTest
         configured.data.selections = [MetricSelection(typeIdentifier: "HKCategoryTypeIdentifierSleepAnalysis")]
         XCTAssertTrue(configured.executionCapabilityIssues.isEmpty)
     }
+    func testCSVRequiresOneStatisticPerScalarAndGatesAmbiguousRecoveryHRV() {
+        var configured = task("hea.csv")
+        configured.export.mode = .aggregate; configured.export.grouping = .days
+        var scalar = MetricSelection(typeIdentifier: "HKQuantityTypeIdentifierBodyMass", unit: "kg")
+        configured.data.selections = [scalar]
+        XCTAssertTrue(configured.executionCapabilityIssues.contains { $0.contains("统计") })
+        for statistic in [ExportSettings.Statistic.average, .minimum, .maximum] {
+            scalar.statistics = [statistic]; configured.data.selections = [scalar]
+            XCTAssertTrue(configured.executionCapabilityIssues.isEmpty)
+        }
+        scalar.statistics = [.minimum, .maximum]; configured.data.selections = [scalar]
+        XCTAssertTrue(configured.executionCapabilityIssues.contains { $0.contains("统计") })
+        var heart = MetricSelection(typeIdentifier: "HKQuantityTypeIdentifierHeartRate", unit: "count/min")
+        configured.data.selections = [heart]
+        XCTAssertTrue(configured.executionCapabilityIssues.isEmpty)
+        heart.statistics = [.sum]; configured.data.selections = [heart]
+        XCTAssertTrue(configured.executionCapabilityIssues.contains { $0.contains("统计") })
+        var extensionMetric = MetricSelection(typeIdentifier: "HKQuantityTypeIdentifierHeartRateVariabilityRMSSD", unit: "ms")
+        extensionMetric.statistics = [.average]; configured.data.selections = [extensionMetric]
+        XCTAssertTrue(configured.executionCapabilityIssues.contains { $0.contains("映射") && $0.contains("HealthRelay JSON") })
+        configured.export.format = "hea.v2"
+        XCTAssertTrue(configured.executionCapabilityIssues.isEmpty, "CSV gate must not change JSON behavior")
+    }
+    func testCSVSyncIncludesAllSelectedSparseColumnsAndFrozenRetry() async throws {
+        var configured = task("hea.csv")
+        configured.export.mode = .aggregate; configured.export.grouping = .days
+        var oxygen = MetricSelection(typeIdentifier: "HKQuantityTypeIdentifierOxygenSaturation", unit: "%")
+        oxygen.statistics = [.average]
+        configured.data.selections = [MetricSelection(typeIdentifier: "HKQuantityTypeIdentifierStepCount", unit: "count"), oxygen,
+                                      MetricSelection(typeIdentifier: "HKCategoryTypeIdentifierSleepAnalysis")]
+        var sample = record("HKQuantityTypeIdentifierStepCount")
+        sample.payload = ["aggregation": .bool(true), "unit": .string("count"), "value": .number(10), "sum": .number(10)]
+        let reader = CSVSelectionReader(records: [sample]), sender = HEAProfileSender()
+        let journal = SyncJournal(directory: .temporaryDirectory.appendingPathComponent(UUID().uuidString))
+        let first = await SyncEngine(reader: reader, sender: sender, journal: journal).run(configured)
+        XCTAssertEqual(first.state, .failed)
+        let pending = try XCTUnwrap(journal.load(configured.id).pending)
+        let table = try HEACSVObservedTests.table(EncodedBatch(body: pending.body, contentType: pending.contentType))
+        XCTAssertEqual(table, "日期/时间,步数 (步),睡眠分析 [Total] (小时),睡眠分析 [睡眠时长] (小时),睡眠分析 [在床上] (小时),睡眠分析 [核心] (小时),睡眠分析 [深度] (小时),睡眠分析 [快速动眼期] (小时),睡眠分析 [清醒] (小时),血氧饱和度 (%)\n2026-01-01 00:00:00,10,,,,,,,,\n")
+        XCTAssertEqual(pending.recordCount, 1)
+        XCTAssertTrue(try journal.load(configured.id).checkpoints.isEmpty)
+        var changed = configured; changed.data.selections.removeLast()
+        let blocked = await SyncEngine(reader: reader, sender: sender, journal: journal).run(changed)
+        XCTAssertEqual(blocked.state, .failed); XCTAssertEqual(reader.reads, 1)
+        sender.fail = false
+        let retry = await SyncEngine(reader: reader, sender: sender, journal: SyncJournal(directory: journal.directory)).run(configured)
+        XCTAssertEqual(retry.state, .succeeded); XCTAssertEqual(retry.records, 1)
+        XCTAssertEqual(sender.uploads[1].body, pending.body)
+        XCTAssertEqual(sender.uploads[1].contentType, pending.contentType)
+        XCTAssertEqual(sender.uploads[1].headers, pending.headers)
+        XCTAssertEqual(sender.uploads[1].batchID, pending.batchID)
+        XCTAssertNil(try journal.load(configured.id).pending)
+    }
+    func testLegacyFrozenCSVReplaysBeforeNewProfileCapabilityGate() async throws {
+        for id in ["HKQuantityTypeIdentifierBodyMass", "HKQuantityTypeIdentifierHeartRateVariabilityRMSSD"] {
+            var configured = task("hea.csv")
+            configured.export.mode = .aggregate; configured.export.grouping = .days
+            var selection = MetricSelection(typeIdentifier: id, unit: id.hasSuffix("BodyMass") ? "kg" : "ms")
+            if id.hasSuffix("RMSSD") { selection.statistics = [.average] }
+            configured.data.selections = [selection]
+            XCTAssertTrue(configured.validationIssues().isEmpty)
+            XCTAssertFalse(configured.executionCapabilityIssues.isEmpty)
+            let journal = SyncJournal(directory: .temporaryDirectory.appendingPathComponent(UUID().uuidString))
+            var state = SyncState()
+            let frozen = Data("--legacy-boundary\r\nContent-Disposition: form-data; name=\"file\"; filename=\"legacy.csv\"\r\n\r\n\"Date\",\"Value\"\r\n\"2026-01-01 00:00:00 +0000\",\"2\"\r\n--legacy-boundary--\r\n".utf8)
+            state.pending = PendingUpload(batchID: "legacy-csv", body: frozen, contentType: "multipart/form-data; boundary=legacy-boundary", recordCount: 1,
+                checkpointKey: "legacy-checkpoint", checkpoint: TypeCheckpoint(start: Date(timeIntervalSince1970: 0), anchor: Data("confirmed-legacy".utf8)), configurationFingerprint: try SyncIdentity.fingerprint(configured))
+            state.pending?.headers = ["automation-id": configured.id.uuidString.lowercased(), "session-id": "legacy-csv"]
+            try journal.save(state, for: configured.id)
+            let reader = CSVSelectionReader(records: []), sender = LegacyCSVReceiptSender()
+            var changed = configured; changed.data.selections[0].statistics = [.minimum]
+            let rejected = await SyncEngine(reader: reader, sender: sender, journal: journal).run(changed)
+            XCTAssertEqual(rejected.state, .failed); XCTAssertTrue(sender.uploads.isEmpty); XCTAssertEqual(reader.reads, 0)
+            let result = await SyncEngine(reader: reader, sender: sender, journal: journal).run(configured)
+            XCTAssertEqual(result.state, .failed, "New reads remain blocked by the new profile")
+            XCTAssertEqual(result.records, 1, "The frozen request was acknowledged")
+            XCTAssertEqual(reader.reads, 0)
+            let sent = try XCTUnwrap(sender.uploads.first)
+            XCTAssertEqual(sent.body, frozen); XCTAssertEqual(sent.contentType, state.pending?.contentType)
+            XCTAssertEqual(sent.headers, state.pending?.headers); XCTAssertEqual(sent.batchID, "legacy-csv")
+            let saved = try journal.load(configured.id)
+            XCTAssertNil(saved.pending)
+            XCTAssertEqual(saved.checkpoints["legacy-checkpoint"]?.anchor, Data("confirmed-legacy".utf8))
+            XCTAssertNotNil(saved.lastConfirmedAt)
+        }
+    }
     func testBlockedFamiliesOfferActionableNativeFallback() {
         for id in ["HKMedicationDoseEventTypeIdentifierMedicationDoseEvent", "HKDataTypeUserAnnotatedMedicationConcept", "HKCategoryTypeIdentifierAppleStandHour", "HKCategoryTypeIdentifierHandwashingEvent", "HKCategoryTypeIdentifierToothbrushingEvent"] {
             var configured = task(); configured.data.selections = [MetricSelection(typeIdentifier: id)]
@@ -146,5 +232,25 @@ import XCTest
     func send(_ upload: PendingUpload, destination: HTTPDestination) async throws -> Int {
         uploads.append(upload)
         if fail { throw ConfigurationError("synthetic offline") }; return 204
+    }
+}
+
+@MainActor private final class CSVSelectionReader: HealthDataReader {
+    let records: [HealthRecord]
+    var reads = 0
+    init(records: [HealthRecord]) { self.records = records }
+    func read(task: AutomationConfig, selection: MetricSelection, checkpoint: TypeCheckpoint, limit: Int) async throws -> ReadPage {
+        reads += 1
+        return ReadPage(records: checkpoint.anchor == nil ? records.filter { $0.typeIdentifier == selection.id } : [], anchor: Data("csv-next".utf8), hasMore: false)
+    }
+}
+
+@MainActor private final class LegacyCSVReceiptSender: UploadSender {
+    var uploads: [PendingUpload] = []
+    func send(_ upload: PendingUpload, destination: HTTPDestination) async throws -> Int {
+        uploads.append(upload)
+        let receipt = try JSONSerialization.data(withJSONObject: ["batchId": upload.batchID, "committed": true, "accepted": upload.recordCount, "duplicates": 0])
+        try HTTPAcknowledgement.validate(status: 200, data: receipt, batchID: upload.batchID, count: upload.recordCount, mode: .receipt)
+        return 200
     }
 }

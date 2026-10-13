@@ -45,7 +45,8 @@ struct UploadCompletion: Codable {
         try data.write(to: url, options: [.atomic, .completeFileProtection])
     }
     func enqueue(task: AutomationConfig, pending: PendingUpload) async throws {
-        guard try SyncIdentity.fingerprint(task) == pending.configurationFingerprint else { throw ConfigurationError("待上传批次与当前任务配置不一致") }
+        let issues = task.executionStartIssues(pending: pending, systemMajorVersion: ProcessInfo.processInfo.operatingSystemVersion.majorVersion)
+        guard issues.isEmpty else { throw ConfigurationError(issues.joined(separator: "；")) }
         let identity = BatchIdentity(taskID: task.id, batchID: pending.batchID, fingerprint: pending.configurationFingerprint)
         let description = String(decoding: try JSONEncoder().encode(identity), as: UTF8.self)
         let active = await session.allTasks

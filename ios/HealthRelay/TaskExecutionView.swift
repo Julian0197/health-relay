@@ -17,6 +17,8 @@ struct TaskExecutionView: View {
     var body: some View {
         List {
             if let task {
+                let startIssues = store.executionStartIssues(task)
+                let issues = startIssues.isEmpty ? task.executionIssues : startIssues
                 if !store.canRunOnPhone(task) {
                     Section { Text("此任务在 Watch 执行。切回 iPhone 后，请同步 Watch 配置并等待移除确认。").font(.footnote) }
                 }
@@ -25,7 +27,7 @@ struct TaskExecutionView: View {
                         Task { do { try await store.setEnabled(task, enabled: enabled) } catch { self.error = error.localizedDescription } }
                     })).disabled(store.active.contains(task.id))
                     Button("立即运行", systemImage: "play.fill") { Task { await store.run(task) } }
-                        .accessibilityIdentifier("execute-task").disabled(store.active.contains(task.id) || !task.executionIssues.isEmpty)
+                        .accessibilityIdentifier("execute-task").disabled(store.active.contains(task.id) || !startIssues.isEmpty)
                     Button("检查健康读取", systemImage: "heart.text.clipboard") {
                         checking = true
                         Task {
@@ -56,8 +58,8 @@ struct TaskExecutionView: View {
                         .font(.footnote).foregroundStyle(.secondary)
                 }
                 if let readSummary { Section("读取检查") { Text(readSummary) } }
-                if !task.executionIssues.isEmpty {
-                    Section("执行前需要调整") { ForEach(task.executionIssues, id: \.self) { Text($0).font(.footnote) } }
+                if !issues.isEmpty {
+                    Section(startIssues.isEmpty ? "后续读取需要调整" : "执行前需要调整") { ForEach(issues, id: \.self) { Text($0).font(.footnote) } }
                 }
                 if let outcome = store.outcomes[task.id] {
                     Section("当前结果") {
@@ -73,7 +75,9 @@ struct TaskExecutionView: View {
                                 .disabled(store.active.contains(task.id))
                             LabeledContent("记录", value: "\(pending.recordCount) 条")
                             LabeledContent("已尝试", value: "\(pending.attempts) 次")
-                            Text(pending.automaticRetry ? "网络恢复后继续重试，或点立即运行。" : "请检查接口或认证后点立即运行；批次保留，不自动反复请求。")
+                            Text(startIssues.isEmpty
+                                ? (pending.automaticRetry ? "网络恢复后继续重试，或点立即运行。" : "请检查接口或认证后点立即运行；批次保留，不自动反复请求。")
+                                : "批次已保留。请先处理上方执行问题，再重试。")
                                 .font(.footnote)
                         }
                     }

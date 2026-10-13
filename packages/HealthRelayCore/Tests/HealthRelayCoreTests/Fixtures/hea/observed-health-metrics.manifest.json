@@ -1,0 +1,30 @@
+{
+  "classification": "synthetic-values-observed-schema",
+  "profile": "HEA 10.0.4 zh-CN manual aggregate health metrics",
+  "observed": {
+    "columnCount": 126,
+    "rowCount": 8,
+    "encoding": "UTF-8",
+    "bom": false,
+    "lineEndings": "LF",
+    "dateFormat": "yyyy-MM-dd HH:mm:ss",
+    "sourceColumn": false,
+    "numericPrecision": "Varies by metric; no global decimal rounding inferred"
+  },
+  "syntheticFixture": "Subset of observed columns in captured order; independent synthetic dates and values",
+  "unknown": [
+    "REST multipart transport",
+    "Nonmetric row semantics",
+    "RecoveryHRV identity",
+    "Additional locales",
+    "Cross-type engine page joining"
+  ],
+  "privacy": "Only header/schema read from private capture; no original health values, record IDs, sources or dates retained.",
+  "capture": {
+    "sha256": "d8047b8bff8ba19840c639954fd60832fc14efa8b9b295fc000b8cb16bbbb5b7",
+    "byteCount": 5289,
+    "retainedInRepository": false,
+    "appVersion": "10.0.4",
+    "settings": "CSV v2 / daily aggregate"
+  }
+}

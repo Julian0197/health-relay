@@ -37,7 +37,8 @@ public struct ReadPage: Sendable {
         }
         func exhausted() -> Bool { Task.isCancelled || now().timeIntervalSince(started) >= timeBudget }
         do {
-            let issues = task.validationIssues(systemMajorVersion: 27, device: task.device) + task.executionIssues
+            // A matching outbox body remains replayable across encoder capability upgrades.
+            let issues = task.executionStartIssues(pending: state.pending, automatic: automatic)
             guard issues.isEmpty else { throw ConfigurationError(issues.joined(separator: "；")) }
             let fingerprint = try SyncIdentity.fingerprint(task)
             state.lastAttempt = started
@@ -55,6 +56,8 @@ public struct ReadPage: Sendable {
                 state.lastConfirmedAt = Date()
                 try journal.save(state, for: stateID)
                 count += pending.recordCount; batches += 1
+                let nextReadIssues = task.executionStartIssues(pending: nil, automatic: automatic)
+                guard nextReadIssues.isEmpty else { throw ConfigurationError(nextReadIssues.joined(separator: "；")) }
             }
             if state.cycleFingerprint != fingerprint || state.cycleStartedAt == nil {
                 state.cycleStartedAt = started; state.cycleFingerprint = fingerprint; state.nextSelectionID = nil
@@ -87,7 +90,9 @@ public struct ReadPage: Sendable {
                         }
                         if records.isEmpty { upload = nil; break }
                         let batch = UploadBatch(task: task, records: records)
-                        let encoded = try BatchEncoder.encode(batch, format: task.export.format, timeZone: task.export.timeZone, heaDataType: task.export.heaDataType)
+                        let encoded = try BatchEncoder.encode(batch, format: task.export.format, timeZone: task.export.timeZone,
+                            heaDataType: task.export.heaDataType,
+                            selectedTypeIdentifiers: task.export.format == "hea.csv" ? task.data.selections.map(\.id) : nil)
                         if encoded.body.count <= task.execution.batchMaxBytes {
                             upload = PendingUpload(batchID: batch.batchId, body: encoded.body, contentType: encoded.contentType, recordCount: records.count, checkpointKey: key, checkpoint: next, configurationFingerprint: fingerprint)
                             if task.export.format.hasPrefix("hea.") { upload?.headers = HEARequestMetadata.headers(task: task, batchID: batch.batchId) }

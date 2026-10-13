@@ -142,3 +142,74 @@ test('acceptance receiver supports a complete workout above one MiB within the c
     assert.equal(db.prepare('SELECT COUNT(*) AS n FROM batches').get().n, 1);
   } finally { db.close(); }
 });
+
+function wideCSVRequest(text, id = 'wide-batch') {
+  const boundary = 'synthetic-wide-csv';
+  return new Request('https://test.example/ingest/hea-csv', { method: 'POST', headers: {
+    'Content-Type': 'multipart/form-data; boundary=' + boundary, 'Idempotency-Key': id, 'automation-id': 'wide-task'
+  }, body: '--' + boundary + '\r\nContent-Disposition: form-data; name="file"; filename="HealthAutoExport.csv"\r\n'
+    + 'Content-Type: text/csv; charset=utf-8\r\n\r\n' + text + '\r\n--' + boundary + '--\r\n' });
+}
+
+test('observed Chinese LF wide CSV groups heart and sleep fields into native record counts', async () => {
+  const heart = ['心率 [最小值] (bpm)', '心率 [最大] (bpm)', '心率 [平均值] (bpm)'];
+  const sleep = ['Total', '睡眠时长', '在床上', '核心', '深度', '快速动眼期', '清醒'].map(stage => `睡眠分析 [${stage}] (小时)`);
+  const columns = ['日期/时间', ...heart, ...sleep, '步数 (步)'];
+  const request = wideCSVRequest(columns.join(',') + '\n2026-02-02 00:00:00,50,90,60,7,7,8,4,1,2,0.5,\n');
+  const batch = await normalizeCSV(await request.arrayBuffer(), request.headers.get('content-type'), 'wide', 'task');
+  assert.equal(batch.records.length, 2, 'Three HR cells and seven sleep cells represent two native records');
+  assert.deepEqual(batch.records.map(row => row.typeIdentifier), ['heart_rate', 'sleep_analysis']);
+  assert.equal(batch.records[0].payload[heart[2]], 60);
+  assert.equal(batch.records[1].payload[sleep[2]], 8);
+  assert.equal(batch.records.some(row => '步数 (步)' in row.payload), false);
+});
+
+test('sparse wide metric pages and corrections retain other metrics with accurate receipts', async () => {
+  const db = new DatabaseSync(':memory:');
+  const sql = { exec(query, ...values) { const rows = db.prepare(query).all(...values); return { one: () => rows[0], toArray: () => rows }; } };
+  const receiver = new HealthRelayAcceptance({ storage: { sql, transactionSync(work) {
+    db.exec('BEGIN'); try { const result = work(); db.exec('COMMIT'); return result; } catch (error) { db.exec('ROLLBACK'); throw error; }
+  } } });
+  const headers = ['日期/时间', '心率 [最小值] (bpm)', '心率 [最大] (bpm)', '心率 [平均值] (bpm)', '步数 (步)', '睡眠分析 [Total] (小时)'];
+  const send = (id, cells) => receiver.fetch(wideCSVRequest(headers.join(',') + '\n' + ['2026-02-02 00:00:00', ...cells].join(',') + '\n', id));
+  try {
+    for (const [id, cells, count] of [['heart', [50, 90, 60, '', ''], 1], ['sleep', ['', '', '', '', 7], 1],
+      ['steps', ['', '', '', 10, ''], 1], ['corrected', [51, 91, 61, 12, ''], 2]]) {
+      const response = await send(id, cells);
+      assert.equal(response.status, 200);
+      const receipt = await response.json();
+      assert.equal(receipt.accepted + receipt.duplicates, count);
+    }
+    const replay = await send('corrected', [51, 91, 61, 12, '']);
+    assert.equal(replay.status, 200);
+    assert.equal((await replay.json()).accepted, 2);
+    const saved = db.prepare('SELECT type_id,body FROM records ORDER BY type_id').all();
+    assert.equal(saved.length, 3);
+    const points = Object.fromEntries(saved.map(row => [row.type_id, JSON.parse(row.body).payload]));
+    assert.equal(points.heart_rate['心率 [平均值] (bpm)'], 61);
+    assert.equal(points.sleep_analysis['睡眠分析 [Total] (小时)'], 7);
+    assert.equal(points['csv:步数 (步)']['步数 (步)'], 12);
+    assert.equal(db.prepare('SELECT events FROM stats').get().events, 5);
+  } finally { db.close(); }
+});
+
+test('wide CSV rejects missing dates, duplicate columns and nonnumeric cells', async () => {
+  for (const text of ['日期/时间,步数 (步)\n,10\n', '日期/时间,步数 (步),步数 (步)\n2026-02-02 00:00:00,10,20\n',
+    '日期/时间,步数 (步)\n2026-02-02 00:00:00,=1+1\n']) {
+    const request = wideCSVRequest(text);
+    await assert.rejects(() => request.arrayBuffer().then(bytes => normalizeCSV(bytes, request.headers.get('content-type'), 'bad', 'task')));
+  }
+});
+
+test('wide CSV group count follows the configured 5000 record limit', async () => {
+  const normalize = async count => {
+    const rows = Array.from({ length: count }, (_, index) => {
+      const date = new Date(Date.UTC(2026, 0, 1 + index)).toISOString().slice(0, 19).replace('T', ' ');
+      return date + ',1';
+    });
+    const request = wideCSVRequest('日期/时间,步数 (步)\n' + rows.join('\n') + '\n');
+    return normalizeCSV(await request.arrayBuffer(), request.headers.get('content-type'), 'many', 'task');
+  };
+  assert.equal((await normalize(501)).records.length, 501);
+  await assert.rejects(() => normalize(5001), /invalid_count/);
+});

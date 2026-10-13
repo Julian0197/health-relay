@@ -40,18 +40,30 @@ Task 2B evidence: Core 127 passed / 2 skipped; native SDK bridge tests caught an
 
 Files: HEACSVEncoder.swift; HEA compatibility fixtures/tests; docs/implementation-hea.md.
 
-- [ ] Inspect HEA manual export on the user's iPhone using the established iPhone Use channel. Transfer needed files locally with AirDrop; private files stay ignored and are never committed or uploaded to a new service.
+- [x] Inspect HEA manual export on the user's iPhone using the established iPhone Use channel. Transfer needed files through the user-authorized destination; private files stay ignored and are never committed or uploaded elsewhere. The user authorized their own Feishu chat on 2026-10-13 and all four manual CSV files were verified there.
 - [ ] Compare JSON keys, null/omission rules, units, workout v1/v2 and CSV headers/part names. Record app version and configuration, distinguish observed from inferred.
-- [x] Add a synthetic observed-heart-rate fixture and tests, then correct confirmed JSON differences. CSV retains quoting/newlines/formula protection and rejects nonmetric families; its observed layout mismatch remains open.
+- [x] Add a synthetic observed-heart-rate fixture and tests, then correct confirmed JSON differences. CSV retains quoting/newlines/formula protection and rejects nonmetric families. The observed health-metrics layout correction is tracked in Task 3B below; other families and REST transport remain open.
 - [x] Run all Core and receiver tests: 132 Core passes / 2 skips and 11 receiver passes. Real workout, special-family and full CSV/transport parity remain open; no complete-compatibility claim.
 
 ## Task 4: Integration and acceptance
 
 Files: ios/HealthRelay/AutomationEditorView.swift; README.md; docs/capabilities.md; docs/contracts.md; docs/implementation-hea.md.
 
-- [x] Expose accurate capability messages and workout options; make iPhone configuration / Watch recent direct upload roles clear. HEA CSV is explicitly experimental with its known layout mismatch.
+- [x] Expose accurate capability messages and workout options; make iPhone configuration / Watch recent direct upload roles clear. HEA CSV remains explicitly experimental; Task 3B corrects the observed health-metrics layout while retaining the unresolved transport and data-family boundaries.
 - [x] Run full Core + receiver regression; native lifecycle + workout tests on both platforms; targeted UI save/reload and export fixture acceptance. Core 132 pass / 2 skip, receiver 11, iPhone 41, Watch 42, targeted HEA UI 1.
 - [x] Build combined iPhone+Watch simulator and Release device targets. Hardware HEA 10.0.4 preview and user-provided JSON confirm scoped schema only; actual full-workout and Watch behavior remain open.
 - [x] Update progress and remaining acceptance items. Commit da1756c was fast-forwarded into local master; the merged Core regression passed (132 pass / 2 optional external skips). Existing Watch worktree and private artifacts are preserved. No push or new physical-device install. Task 3 capture and compatibility gaps above remain open.
 
 Final integration review: approved. Complete workout means all queryable children at read time. Late child attachment after parent anchor confirmation is not verified; a new date-range backfill re-reads it, while rerunning the original task does not reset its anchor.
+
+## Task 3B: Observed manual CSV health-metrics profile
+
+HEA 10.0.4 on the user iPhone produced a Chinese, UTF-8/LF CSV with 126 columns and 8 rows, daily aggregation; the original sample dates are not retained in committed fixtures or documentation. Raw health data remains in ignored private-artifacts/hea-capture-20261013. Workouts and symptoms are header-only; the ECG download reports a zero-byte range. No REST request was captured.
+
+- [x] Add synthetic fixtures preserving observed headers, column order, date/time without UTC suffix, empty cells, heart-rate Min/Max/Avg order and bpm units; no personal sample values.
+- [x] Replace legacy per-metric CSV with one wide health-metrics table per encoded batch, using an explicit captured zh-CN column/unit profile. Include configured selected quantity/sleep columns even if that batch has no records for a selected type. Merge distinct metric cells by bucket date; do not silently overwrite colliding sources or observations. Preserve selected statistic meaning and reject unrepresentable duplicates.
+- [x] Convert compatible native units to captured output units, including quantities with mass/volume/temperature/energy/length/speed/time/fraction values. Keep quantity and sleep execution gates; ambiguous categories, other families, locale preferences, empty-date padding, cross-type batch joining and REST multipart parity remain explicitly unverified. Keep existing multipart transport provisional.
+- [x] Preserve deterministic retry bytes, deletion rejection, and original native/JSON behavior. Matching frozen legacy pending bodies must remain retryable after new CSV capability restrictions; apply new read capability gates after confirming a pending upload, retaining configuration/fingerprint/credential checks before sending. Pass selected metric identifiers only on the CSV execution path; test engine forwarding and retry. Add focused regression plus full Core and receiver checks.
+- [x] Spec review, then quality review, update truthful UI/docs and combined simulator build. Both reviews approved; Core 153 passed / 2 optional network skips, receiver 15 passed; combined simulator and Release device compilation passed.
+
+- [x] Commit CSV changes as `30d5dce` and integrate locally with master service migration `89d8f9d`. Preserve the redesigned README and service tree. The combined tree passed Core 154 / 2 optional skips, receiver 15 and the 229-file public artifact check; no push, service deployment or physical-device installation.

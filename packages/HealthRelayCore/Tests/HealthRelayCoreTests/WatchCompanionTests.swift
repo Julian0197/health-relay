@@ -174,10 +174,28 @@ import CryptoKit
         let again = try WatchConfigurationSnapshot(tasks: [watch]).localTasks(current: [bound])
         XCTAssertEqual(again.first?.destination.credentialRef, "watch-local-reference")
     }
+    func testDisabledWatchManualRetryStopsBeforeFreshReadsAfterReceipt() async throws {
+        var watch = task(); watch.device = .watch; watch.enabled = true
+        let journal = SyncJournal(directory: .temporaryDirectory.appendingPathComponent(UUID().uuidString))
+        let reader = WatchTestReader(), sender = WatchTestSender()
+        let engine = SyncEngine(reader: reader, sender: sender, journal: journal)
+        _ = await engine.run(watch, prepareOnly: true)
+        let frozen = try XCTUnwrap(journal.load(watch.id).pending)
+        watch.enabled = false
+        let log = await engine.run(watch)
+        XCTAssertEqual(log.state, .failed)
+        XCTAssertEqual(log.records, frozen.recordCount)
+        XCTAssertEqual(sender.sends, 1)
+        XCTAssertEqual(reader.reads, 1, "A disabled Watch task may retry only its frozen batch")
+        let saved = try journal.load(watch.id)
+        XCTAssertNil(saved.pending)
+        XCTAssertEqual(saved.checkpoints[frozen.checkpointKey]?.anchor, frozen.checkpoint.anchor)
+    }
     func testSnapshotRejectsPendingRemovalOrChange() async throws {
-        var watch = task(); watch.device = .watch
+        var watch = task(); watch.device = .watch; watch.enabled = true
         let journal = SyncJournal(directory: .temporaryDirectory.appendingPathComponent(UUID().uuidString))
         _ = await SyncEngine(reader: WatchTestReader(), sender: WatchTestSender(), journal: journal).run(watch, prepareOnly: true)
+        XCTAssertNotNil(try journal.load(watch.id).pending)
         XCTAssertThrowsError(try WatchConfigurationSnapshot.validateReplacement(current: [watch], incoming: [], journal: journal))
         var changed = watch; changed.destination.url = "https://other.example/upload"
         XCTAssertThrowsError(try WatchConfigurationSnapshot.validateReplacement(current: [watch], incoming: [changed], journal: journal))

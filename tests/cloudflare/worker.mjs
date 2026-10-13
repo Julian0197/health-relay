@@ -66,6 +66,10 @@ export function csvRows(text) {
   if (value || row.length) { row.push(value); rows.push(row); }
   return rows;
 }
+// Captured manual aggregate columns. Grouped fields must count as one native record
+// so the acceptance receipt agrees with PendingUpload.recordCount.
+const csvHeartColumns = new Set(['心率 [最小值] (bpm)', '心率 [最大] (bpm)', '心率 [平均值] (bpm)']);
+const csvSleepColumns = new Set(['Total', '睡眠时长', '在床上', '核心', '深度', '快速动眼期', '清醒'].map(stage => `睡眠分析 [${stage}] (小时)`));
 export async function normalizeCSV(bytes, contentType, batchId, taskId) {
   if (!batchId || !taskId) throw new Error('invalid_headers');
   const form = await new Response(bytes, { headers: { 'Content-Type': contentType } }).formData();
@@ -74,8 +78,26 @@ export async function normalizeCSV(bytes, contentType, batchId, taskId) {
     if (typeof file === 'string' || !file.name.endsWith('.csv')) throw new Error('invalid_file');
     const [columns, ...rows] = csvRows(await file.text());
     if (!columns || !rows.length) throw new Error('empty_csv');
+    if (new Set(columns).size !== columns.length) throw new Error('duplicate_columns');
     for (const row of rows) {
       if (row.length !== columns.length) throw new Error('invalid_row');
+      if (columns[0] === '日期/时间') {
+        const date = row[0];
+        if (!/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(date)) throw new Error('missing_date');
+        const metrics = new Map();
+        for (let index = 1; index < columns.length; index++) {
+          if (row[index] === '') continue; // A sparse page does not delete other metrics.
+          const value = Number(row[index]), column = columns[index];
+          if (!row[index].trim() || !Number.isFinite(value)) throw new Error('invalid_quantity');
+          const type = csvHeartColumns.has(column) ? 'heart_rate' : csvSleepColumns.has(column) ? 'sleep_analysis' : 'csv:' + column;
+          if (!metrics.has(type)) metrics.set(type, { date });
+          metrics.get(type)[column] = value;
+        }
+        for (const [typeIdentifier, payload] of metrics) {
+          records.push({ op: 'upsert', typeIdentifier, recordId: date, payload });
+        }
+        continue;
+      }
       const point = Object.fromEntries(columns.map((key, index) => [key, row[index]]));
       const date = point.Date ?? point['Start Date'];
       if (!date) throw new Error('missing_date');
@@ -83,7 +105,7 @@ export async function normalizeCSV(bytes, contentType, batchId, taskId) {
         recordId: JSON.stringify([date, point['End Date'] ?? '', point.Source ?? '', point.Stage ?? '']), payload: point });
     }
   }
-  if (!records.length || records.length > 500) throw new Error('invalid_count');
+  if (!records.length || records.length > 5000) throw new Error('invalid_count');
   return { batchId, taskId, records };
 }
 
