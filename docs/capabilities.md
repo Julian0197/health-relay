@@ -20,6 +20,7 @@
 | 手动、前台、Observer、BGTask | 全局串行与公平队列，共享预算、跨午夜续跑；前台定时与后台期望调度 | 真机持续前台定时与 healthChange 自动上传记录通过；自然后台延迟/锁屏/低电量待验收 |
 | AppIntent | 不打开 App，启用检查、自动重试语义，返回文本 | 最终包已安装；真机 Shortcuts 系统时间触发上传通过；退避/关闭拒绝由 Core 测试覆盖 |
 | 独立提醒 | 每小时/每天/指定星期，本地通知与打开并同步 | Core 日期/DST、模拟器保存恢复及真机自然送达通过；通知动作与清理待完整真机验收 |
+| Watch companion | 配置同步、设备归属、本机认证/授权、后台文件上传、回执与持久游标 | Core 和模拟器系统传输已验收；真实 Watch 双端链路、自然唤醒与耗电待验收，见 [Watch 记录](implementation-watch.md) |
 | Activity Summary / Characteristics | 快照设计 | 未接入 |
 | ECG / Audiogram / Series | 专用查询设计 | 未接入 |
 | State of Mind / Medication | 结构化读取设计 | 未接入 |
@@ -35,6 +36,8 @@
 HEA v2 映射以 [HEAEncoder.swift](../packages/HealthRelayCore/Sources/HealthRelayCore/HEAEncoder.swift) 为准。新类型可能有额外授权或专用 API，运行时不支持会明确报错，不用空结果冒充成功。
 
 ## 已验收的引擎边界
+
+合并后的最新回归结果以 [README](../README.md) 为准。以下保留各阶段验收背景。
 
 此前 74 项 Core 测试通过（55 XCTest 含 Cloudflare 集成 + 19 Swift Testing）；本轮本地复核 73 项通过、1 项可选外网用例跳过。5 项原生 UI 用例已有通过记录，本轮复核配置保存/重启与前台间隔，最终 iPhone 签名构建通过。本轮新增 8 项原生生命周期测试及 8 项 Node 测试通过；[后台恢复记录](implementation-background.md)区分受控回归与自然真机结果。未配置私有 Cloudflare 验收文件时，外网测试跳过。
 

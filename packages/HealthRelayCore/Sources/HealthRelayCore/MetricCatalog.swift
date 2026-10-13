@@ -6,6 +6,7 @@ public struct MetricDescriptor: Codable, Equatable, Identifiable, Sendable {
     public var category: String
     public var family: DataFamily
     public var minimumIOS: Int
+    public var minimumWatchOS: Int?
     public var units: [String]
     public var statistics: [ExportSettings.Statistic]
     public var selection: MetricSelection {

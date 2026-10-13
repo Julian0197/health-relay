@@ -9,8 +9,9 @@
 | 字段 | 当前语义 |
 | --- | --- |
 | schemaVersion | 配置版本，当前 1 |
+| device | iPhone / watch；省略时默认 iPhone，兼容旧配置 |
 | id / revision | 任务 UUID / 保存时递增的版本 |
-| name / enabled | 名称 / 自动执行开关；导入和复制默认禁用，手动运行独立于开关 |
+| name / enabled | 名称 / 自动执行开关；导入和复制默认禁用；iOS 可手动运行未启用任务，Watch 需本机授权并启用 |
 | data.family | healthMetrics（数量/分类/关联混选）、quantity、category、correlation、workout |
 | data.selections | HealthKit 标识符、数量输出单位、每项来源包含集合，可选 statistics 覆盖 |
 | data.excludedSources | 任务来源排除集合，排除优先 |
@@ -46,6 +47,8 @@
 | hea.v1 | 仅配置，不能执行 |
 
 `credentialRef`、`secretHeaders` 指向本机 Keychain；`credentialHeader` / `credentialPrefix` 定义认证 Header。导入/导出剥离认证值和设备引用，只保留 `requiredSecretHeaders`，必须重新绑定才能执行。配置校验拒绝重复 Header、CR/LF、保留 Header 冲突和 URL 内嵌用户名/密码。
+
+Watch 配置以完整快照同步，最大 60 KiB，携带单调递增 generation 和独立快照 ID；接收端整体校验可执行能力后原子保存任务与确认。配置不携带 iPhone 的 Keychain 值或引用，Watch 本机绑定认证后启用。切回 iPhone 要等待 Watch 移除确认；设备之间不复制 anchor。迁移前的 iPhone 请求指纹保持兼容，Watch 使用自己的指纹与持久状态，上传正文仍遵守下述协议。
 
 ## Native batch
 
@@ -104,7 +107,7 @@ HEA 自动 Header 为 automation-name/id/aggregation/period、session-id，重�
 
 ## 本地状态与日志
 
-当前运行状态为 `running / succeeded / noData / queued / failed`。每任务 JSON 文件包含查询检查点、一个待上传批次、下次重试时间、独立 lastConfirmedAt、整轮 cycleStartedAt/cycleFingerprint、nextSelectionID 及最近 30 条运行日志；iOS 原子写入并使用完整文件保护。
+当前运行状态为 `running / succeeded / noData / queued / failed`。每任务 JSON 文件包含查询检查点、一个待上传批次、下次重试时间、独立 lastConfirmedAt、整轮 cycleStartedAt/cycleFingerprint、nextSelectionID 及最近 30 条运行日志；iOS / Watch 原子写入并使用完整文件保护。
 
 先保存固定正文、batch ID 与建议新 anchor，再发 HTTP；有效确认后，同次原子写入提交 anchor 并清除批次。网络失败不会先推进进度，也不重新扫这一页历史。没有新事件只保存读取检查点，不发送空批次。
 
@@ -116,4 +119,4 @@ HEA 自动 Header 为 automation-name/id/aggregation/period、session-id，重�
 
 聚合 checkpoint 保存变更 anchor、受影响窗口队列、有限 UUID→窗口索引和结果哈希；拟提交状态随 pending 同步持久化。跨午夜续跑保持 cycleStartedAt 对应范围，完成整轮后清除，下一轮使用新日期。
 
-诊断导出包含 RunLog 的 trigger、durationSeconds、metricCounts、omittedDeletions，不包含请求正文、认证或完整健康历史。Keychain 与完整文件保护仍要求可读设备状态；未增加系统后台 URLSession。
+诊断导出包含 RunLog 的 trigger、durationSeconds、metricCounts、omittedDeletions，不包含请求正文、认证或完整健康历史。Keychain 与完整文件保护仍要求可读设备状态。iOS 使用普通 URLSession；Watch 使用系统后台文件上传，另存精确批次身份及待应用回执。Apple 后台 URLSession 会跟随重定向，因此 Watch 必须配置最终 HTTPS 接收地址；最终 URL 校验只拒绝异常确认，不能承诺阻止重定向的数据传输。详见 [Watch 实现说明](implementation-watch.md)。

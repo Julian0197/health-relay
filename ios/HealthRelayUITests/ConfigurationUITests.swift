@@ -26,7 +26,13 @@ final class ConfigurationUITests: XCTestCase {
         capture(app, "指标选择")
         app.buttons["metrics-done"].tap()
         let endpoint = app.textFields["endpoint-url"]
-        for _ in 0..<6 where !endpoint.isHittable { app.swipeUp() }
+        // Small drags cannot flick past the HTTP section when optional rows change height.
+        for _ in 0..<16 where !endpoint.isHittable {
+            let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.60))
+            let end = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.35))
+            start.press(forDuration: 0.1, thenDragTo: end)
+        }
+        capture(app, "接口配置定位")
         XCTAssertTrue(endpoint.exists); endpoint.tap(); endpoint.typeText("https://api.example.com/ingest")
         app.buttons["save-task"].tap()
         XCTAssertTrue(app.buttons["task-通用配置验收"].waitForExistence(timeout: 5))
@@ -128,7 +134,13 @@ final class ConfigurationUITests: XCTestCase {
         app.buttons["metric-HKQuantityTypeIdentifierBodyMass"].tap()
         app.buttons["metrics-done"].tap()
         let endpoint = app.textFields["endpoint-url"]
-        for _ in 0..<6 where !endpoint.isHittable { app.swipeUp() }
+        for _ in 0..<16 where !endpoint.isHittable {
+            let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.60))
+            let end = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.35))
+            start.press(forDuration: 0.1, thenDragTo: end)
+        }
+        capture(app, "提醒任务接口定位")
+        XCTAssertTrue(endpoint.isHittable)
         endpoint.tap(); endpoint.typeText("https://api.example.com/ingest")
         let reminders = app.buttons["reminder-settings"]
         for _ in 0..<10 where !reminders.isHittable { app.swipeUp() }

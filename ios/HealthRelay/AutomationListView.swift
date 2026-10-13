@@ -72,6 +72,13 @@ struct AutomationListView: View {
                         }
                     }
                 }
+                Section("Apple Watch") {
+                    Button("同步 Watch 配置（不含认证）", systemImage: "applewatch") {
+                        do { try store.syncWatch() } catch { self.error = error.localizedDescription }
+                    }.disabled(store.loadError != nil)
+                    Text(store.watchSync.status).font(.footnote)
+                    Text("发送全部 Watch 任务，不包含认证值。Watch 收到后默认关闭；在手表填写认证、授权并启用。移除也以本次完整列表为准。").font(.caption).foregroundStyle(.secondary)
+                }
                 Section {
                     Button("从 JSON 导入", systemImage: "square.and.arrow.down") { importing = true }
                         .accessibilityIdentifier("import-task")

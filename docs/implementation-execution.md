@@ -60,7 +60,7 @@ Core 源文件实际位于 `packages/HealthRelayCore/Sources/HealthRelayCore/`�
 
 ```sh
 swift test --package-path packages/HealthRelayCore
-xcodebuild -project ios/HealthRelay.xcodeproj -scheme HealthRelay -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
+xcodebuild -project ios/HealthRelay.xcodeproj -scheme HealthRelay -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
 ```
 
 配置 UI 测试使用独立目录，不改正常用户任务：

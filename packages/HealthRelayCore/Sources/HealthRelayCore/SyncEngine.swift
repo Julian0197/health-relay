@@ -20,7 +20,7 @@ public struct ReadPage: Sendable {
         self.reader = reader; self.sender = sender; self.journal = journal; self.now = now
     }
     public func isRunning(_ id: UUID) -> Bool { running.contains(id) }
-    public func run(_ task: AutomationConfig, automatic: Bool = false, timeBudget: TimeInterval = 25, storageID: UUID? = nil, trigger: String = "manual") async -> RunLog {
+    public func run(_ task: AutomationConfig, automatic: Bool = false, timeBudget: TimeInterval = 25, storageID: UUID? = nil, trigger: String = "manual", prepareOnly: Bool = false) async -> RunLog {
         let stateID = storageID ?? task.id
         guard running.insert(stateID).inserted else { return RunLog(state: .running, message: "任务正在运行") }
         defer { running.remove(stateID) }
@@ -37,7 +37,7 @@ public struct ReadPage: Sendable {
         }
         func exhausted() -> Bool { Task.isCancelled || now().timeIntervalSince(started) >= timeBudget }
         do {
-            let issues = task.validationIssues(systemMajorVersion: 27) + task.executionIssues
+            let issues = task.validationIssues(systemMajorVersion: 27, device: task.device) + task.executionIssues
             guard issues.isEmpty else { throw ConfigurationError(issues.joined(separator: "；")) }
             let fingerprint = try SyncIdentity.fingerprint(task)
             state.lastAttempt = started
@@ -47,7 +47,7 @@ public struct ReadPage: Sendable {
                 if automatic && (!pending.automaticRetry || (pending.nextAttempt ?? .distantPast) > Date()) {
                     return RunLog(state: .queued, message: "批次等待重试")
                 }
-                if exhausted() { return try finish(result(.queued, "批次已保存，等待上传"), state: &state, id: stateID) }
+                if prepareOnly || exhausted() { return try finish(result(.queued, "批次已保存，等待上传"), state: &state, id: stateID) }
                 try Task.checkCancellation()
                 status = try await sender.send(pending, destination: task.destination)
                 state.checkpoints[pending.checkpointKey] = pending.checkpoint
@@ -100,7 +100,7 @@ public struct ReadPage: Sendable {
                     if let upload {
                         state.pending = upload
                         try journal.save(state, for: stateID)
-                        if exhausted() { return try finish(result(.queued, "批次已保存，等待上传", status: status), state: &state, id: stateID) }
+                        if prepareOnly || exhausted() { return try finish(result(.queued, "批次已保存，等待上传", status: status), state: &state, id: stateID) }
                         status = try await sender.send(upload, destination: task.destination)
                         state.pending = nil
                         state.lastConfirmedAt = Date()

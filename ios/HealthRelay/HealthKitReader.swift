@@ -6,9 +6,14 @@ import HealthRelayCore
     let health = HKHealthStore()
 
     func sampleType(_ id: String) throws -> HKSampleType {
-        guard let metric = MetricCatalog.bundled.metric(id), metric.minimumIOS <= ProcessInfo.processInfo.operatingSystemVersion.majorVersion else {
+        guard let metric = MetricCatalog.bundled.metric(id) else {
             throw ConfigurationError("当前系统不支持这个健康数据类型")
         }
+        #if os(watchOS)
+        guard let minimum = metric.minimumWatchOS, minimum <= ProcessInfo.processInfo.operatingSystemVersion.majorVersion else { throw ConfigurationError("当前 watchOS 不支持 \(metric.title)") }
+        #else
+        guard metric.minimumIOS <= ProcessInfo.processInfo.operatingSystemVersion.majorVersion else { throw ConfigurationError("当前 iOS 不支持 \(metric.title)") }
+        #endif
         let type: HKSampleType?
         switch metric.family {
         case .quantity: type = HKObjectType.quantityType(forIdentifier: .init(rawValue: id))

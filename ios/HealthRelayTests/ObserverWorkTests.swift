@@ -1,6 +1,10 @@
 import XCTest
 import HealthRelayCore
+#if os(watchOS)
+@testable import HealthRelayWatch
+#else
 @testable import HealthRelay
+#endif
 
 @MainActor final class ObserverWorkTests: XCTestCase {
     func testCompletionWaitsForProcessing() async throws {

@@ -126,11 +126,12 @@ for line in HEADER.read_text().splitlines():
             statistics = []
     metrics.append({
         "id": symbol, "title": title, "category": item_category, "family": family,
-        "minimumIOS": minimum_ios, "units": UNIT_OPTIONS.get(unit, [unit]) if family == "quantity" else [],
+        "minimumIOS": minimum_ios,
+        "minimumWatchOS": int(re.search(r"\bwatchos\((\d+)", declaration).group(1)) if re.search(r"\bwatchos\((\d+)", declaration) else None, "units": UNIT_OPTIONS.get(unit, [unit]) if family == "quantity" else [],
         "statistics": statistics,
     })
 
-metrics.append({"id": "HKWorkoutType", "title": "锻炼记录", "category": "活动与运动", "family": "workout", "minimumIOS": 8, "units": [], "statistics": []})
+metrics.append({"id": "HKWorkoutType", "title": "锻炼记录", "category": "活动与运动", "family": "workout", "minimumIOS": 8, "minimumWatchOS": 2, "units": [], "statistics": []})
 assert sum(m["family"] == "quantity" for m in metrics) == 121
 assert sum(m["family"] == "category" for m in metrics) == 72
 output = ROOT / "packages/HealthRelayCore/Sources/HealthRelayCore/Resources/catalog.json"

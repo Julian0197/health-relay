@@ -1,6 +1,5 @@
 import Foundation
 import Observation
-import Security
 import HealthRelayCore
 import HealthKit
 import BackgroundTasks
@@ -16,6 +15,7 @@ final class AutomationStore {
     var configurationReady: Bool { loadError == nil && !waitingForProtectedData }
     private let repository: ConfigurationRepository
     let credentials = CredentialStore()
+    let watchSync = PhoneWatchSync()
     let health = HealthKitReader()
     private let backfillRepository: BackfillRepository
     private let coordinator = RunCoordinator()
@@ -148,6 +148,7 @@ final class AutomationStore {
         var candidate = task
         if let index = updated.firstIndex(where: { $0.id == task.id }) {
             candidate.revision = updated[index].revision + 1
+            if candidate.device != updated[index].device { candidate.enabled = false }
             updated[index] = candidate
         } else { updated.append(candidate) }
         try repository.save(updated)
@@ -158,6 +159,7 @@ final class AutomationStore {
     func delete(_ task: AutomationConfig) throws {
         guard configurationReady else { throw ConfigurationError("本地配置未能读取") }
         try ensureEditable(task)
+        guard try journal.load(task.id).pending == nil else { throw ConfigurationError("有待上传批次，请先完成后再删除") }
         let updated = tasks.filter { $0.id != task.id }
         try repository.save(updated)
         tasks = updated
@@ -167,6 +169,7 @@ final class AutomationStore {
     }
 
     func checkRead(_ task: AutomationConfig) async throws -> String {
+        try requirePhone(task)
         guard active.insert(task.id).inserted else { throw ConfigurationError("任务正在运行") }
         defer { active.remove(task.id) }
         await coordinator.acquire()
@@ -186,6 +189,7 @@ final class AutomationStore {
 
     func setEnabled(_ task: AutomationConfig, enabled: Bool) async throws {
         guard configurationReady else { throw ConfigurationError("本地配置暂不可读") }
+        try requirePhone(task)
         guard !active.contains(task.id) else { throw ConfigurationError("任务正在运行") }
         var updated = tasks
         guard let index = updated.firstIndex(where: { $0.id == task.id }) else { return }
@@ -203,6 +207,8 @@ final class AutomationStore {
     }
 
     func run(_ task: AutomationConfig, automatic: Bool = false, trigger: String = "manual", deadline: Date? = nil) async {
+        do { try requirePhone(task) }
+        catch { outcomes[task.id] = RunLog(state: .failed, message: error.localizedDescription); return }
         guard active.insert(task.id).inserted else { return }
         defer { active.remove(task.id); scheduleRefresh() }
         await coordinator.acquire()
@@ -263,6 +269,7 @@ final class AutomationStore {
     }
 
     func startBackfill(_ task: AutomationConfig, start: Date, end: Date) async throws {
+        try requirePhone(task)
         try ensureEditable(task)
         let job = try BackfillJob(task: task, start: start, end: end)
         #if DEBUG && targetEnvironment(simulator)
@@ -276,7 +283,7 @@ final class AutomationStore {
     }
 
     func runBackfill(_ job: BackfillJob, automatic: Bool = false, deadline: Date? = nil) async {
-        guard job.completedAt == nil, active.insert(job.id).inserted else { return }
+        guard canRunOnPhone(job.task), job.completedAt == nil, active.insert(job.id).inserted else { return }
         defer { active.remove(job.id); scheduleRefresh() }
         await coordinator.acquire()
         defer { coordinator.release() }
@@ -309,8 +316,8 @@ final class AutomationStore {
         defer { checkingDue = false; scheduleRefresh() }
         let deadline = Date().addingTimeInterval(25)
         // Daily exports and backfills share one age-ordered queue.
-        let candidates = tasks.filter(\.enabled).map { (id: $0.id, task: $0, job: Optional<BackfillJob>.none) }
-            + backfills.filter { $0.completedAt == nil }.map { (id: $0.id, task: $0.task, job: Optional($0)) }
+        let candidates = tasks.filter { $0.enabled && canRunOnPhone($0) }.map { (id: $0.id, task: $0, job: Optional<BackfillJob>.none) }
+            + backfills.filter { $0.completedAt == nil && canRunOnPhone($0.task) }.map { (id: $0.id, task: $0.task, job: Optional($0)) }
         let ordered = candidates.sorted {
             ((try? journal.load($0.id).lastAttempt) ?? .distantPast) < ((try? journal.load($1.id).lastAttempt) ?? .distantPast)
         }
@@ -342,7 +349,7 @@ final class AutomationStore {
 
     private func installObservers() {
         for query in observers { health.health.stop(query) }; observers = []
-        let identifiers = Set(tasks.filter { $0.enabled && $0.execution.onDataChange }.flatMap { $0.data.selections.map(\.id) })
+        let identifiers = Set(tasks.filter { $0.enabled && canRunOnPhone($0) && $0.execution.onDataChange }.flatMap { $0.data.selections.map(\.id) })
         for id in identifiers {
             guard let type = try? health.sampleType(id) else { continue }
             let query = HKObserverQuery(sampleType: type, predicate: nil) { [weak self] _, complete, error in
@@ -351,7 +358,7 @@ final class AutomationStore {
                     guard let self, error == nil else { completion.call(); return }
                     ObserverWork.start(completion: completion, onTimeout: { self.scheduleRecovery() }) {
                         var dirty = Set(UserDefaults.standard.stringArray(forKey: self.dirtyKey) ?? [])
-                        for task in self.tasks where task.enabled && task.execution.onDataChange && task.data.selections.contains(where: { $0.id == id }) { dirty.insert(task.id.uuidString) }
+                        for task in self.tasks where self.canRunOnPhone(task) && task.enabled && task.execution.onDataChange && task.data.selections.contains(where: { $0.id == id }) { dirty.insert(task.id.uuidString) }
                         UserDefaults.standard.set(Array(dirty), forKey: self.dirtyKey)
                         self.scheduleRefresh()
                         await self.runDue(dataChangeOnly: true)
@@ -369,7 +376,7 @@ final class AutomationStore {
         await withCheckedContinuation { continuation in
             health.health.disableAllBackgroundDelivery { _, _ in continuation.resume() }
         }
-        let identifiers = Set(tasks.filter { $0.enabled && $0.execution.onDataChange }.flatMap { $0.data.selections.map(\.id) })
+        let identifiers = Set(tasks.filter { $0.enabled && canRunOnPhone($0) && $0.execution.onDataChange }.flatMap { $0.data.selections.map(\.id) })
         for id in identifiers {
             guard let type = try? health.sampleType(id) else { continue }
             do { try await health.health.enableBackgroundDelivery(for: type, frequency: .immediate) }
@@ -395,7 +402,7 @@ final class AutomationStore {
 
     func reportObserverStartup(_ phase: String) {
         guard ProcessInfo.processInfo.arguments.contains("--diagnose-background") else { return }
-        let expected = Set(tasks.filter { $0.enabled && $0.execution.onDataChange }.flatMap { $0.data.selections.map(\.id) }).count
+        let expected = Set(tasks.filter { $0.enabled && canRunOnPhone($0) && $0.execution.onDataChange }.flatMap { $0.data.selections.map(\.id) }).count
         print("HEALTHRELAY_BACKGROUND_DIAGNOSTIC phase=\(phase) observers=\(observers.count) expected=\(expected) appState=\(UIApplication.shared.applicationState.rawValue)")
     }
     #endif
@@ -438,13 +445,13 @@ final class AutomationStore {
         guard configurationReady else { return }
         let now = Date()
         let dirty = Set(UserDefaults.standard.stringArray(forKey: dirtyKey) ?? [])
-        var dates = tasks.filter(\.enabled).compactMap { task -> Date? in
+        var dates = tasks.filter { $0.enabled && canRunOnPhone($0) }.compactMap { task -> Date? in
             if active.contains(task.id) { return now.addingTimeInterval(60) }
             guard let state = try? journal.load(task.id) else { return now.addingTimeInterval(300) }
             return AutomationSchedule.nextDate(task.execution, state: state,
                 dirty: dirty.contains(task.id.uuidString), now: now)
         }
-        for job in backfills where job.completedAt == nil {
+        for job in backfills where job.completedAt == nil && canRunOnPhone(job.task) {
             if active.contains(job.id) { dates.append(now.addingTimeInterval(60)); continue }
             if let state = try? journal.load(job.id),
                let due = AutomationSchedule.nextDate(job.task.execution, state: state, backfill: true, now: now) {
@@ -466,46 +473,19 @@ final class AutomationStore {
         try? BGTaskScheduler.shared.submit(request)
     }
 
+    func canRunOnPhone(_ task: AutomationConfig) -> Bool {
+        task.device == .iPhone && watchSync.canExecutePhoneTasks && !watchSync.possibleWatchIDs.contains(task.id)
+    }
+    private func requirePhone(_ task: AutomationConfig) throws {
+        guard canRunOnPhone(task) else { throw ConfigurationError("此任务由 Watch 执行；切回 iPhone 后请同步 Watch 配置，等待 Watch 确认移除后再运行") }
+    }
+    func syncWatch() throws {
+        guard configurationReady else { throw ConfigurationError("本地配置暂不可读") }
+        try watchSync.sync(tasks: tasks.filter { $0.device == .watch })
+    }
+
     func removeCredentials(_ task: AutomationConfig) {
         if let ref = task.destination.credentialRef { credentials.delete(ref) }
         for ref in task.destination.secretHeaders?.values ?? Dictionary<String, String>().values { credentials.delete(ref) }
-    }
-}
-
-struct CredentialStore {
-    private let service = "org.healthrelay.automation-credentials"
-    func save(_ value: String) throws -> String {
-        let reference = UUID().uuidString
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: reference,
-            kSecValueData as String: Data(value.utf8),
-            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly
-        ]
-        let status = SecItemAdd(query as CFDictionary, nil)
-        guard status == errSecSuccess else { throw ConfigurationError("认证信息保存失败（\(status)）") }
-        return reference
-    }
-    func read(_ reference: String) throws -> String {
-        var result: CFTypeRef?
-        let status = SecItemCopyMatching([
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: reference,
-            kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne
-        ] as CFDictionary, &result)
-        guard status == errSecSuccess, let data = result as? Data, let value = String(data: data, encoding: .utf8) else {
-            throw UploadFailure(status == errSecInteractionNotAllowed ? "设备锁定，认证值暂不可读" : "认证值无法读取，请重新填写", retryable: status == errSecInteractionNotAllowed)
-        }
-        return value
-    }
-    func delete(_ reference: String) {
-        SecItemDelete([
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: reference
-        ] as CFDictionary)
     }
 }

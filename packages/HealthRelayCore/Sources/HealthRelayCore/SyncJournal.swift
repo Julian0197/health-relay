@@ -70,7 +70,7 @@ public struct SyncState: Codable, Sendable {
         let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .iso8601; encoder.outputFormatting = [.sortedKeys]
         let data = try encoder.encode(state)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        #if os(iOS)
+        #if os(iOS) || os(watchOS)
         try data.write(to: file(id), options: [.atomic, .completeFileProtection])
         #else
         try data.write(to: file(id), options: .atomic)
@@ -84,9 +84,9 @@ public struct SyncState: Codable, Sendable {
 }
 public enum SyncIdentity {
     private struct QueryIdentity: Encodable { var data: DataSelection; var range: DateRange; var export: ExportSettings }
-    private struct RequestIdentity: Encodable { var query: QueryIdentity; var destination: HTTPDestination }
+    private struct RequestIdentity: Encodable { var query: QueryIdentity; var destination: HTTPDestination; var device: ExecutionDevice? }
     public static func fingerprint(_ task: AutomationConfig) throws -> String {
-        try digest(RequestIdentity(query: QueryIdentity(data: task.data, range: task.range, export: task.export), destination: task.destination))
+        try digest(RequestIdentity(query: QueryIdentity(data: task.data, range: task.range, export: task.export), destination: task.destination, device: task.device == .watch ? .watch : nil))
     }
     public static func key(_ task: AutomationConfig, selection: MetricSelection, now: Date) throws -> (String, TypeCheckpoint) {
         var calendar = Calendar(identifier: .gregorian); calendar.timeZone = TimeZone(identifier: task.export.timeZone)!

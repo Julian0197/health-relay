@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>WKApplication</key><true/>
+<key>WKCompanionAppBundleIdentifier</key><string>org.healthrelay.app</string>
+<key>WKWatchOnly</key><false/>
+<key>NSHealthShareUsageDescription</key><string>读取你选择的 Watch 健康记录，并上传到你配置的 HTTPS 接口。</string>
+</dict></plist>
