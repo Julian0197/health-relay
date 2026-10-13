@@ -71,10 +71,34 @@ export class HealthRelayAcceptance {
     this.sql.exec('CREATE TABLE IF NOT EXISTS records(task_id TEXT NOT NULL,type_id TEXT NOT NULL,record_id TEXT NOT NULL,body TEXT NOT NULL,PRIMARY KEY(task_id,type_id,record_id))');
     this.sql.exec('CREATE TABLE IF NOT EXISTS stats(id INTEGER PRIMARY KEY CHECK(id=1),batches INTEGER NOT NULL DEFAULT 0,events INTEGER NOT NULL DEFAULT 0,last_batch_id TEXT,last_received_at TEXT)');
     this.sql.exec('INSERT OR IGNORE INTO stats(id) VALUES(1)');
+    this.sql.exec('CREATE TABLE IF NOT EXISTS faults(task_id TEXT PRIMARY KEY,remaining INTEGER NOT NULL,retry_after INTEGER NOT NULL,expires_at INTEGER NOT NULL)');
+    this.sql.exec('CREATE TABLE IF NOT EXISTS attempts(id INTEGER PRIMARY KEY AUTOINCREMENT,task_id TEXT NOT NULL,batch_id TEXT NOT NULL,digest TEXT NOT NULL,status INTEGER NOT NULL,record_count INTEGER NOT NULL,received_at TEXT NOT NULL)');
+    this.sql.exec('CREATE INDEX IF NOT EXISTS attempts_task ON attempts(task_id,id)');
+
   }
   async fetch(request) {
     const url = new URL(request.url);
     const path = url.pathname;
+    if (path === '/faults' && request.method === 'POST') {
+      let control;
+      try { const body = await request.text(); if (body.length > 1024) throw new Error('too_large'); control = JSON.parse(body); }
+      catch { return json({ error: 'invalid_fault' }, 400); }
+      const { taskId, failures, retryAfterSeconds, expiresInSeconds } = control ?? {};
+      if (typeof taskId !== 'string' || !taskId || taskId.length > 200 ||
+          !Number.isInteger(failures) || failures < 0 || failures > 3 ||
+          !Number.isInteger(retryAfterSeconds) || retryAfterSeconds < 1 || retryAfterSeconds > 300 ||
+          !Number.isInteger(expiresInSeconds) || expiresInSeconds < 1 || expiresInSeconds > 1800) return json({ error: 'invalid_fault' }, 400);
+      const expiresAt = Date.now() + expiresInSeconds * 1000;
+      this.sql.exec('INSERT INTO faults(task_id,remaining,retry_after,expires_at) VALUES(?,?,?,?) ON CONFLICT(task_id) DO UPDATE SET remaining=excluded.remaining,retry_after=excluded.retry_after,expires_at=excluded.expires_at', taskId, failures, retryAfterSeconds, expiresAt);
+      return json({ environment: 'acceptance-only', taskId, remaining: failures, expiresAt });
+    }
+    if (path === '/attempts' && request.method === 'GET') {
+      const task = url.searchParams.get('taskId');
+      if (!task || task.length > 200) return json({ error: 'invalid_inspection' }, 400);
+      const attempts = this.sql.exec('SELECT batch_id AS batchId,digest,status,record_count AS recordCount,received_at AS receivedAt FROM attempts WHERE task_id=? ORDER BY id DESC LIMIT 20', task).toArray();
+      const fault = this.sql.exec('SELECT remaining,retry_after AS retryAfterSeconds,expires_at AS expiresAt FROM faults WHERE task_id=?', task).toArray()[0] ?? null;
+      return json({ environment: 'acceptance-only', attempts, fault });
+    }
     if (path === '/status' && request.method === 'GET') {
       const stats = this.sql.exec('SELECT batches,events,last_batch_id,last_received_at FROM stats WHERE id=1').one();
       const task = url.searchParams.get('taskId');
@@ -115,7 +139,17 @@ export class HealthRelayAcceptance {
     try {
       return this.ctx.storage.transactionSync(() => {
         const previous = this.sql.exec('SELECT id,digest,record_count FROM batches WHERE id=?', batch.batchId).toArray()[0];
-        if (previous) return previous.digest === digest ? json(receipt(previous)) : json({ error: 'batch_conflict' }, 409);
+        if (previous) {
+          const status = previous.digest === digest ? 200 : 409;
+          this.recordAttempt(batch, digest, status);
+          return status === 200 ? json(receipt(previous)) : json({ error: 'batch_conflict' }, 409);
+        }
+        const fault = this.sql.exec('SELECT remaining,retry_after,expires_at FROM faults WHERE task_id=?', batch.taskId).toArray()[0];
+        if (fault?.remaining > 0 && fault.expires_at > Date.now()) {
+          this.sql.exec('UPDATE faults SET remaining=remaining-1 WHERE task_id=?', batch.taskId);
+          this.recordAttempt(batch, digest, 503);
+          return Response.json({ error: 'acceptance_injected_failure' }, { status: 503, headers: { 'Retry-After': String(fault.retry_after), 'Cache-Control': 'no-store' } });
+        }
         for (const r of batch.records) {
           if (r.op === 'delete') this.sql.exec('DELETE FROM records WHERE task_id=? AND type_id=? AND record_id=?', batch.taskId, r.typeIdentifier, r.recordId);
           else this.sql.exec('INSERT INTO records(task_id,type_id,record_id,body) VALUES(?,?,?,?) ON CONFLICT(task_id,type_id,record_id) DO UPDATE SET body=excluded.body', batch.taskId, r.typeIdentifier, r.recordId, JSON.stringify(r));
@@ -123,9 +157,14 @@ export class HealthRelayAcceptance {
         const receivedAt = new Date().toISOString();
         this.sql.exec('INSERT INTO batches(id,digest,task_id,record_count,received_at) VALUES(?,?,?,?,?)', batch.batchId, digest, batch.taskId, batch.records.length, receivedAt);
         this.sql.exec('UPDATE stats SET batches=batches+1,events=events+?,last_batch_id=?,last_received_at=? WHERE id=1', batch.records.length, batch.batchId, receivedAt);
+        this.recordAttempt(batch, digest, 200);
         return json({ batchId: batch.batchId, committed: true, accepted: batch.records.length, duplicates: 0 });
       });
     } catch { return json({ error: 'test_storage_unavailable' }, 503); }
+  }
+  recordAttempt(batch, digest, status) {
+    this.sql.exec('INSERT INTO attempts(task_id,batch_id,digest,status,record_count,received_at) VALUES(?,?,?,?,?,?)', batch.taskId, batch.batchId, digest, status, batch.records.length, new Date().toISOString());
+    this.sql.exec('DELETE FROM attempts WHERE id <= (SELECT MAX(id)-1000 FROM attempts)');
   }
 }
 export default {

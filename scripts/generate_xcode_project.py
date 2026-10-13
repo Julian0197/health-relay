@@ -79,11 +79,30 @@ app_target = obj("appTarget", "PBXNativeTarget", f"buildConfigurationList = {app
 proxy = obj("testProxy", "PBXContainerItemProxy", f"containerPortal = {identifier('project')}; proxyType = 1; remoteGlobalIDString = {app_target}; remoteInfo = HealthRelay;")
 dependency = obj("testDependency", "PBXTargetDependency", f"target = {app_target}; targetProxy = {proxy};")
 test_target = obj("testTarget", "PBXNativeTarget", f"buildConfigurationList = {test_configs}; buildPhases = {array([test_phase, test_frameworks])}; buildRules = (); dependencies = {array([dependency])}; name = HealthRelayUITests; productName = HealthRelayUITests; productReference = {test_product}; productType = \"com.apple.product-type.bundle.ui-testing\";")
+unit_sources = sorted((ROOT / "ios/HealthRelayTests").glob("*.swift"))
+unit_files, unit_build = [], []
+for source in unit_sources:
+    path = source.relative_to(ROOT / "ios").as_posix()
+    ref = obj("file:" + path, "PBXFileReference", f"lastKnownFileType = sourcecode.swift; path = {q(path)}; sourceTree = SOURCE_ROOT;")
+    unit_files.append(ref)
+    unit_build.append(obj("build:" + path, "PBXBuildFile", f"fileRef = {ref};"))
+unit_product = obj("unitProduct", "PBXFileReference", 'explicitFileType = wrapper.cfbundle; path = HealthRelayTests.xctest; sourceTree = BUILT_PRODUCTS_DIR;')
+unit_phase = obj("unitSources", "PBXSourcesBuildPhase", f"buildActionMask = 2147483647; files = {array(unit_build)}; runOnlyForDeploymentPostprocessing = 0;")
+unit_frameworks = obj("unitFrameworks", "PBXFrameworksBuildPhase", "buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0;")
+unit_configs = configs("unit", {
+    "PRODUCT_NAME": "$(TARGET_NAME)", "PRODUCT_BUNDLE_IDENTIFIER": "org.healthrelay.app.tests",
+    "GENERATE_INFOPLIST_FILE": "YES", "CODE_SIGN_STYLE": "Automatic",
+    "TEST_HOST": "$(BUILT_PRODUCTS_DIR)/HealthRelay.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/HealthRelay",
+    "BUNDLE_LOADER": "$(TEST_HOST)", "TARGETED_DEVICE_FAMILY": "1,2",
+})
+unit_target = obj("unitTarget", "PBXNativeTarget", f'buildConfigurationList = {unit_configs}; buildPhases = {array([unit_phase, unit_frameworks])}; buildRules = (); dependencies = {array([dependency])}; name = HealthRelayTests; productName = HealthRelayTests; productReference = {unit_product}; productType = "com.apple.product-type.bundle.unit-test";')
+unit_group = obj("unitGroup", "PBXGroup", f'children = {array(unit_files)}; name = Tests; sourceTree = "<group>";')
+
 source_group = obj("sourceGroup", "PBXGroup", f"children = {array(app_files)}; name = App; sourceTree = \"<group>\";")
 test_group = obj("testGroup", "PBXGroup", f"children = {array(test_files)}; name = UITests; sourceTree = \"<group>\";")
-products = obj("products", "PBXGroup", f"children = {array([app_product, test_product])}; name = Products; sourceTree = \"<group>\";")
-main = obj("mainGroup", "PBXGroup", f"children = {array([source_group, test_group, products])}; sourceTree = \"<group>\";")
-project = obj("project", "PBXProject", f"attributes = {{LastUpgradeCheck = 2700; TargetAttributes = {{{app_target} = {{CreatedOnToolsVersion = 27.0; SystemCapabilities = {{com.apple.HealthKit = {{enabled = 1;}};}};}}; {test_target} = {{CreatedOnToolsVersion = 27.0; TestTargetID = {app_target};}};}};}}; buildConfigurationList = {project_configs}; compatibilityVersion = \"Xcode 15.0\"; developmentRegion = zh-Hans; knownRegions = (en, zh-Hans, Base); mainGroup = {main}; productRefGroup = {products}; projectDirPath = \"\"; projectRoot = \"\"; packageReferences = {array([package])}; targets = {array([app_target, test_target])};")
+products = obj("products", "PBXGroup", f"children = {array([app_product, test_product, unit_product])}; name = Products; sourceTree = \"<group>\";")
+main = obj("mainGroup", "PBXGroup", f"children = {array([source_group, test_group, unit_group, products])}; sourceTree = \"<group>\";")
+project = obj("project", "PBXProject", f"attributes = {{LastUpgradeCheck = 2700; TargetAttributes = {{{app_target} = {{CreatedOnToolsVersion = 27.0; SystemCapabilities = {{com.apple.HealthKit = {{enabled = 1;}};}};}}; {test_target} = {{CreatedOnToolsVersion = 27.0; TestTargetID = {app_target};}};}};}}; buildConfigurationList = {project_configs}; compatibilityVersion = \"Xcode 15.0\"; developmentRegion = zh-Hans; knownRegions = (en, zh-Hans, Base); mainGroup = {main}; productRefGroup = {products}; projectDirPath = \"\"; projectRoot = \"\"; packageReferences = {array([package])}; targets = {array([app_target, test_target, unit_target])};")
 
 PROJECT.mkdir(parents=True, exist_ok=True)
 (PROJECT / "project.pbxproj").write_text("// !$*UTF8*$!\n{\n\tarchiveVersion = 1;\n\tclasses = {};\n\tobjectVersion = 60;\n\tobjects = {\n" + "\n".join(objects) + f"\n\t}};\n\trootObject = {project};\n}}\n")
@@ -94,6 +113,7 @@ scheme = f'''<?xml version="1.0" encoding="UTF-8"?>
   </BuildActionEntries></BuildAction>
   <TestAction buildConfiguration="Debug" selectedDebuggerIdentifier="Xcode.DebuggerFoundation.Debugger.LLDB" selectedLauncherIdentifier="Xcode.IDEFoundation.Launcher.LLDB" shouldUseLaunchSchemeArgsEnv="YES"><Testables>
     <TestableReference skipped="NO"><BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="{test_target}" BuildableName="HealthRelayUITests.xctest" BlueprintName="HealthRelayUITests" ReferencedContainer="container:HealthRelay.xcodeproj"/></TestableReference>
+    <TestableReference skipped="NO"><BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="{unit_target}" BuildableName="HealthRelayTests.xctest" BlueprintName="HealthRelayTests" ReferencedContainer="container:HealthRelay.xcodeproj"/></TestableReference>
   </Testables></TestAction>
   <LaunchAction buildConfiguration="Debug" selectedDebuggerIdentifier="Xcode.DebuggerFoundation.Debugger.LLDB" selectedLauncherIdentifier="Xcode.IDEFoundation.Launcher.LLDB" launchStyle="0" useCustomWorkingDirectory="NO" ignoresPersistentStateOnLaunch="NO" debugServiceExtension="internal" allowLocationSimulation="YES"><BuildableProductRunnable runnableDebuggingMode="0"><BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="{app_target}" BuildableName="HealthRelay.app" BlueprintName="HealthRelay" ReferencedContainer="container:HealthRelay.xcodeproj"/></BuildableProductRunnable></LaunchAction>
   <ProfileAction buildConfiguration="Release" shouldUseLaunchSchemeArgsEnv="YES" savedToolIdentifier="" useCustomWorkingDirectory="NO" debugServiceExtension="internal"/>

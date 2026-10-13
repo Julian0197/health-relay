@@ -43,3 +43,55 @@ test('transactional receipts replay safely and corrected windows replace one row
   assert.equal(stats.batches, 2); assert.equal(stats.events, 2);
   db.close();
 });
+
+function receiverFixture() {
+  const db = new DatabaseSync(':memory:');
+  const sql = { exec(query, ...values) { const rows = db.prepare(query).all(...values); return { one: () => rows[0], toArray: () => rows }; } };
+  const receiver = new HealthRelayAcceptance({ storage: { sql, transactionSync(work) {
+    db.exec('BEGIN');
+    try { const result = work(); db.exec('COMMIT'); return result; } catch (error) { db.exec('ROLLBACK'); throw error; }
+  } } });
+  const request = (path, body) => receiver.fetch(new Request('https://test.example' + path, body === undefined ? {} :
+    { method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': body.batchId ?? '' }, body: JSON.stringify(body) }));
+  return { db, request };
+}
+
+test('one scoped 503 preserves a batch for automatic retry without duplicate commits', async () => {
+  const { db, request } = receiverFixture();
+  try {
+    const control = await request('/faults', { taskId: batch.taskId, failures: 1, retryAfterSeconds: 30, expiresInSeconds: 600 });
+    assert.equal(control.status, 200);
+    const failed = await request('/ingest', batch);
+    assert.equal(failed.status, 503);
+    assert.equal(failed.headers.get('Retry-After'), '30');
+    assert.equal(db.prepare('SELECT COUNT(*) AS n FROM batches').get().n, 0);
+    const recovered = await request('/ingest', batch);
+    assert.equal(recovered.status, 200);
+    assert.equal((await recovered.json()).batchId, batch.batchId);
+    assert.equal((await request('/ingest', batch)).status, 200);
+    assert.equal(db.prepare('SELECT COUNT(*) AS n FROM batches').get().n, 1);
+    const metadata = await (await request('/attempts?taskId=' + batch.taskId)).json();
+    assert.deepEqual(metadata.attempts.map(row => row.status), [200, 200, 503]);
+    assert.equal(new Set(metadata.attempts.map(row => row.digest)).size, 1);
+    assert.equal(new Set(metadata.attempts.map(row => row.batchId)).size, 1);
+    assert.equal(JSON.stringify(metadata).includes('payload'), false);
+    assert.equal(metadata.fault.remaining, 0);
+  } finally { db.close(); }
+});
+
+test('failure injection is scoped, expires, and rejects invalid controls', async () => {
+  const { db, request } = receiverFixture();
+  try {
+    assert.equal((await request('/faults', { taskId: batch.taskId, failures: 100, retryAfterSeconds: 30, expiresInSeconds: 600 })).status, 400);
+    assert.equal((await request('/faults', { taskId: batch.taskId, failures: 1, retryAfterSeconds: 30, expiresInSeconds: 600 })).status, 200);
+    assert.equal((await request('/ingest', { ...batch, taskId: 'another-task', batchId: 'another-batch' })).status, 200);
+    db.prepare('UPDATE faults SET expires_at=? WHERE task_id=?').run(0, batch.taskId);
+    assert.equal((await request('/ingest', batch)).status, 200);
+    assert.equal((await request('/attempts')).status, 400);
+  } finally { db.close(); }
+});
+
+test('fault controls require the same authentication as ingestion', async () => {
+  const response = await worker.fetch(new Request('https://test.example/faults', { method: 'POST', body: '{}' }), { TEST_API_KEY: 'synthetic-key' });
+  assert.equal(response.status, 401);
+});

@@ -35,7 +35,7 @@ xcodebuild -project ios/HealthRelay.xcodeproj -scheme HealthRelay -sdk iphonesim
 
 [执行阶段说明](docs/implementation-execution.md)包含运行步骤、失败恢复、测试证据和实际限制；[配置阶段记录](docs/implementation-configuration.md)保留第一阶段的历史验收。
 
-当前 74 项 Core 测试（含隔离 Swift→Cloudflare 集成）通过，5 项原生模拟器 UI 用例分别通过，最终 iPhone 签名构建通过。此前 5 项接收器测试通过，本轮未修改接收器。详见[定时与提醒验收](docs/implementation-scheduling.md)和[自动化核心实现](docs/implementation-automation-core.md)。
+此前 74 项 Core 测试含隔离 Swift→Cloudflare 集成通过；本轮本地复核 73 项通过、1 项可选外网集成跳过。5 项原生模拟器 UI 用例已有通过记录，本轮复核配置保存与前台间隔，最终 iPhone 签名构建通过。本轮新增 8 项原生后台生命周期测试通过，8 项接收器测试通过；自然后台失败恢复仍在真机验收。详见[定时与提醒验收](docs/implementation-scheduling.md)和[自动化核心实现](docs/implementation-automation-core.md)。
 
 真机已完成原生明细、HEA JSON/CSV、独立补传、持续前台定时，以及 Shortcuts 内调用和系统时间自动触发。10 月 13 日 15:12，HealthRelay 未在前台时，系统定时完成 2 条/2 批上传并收到提交回执；提醒自然送达且未自行运行。通知动作仍待完整验收，HEA 原始文件和汇总值仍待对照。所有上传验收仅使用独立测试接口。
 
@@ -62,6 +62,7 @@ xcodebuild -project ios/HealthRelay.xcodeproj -scheme HealthRelay -sdk iphonesim
 ## 方案与示例
 
 - [技术设计（中文）](docs/design.md)
+- [后台生命周期与失败恢复](docs/implementation-background.md)
 - [定时、快捷指令与提醒验收](docs/implementation-scheduling.md)
 - [自动化核心实现与验收](docs/implementation-automation-core.md)
 - [导出执行实现与验收](docs/implementation-execution.md)

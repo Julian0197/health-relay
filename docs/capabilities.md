@@ -36,7 +36,7 @@ HEA v2 映射以 [HEAEncoder.swift](../packages/HealthRelayCore/Sources/HealthRe
 
 ## 已验收的引擎边界
 
-当前 74 项 Core 测试通过（55 XCTest 含主动开启的 Cloudflare 集成 + 19 Swift Testing），5 项原生模拟器 UI 用例分别通过，最终 iPhone 签名构建通过。此前 5 项 Node 测试通过，本轮未改接收器。未配置私有 Cloudflare 验收文件时，外网测试跳过。
+此前 74 项 Core 测试通过（55 XCTest 含 Cloudflare 集成 + 19 Swift Testing）；本轮本地复核 73 项通过、1 项可选外网用例跳过。5 项原生 UI 用例已有通过记录，本轮复核配置保存/重启与前台间隔，最终 iPhone 签名构建通过。本轮新增 8 项原生生命周期测试及 8 项 Node 测试通过；[后台恢复记录](implementation-background.md)区分受控回归与自然真机结果。未配置私有 Cloudflare 验收文件时，外网测试跳过。
 
 | 场景 | 结果 |
 | --- | --- |

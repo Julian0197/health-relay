@@ -97,7 +97,7 @@ final class ConfigurationUITests: XCTestCase {
     @MainActor
     func testForegroundIntervalRunsAgainWithoutNavigationOrManualRun() throws {
         let app = XCUIApplication()
-        app.launchArguments = ["--ui-testing", "--reset-configurations", "--synthetic-health", "--synthetic-periodic", "--delay-observer-setup"]
+        app.launchArguments = ["--ui-testing", "--reset-configurations", "--synthetic-health", "--synthetic-periodic"]
         app.launchEnvironment = ["HEALTHRELAY_ACCEPTANCE_ENDPOINT": "https://localhost:18443/ingest", "HEALTHRELAY_ACCEPTANCE_KEY": "synthetic-local-acceptance-key"]
         app.launch()
         let run = app.buttons["run-task-合成数据链路验收"]

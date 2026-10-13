@@ -5,12 +5,15 @@ import HealthRelayCore
 import HealthKit
 import BackgroundTasks
 import UserNotifications
+import UIKit
 
 @MainActor @Observable
 final class AutomationStore {
     static let shared = AutomationStore()
     private(set) var tasks: [AutomationConfig] = []
     private(set) var loadError: String?
+    private(set) var waitingForProtectedData = false
+    var configurationReady: Bool { loadError == nil && !waitingForProtectedData }
     private let repository: ConfigurationRepository
     let credentials = CredentialStore()
     let health = HealthKitReader()
@@ -42,9 +45,13 @@ final class AutomationStore {
     private let dirtyKey = "HealthRelay.dirtyTasks"
 
 
-    init() {
+    private let protectedDataAvailable: () -> Bool
+
+    init(directory suppliedDirectory: URL? = nil,
+         protectedDataAvailable: @escaping () -> Bool = { UIApplication.shared.isProtectedDataAvailable }) {
+        self.protectedDataAvailable = protectedDataAvailable
         let testing = ProcessInfo.processInfo.arguments.contains("--ui-testing")
-        let directory = URL.applicationSupportDirectory.appendingPathComponent(testing ? "HealthRelay-UITests" : "HealthRelay", isDirectory: true)
+        let directory = suppliedDirectory ?? URL.applicationSupportDirectory.appendingPathComponent(testing ? "HealthRelay-UITests" : "HealthRelay", isDirectory: true)
         let file = directory.appendingPathComponent("tasks.json")
         if testing && ProcessInfo.processInfo.arguments.contains("--reset-configurations") {
             try? FileManager.default.removeItem(at: directory)
@@ -52,16 +59,15 @@ final class AutomationStore {
         repository = ConfigurationRepository(fileURL: file)
         backfillRepository = BackfillRepository(file: directory.appendingPathComponent("backfills.json"))
         journal = SyncJournal(directory: directory.appendingPathComponent("sync", isDirectory: true))
-        do { tasks = try repository.load(); backfills = try backfillRepository.load() }
-        catch { loadError = error.localizedDescription }
+        loadConfiguration()
         #if DEBUG
-        if tasks.isEmpty {
+        if configurationReady && tasks.isEmpty {
             do { if let fixture = try DebugFixture.install(repository: repository, credentials: credentials) { tasks = [fixture] } }
             catch { loadError = "真机验收配置创建失败：" + error.localizedDescription }
         }
         #endif
         #if DEBUG && targetEnvironment(simulator)
-        if ProcessInfo.processInfo.arguments.contains("--synthetic-health"), tasks.isEmpty,
+        if ProcessInfo.processInfo.arguments.contains("--synthetic-health"), configurationReady, tasks.isEmpty,
            let endpoint = ProcessInfo.processInfo.environment["HEALTHRELAY_ACCEPTANCE_ENDPOINT"],
            let key = ProcessInfo.processInfo.environment["HEALTHRELAY_ACCEPTANCE_KEY"] {
             var fixture = AutomationConfig.newTask()
@@ -84,19 +90,58 @@ final class AutomationStore {
         }
         #endif
         for task in tasks { outcomes[task.id] = try? journal.load(task.id).logs.first }
+    }
+
+    private func loadConfiguration() {
+        guard protectedDataAvailable() else { waitingForProtectedData = true; return }
+        do {
+            let loadedTasks = try repository.load()
+            let loadedBackfills = try backfillRepository.load()
+            tasks = loadedTasks; backfills = loadedBackfills
+            waitingForProtectedData = false
+            for task in tasks { outcomes[task.id] = try? journal.load(task.id).logs.first }
+        } catch {
+            // A lock can occur between the availability check and the file read.
+            if !protectedDataAvailable() { waitingForProtectedData = true }
+            else { loadError = error.localizedDescription; waitingForProtectedData = false }
+        }
+    }
+
+    @discardableResult
+    func reloadProtectedConfiguration() -> Bool {
+        guard waitingForProtectedData, loadError == nil else { return false }
+        loadConfiguration()
+        return configurationReady
+    }
+
+    func protectedDataDidBecomeAvailable() {
+        let reloaded = reloadProtectedConfiguration()
+        guard configurationReady else { return }
+        if reloaded { startBackgroundServices() }
+        Task { await runDue(trigger: "protectedData") }
+    }
+
+    func registerBackgroundRefresh() {
         BGTaskScheduler.shared.register(forTaskWithIdentifier: Self.refreshIdentifier, using: nil) { [weak self] task in
             Task { @MainActor in
                 guard let self else { task.setTaskCompleted(success: false); return }
                 let work = Task { await self.runDue(trigger: "background") }
-                task.expirationHandler = { work.cancel() }
+                let completion = ObserverCompletion { task.setTaskCompleted(success: !work.isCancelled) }
+                task.expirationHandler = {
+                    work.cancel()
+                    Task { @MainActor in
+                        self.scheduleRecovery()
+                        completion.call()
+                    }
+                }
                 await work.value
-                task.setTaskCompleted(success: !work.isCancelled)
+                completion.call()
             }
         }
     }
 
     func save(_ task: AutomationConfig) throws {
-        guard loadError == nil else { throw ConfigurationError("本地配置未能读取，保存已停止以保护原文件") }
+        guard configurationReady else { throw ConfigurationError("本地配置未能读取，保存已停止以保护原文件") }
         try ensureEditable(task)
         guard try journal.load(task.id).pending == nil else { throw ConfigurationError("有待上传批次，请先重试完成后再修改配置") }
         var updated = tasks
@@ -111,7 +156,7 @@ final class AutomationStore {
     }
 
     func delete(_ task: AutomationConfig) throws {
-        guard loadError == nil else { throw ConfigurationError("本地配置未能读取") }
+        guard configurationReady else { throw ConfigurationError("本地配置未能读取") }
         try ensureEditable(task)
         let updated = tasks.filter { $0.id != task.id }
         try repository.save(updated)
@@ -140,6 +185,7 @@ final class AutomationStore {
     }
 
     func setEnabled(_ task: AutomationConfig, enabled: Bool) async throws {
+        guard configurationReady else { throw ConfigurationError("本地配置暂不可读") }
         guard !active.contains(task.id) else { throw ConfigurationError("任务正在运行") }
         var updated = tasks
         guard let index = updated.firstIndex(where: { $0.id == task.id }) else { return }
@@ -174,7 +220,13 @@ final class AutomationStore {
                 try await health.authorize(task)
                 #endif
             }
+            #if DEBUG
+            reportExecution("runStart", task: task, trigger: trigger)
+            #endif
             let outcome = await engine.run(task, automatic: automatic, timeBudget: deadline.map { max(0, $0.timeIntervalSinceNow) } ?? 25, trigger: trigger)
+            #if DEBUG
+            reportExecution("runFinish", task: task, trigger: trigger, outcome: outcome)
+            #endif
             outcomes[task.id] = outcome
             if outcome.state == .failed || outcome.state == .queued { markDirty(task.id) }
             if automatic && ((outcome.state == .failed && (task.execution.notifyOnFailure ?? true)) || (outcome.state == .succeeded && task.execution.notifyOnSuccess == true)) {
@@ -252,7 +304,7 @@ final class AutomationStore {
     }
 
     func runDue(dataChangeOnly: Bool = false, trigger: String = "foreground") async {
-        guard loadError == nil, !checkingDue else { return }
+        guard configurationReady, !checkingDue else { return }
         checkingDue = true
         defer { checkingDue = false; scheduleRefresh() }
         let deadline = Date().addingTimeInterval(25)
@@ -275,29 +327,51 @@ final class AutomationStore {
         }
     }
 
+    // Install queries synchronously before HealthKit can deliver launch updates.
+    func startBackgroundServices() {
+        guard configurationReady else { return }
+        installObservers()
+        Task { await configureBackgroundDelivery() }
+    }
+
     func configureObservers() async {
-        await observerCoordinator.acquire()
-        defer { observerCoordinator.release() }
+        guard configurationReady else { return }
+        installObservers()
+        await configureBackgroundDelivery()
+    }
+
+    private func installObservers() {
         for query in observers { health.health.stop(query) }; observers = []
-        await withCheckedContinuation { continuation in
-            health.health.disableAllBackgroundDelivery { _, _ in continuation.resume() }
-        }
         let identifiers = Set(tasks.filter { $0.enabled && $0.execution.onDataChange }.flatMap { $0.data.selections.map(\.id) })
         for id in identifiers {
             guard let type = try? health.sampleType(id) else { continue }
             let query = HKObserverQuery(sampleType: type, predicate: nil) { [weak self] _, complete, error in
                 let completion = ObserverCompletion(complete)
                 Task { @MainActor in
-                    defer { completion.call() }
-                    guard let self, error == nil else { return }
-                    var dirty = Set(UserDefaults.standard.stringArray(forKey: self.dirtyKey) ?? [])
-                    for task in self.tasks where task.enabled && task.execution.onDataChange && task.data.selections.contains(where: { $0.id == id }) { dirty.insert(task.id.uuidString) }
-                    UserDefaults.standard.set(Array(dirty), forKey: self.dirtyKey)
-                    self.scheduleRefresh()
-                    Task { await self.runDue(dataChangeOnly: true) }
+                    guard let self, error == nil else { completion.call(); return }
+                    ObserverWork.start(completion: completion, onTimeout: { self.scheduleRecovery() }) {
+                        var dirty = Set(UserDefaults.standard.stringArray(forKey: self.dirtyKey) ?? [])
+                        for task in self.tasks where task.enabled && task.execution.onDataChange && task.data.selections.contains(where: { $0.id == id }) { dirty.insert(task.id.uuidString) }
+                        UserDefaults.standard.set(Array(dirty), forKey: self.dirtyKey)
+                        self.scheduleRefresh()
+                        await self.runDue(dataChangeOnly: true)
+                    }
                 }
             }
             observers.append(query); health.health.execute(query)
+        }
+    }
+
+    private func configureBackgroundDelivery() async {
+        await observerCoordinator.acquire()
+        defer { observerCoordinator.release() }
+        guard configurationReady else { return }
+        await withCheckedContinuation { continuation in
+            health.health.disableAllBackgroundDelivery { _, _ in continuation.resume() }
+        }
+        let identifiers = Set(tasks.filter { $0.enabled && $0.execution.onDataChange }.flatMap { $0.data.selections.map(\.id) })
+        for id in identifiers {
+            guard let type = try? health.sampleType(id) else { continue }
             do { try await health.health.enableBackgroundDelivery(for: type, frequency: .immediate) }
             catch {
                 for task in tasks where task.data.selections.contains(where: { $0.id == id }) && task.enabled {
@@ -305,12 +379,29 @@ final class AutomationStore {
                 }
             }
         }
+        #if DEBUG
+        reportObserverStartup("observersConfigured")
+        #endif
         await configureReminders()
         scheduleRefresh()
     }
 
+    #if DEBUG
+    private func reportExecution(_ phase: String, task: AutomationConfig, trigger: String, outcome: RunLog? = nil) {
+        guard ProcessInfo.processInfo.arguments.contains("--diagnose-background") else { return }
+        let pending = (try? journal.load(task.id))?.pending?.batchID ?? "none"
+        print("HEALTHRELAY_BACKGROUND_DIAGNOSTIC phase=\(phase) time=\(Date().ISO8601Format()) task=\(task.id) trigger=\(trigger) appState=\(UIApplication.shared.applicationState.rawValue) result=\(outcome?.state.rawValue ?? "running") status=\(outcome?.httpStatus ?? 0) records=\(outcome?.records ?? 0) pending=\(pending)")
+    }
+
+    func reportObserverStartup(_ phase: String) {
+        guard ProcessInfo.processInfo.arguments.contains("--diagnose-background") else { return }
+        let expected = Set(tasks.filter { $0.enabled && $0.execution.onDataChange }.flatMap { $0.data.selections.map(\.id) }).count
+        print("HEALTHRELAY_BACKGROUND_DIAGNOSTIC phase=\(phase) observers=\(observers.count) expected=\(expected) appState=\(UIApplication.shared.applicationState.rawValue)")
+    }
+    #endif
+
     func configureReminders() async {
-        guard loadError == nil else { return }
+        guard configurationReady else { return }
         await reminderCoordinator.acquire()
         defer { reminderCoordinator.release() }
         do { try await reminders.replace(tasks: tasks); reminderError = nil }
@@ -328,22 +419,33 @@ final class AutomationStore {
     func setForegroundActive(_ active: Bool) {
         guard foregroundActive != active else { return }
         foregroundActive = active
+        if active && reloadProtectedConfiguration() { startBackgroundServices() }
         scheduleRefresh()
         if active { Task { await runDue() } }
+    }
+
+    private func scheduleRecovery() {
+        guard tasks.contains(where: \.enabled) || backfills.contains(where: { $0.completedAt == nil }) else { return }
+        BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: Self.refreshIdentifier)
+        let request = BGAppRefreshTaskRequest(identifier: Self.refreshIdentifier)
+        request.earliestBeginDate = Date().addingTimeInterval(60)
+        try? BGTaskScheduler.shared.submit(request)
     }
 
     private func scheduleRefresh() {
         foregroundWake?.cancel(); foregroundWake = nil
         BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: Self.refreshIdentifier)
-        guard loadError == nil else { return }
+        guard configurationReady else { return }
         let now = Date()
         let dirty = Set(UserDefaults.standard.stringArray(forKey: dirtyKey) ?? [])
-        var dates = tasks.filter { $0.enabled && !active.contains($0.id) }.compactMap { task -> Date? in
+        var dates = tasks.filter(\.enabled).compactMap { task -> Date? in
+            if active.contains(task.id) { return now.addingTimeInterval(60) }
             guard let state = try? journal.load(task.id) else { return now.addingTimeInterval(300) }
             return AutomationSchedule.nextDate(task.execution, state: state,
                 dirty: dirty.contains(task.id.uuidString), now: now)
         }
-        for job in backfills where job.completedAt == nil && !active.contains(job.id) {
+        for job in backfills where job.completedAt == nil {
+            if active.contains(job.id) { dates.append(now.addingTimeInterval(60)); continue }
             if let state = try? journal.load(job.id),
                let due = AutomationSchedule.nextDate(job.task.execution, state: state, backfill: true, now: now) {
                 dates.append(due)
@@ -405,17 +507,5 @@ struct CredentialStore {
             kSecAttrService as String: service,
             kSecAttrAccount as String: reference
         ] as CFDictionary)
-    }
-}
-
-/// Apple's completion callback is not annotated Sendable; invoke it exactly once
-/// after recording the change, independent of network work.
-private final class ObserverCompletion: @unchecked Sendable {
-    private let lock = NSLock()
-    private var callback: (() -> Void)?
-    init(_ callback: @escaping () -> Void) { self.callback = callback }
-    func call() {
-        lock.lock(); let value = callback; callback = nil; lock.unlock()
-        value?()
     }
 }

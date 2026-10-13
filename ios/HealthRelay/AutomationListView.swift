@@ -37,7 +37,9 @@ struct AutomationListView: View {
                 if let reminderError = store.reminderError {
                     Section { Text(reminderError).font(.footnote).foregroundStyle(.orange) }
                 }
-                if let failure = store.loadError {
+                if store.waitingForProtectedData {
+                    Section { Text("设备解锁后会自动恢复读取配置和同步。") }
+                } else if let failure = store.loadError {
                     Section { Label("无法读取本地配置", systemImage: "exclamationmark.triangle"); Text(failure).font(.footnote) }
                 } else if store.tasks.isEmpty {
                     Section {
@@ -73,7 +75,7 @@ struct AutomationListView: View {
                 Section {
                     Button("从 JSON 导入", systemImage: "square.and.arrow.down") { importing = true }
                         .accessibilityIdentifier("import-task")
-                        .disabled(store.loadError != nil)
+                        .disabled(!store.configurationReady)
                 } footer: {
                     Text("配置文件不包含健康数据。导出时移除认证值；导入任务默认关闭，需在本机重新填写认证。")
                 }
@@ -83,7 +85,7 @@ struct AutomationListView: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("新建", systemImage: "plus") { editing = .newTask() }
                         .accessibilityIdentifier("new-task")
-                        .disabled(store.loadError != nil)
+                        .disabled(!store.configurationReady)
                 }
             }
             .sheet(item: $viewing) { task in
