@@ -18,7 +18,7 @@
 
 ### 当前做到哪里
 
-- **iPhone**：任务配置、HealthKit 读取、原生 JSON / CSV / Markdown、部分 HAE JSON / CSV、历史补传、持久重试和快捷指令入口已有实现。先在 iPhone 完成所需指标的实际对照，再切换执行设备。
+- **iPhone**：任务配置、AI 配置参考、JSON 粘贴／批量导入与校验、脱敏导出、HealthKit 读取、原生 JSON / CSV / Markdown、部分 HAE JSON / CSV、历史补传、持久重试和快捷指令入口已有实现。先在 iPhone 完成所需指标的实际对照，再切换执行设备。
 - **Watch**：已实现配置同步、本机授权与认证、数据读取、后台文件上传和回执处理；真机配对、自然唤醒与长期可靠性仍待验收。
 - **下游服务**：五流接收、SQLite 存储、确定性状态算法、签名发布、加签群卡和 HTML 看板已迁入；附五份可导入的 HealthRelay 配置及完整五流配置说明。
 
@@ -66,6 +66,7 @@ docs/                          架构、使用、调试和实现记录
 | --- | --- |
 | 理解两端与服务的数据流 | [架构与边界](docs/architecture.md) |
 | 使用原有五条自动化规则 | [自动化配置迁移](docs/automation-profile.md) |
+| 用 AI 生成、校验和导入手机／Watch 配置 | [AI 配置接口](docs/ai-configuration.md) |
 | 部署 Cloudflare、绑定群 webhook、启用签名 | [服务部署与飞书接入](docs/services.md) |
 | 理解自动签名、压力与睡眠计算 | [算法与发布规则](docs/signature-algorithm.md) |
 | 生成、预览、发布 HTML 看板 | [看板开发说明](integrations/hae-webhook/dashboard-app/README.md) |
@@ -77,6 +78,17 @@ docs/                          架构、使用、调试和实现记录
 App 要求 Xcode 27 / Swift 6，最低 iOS 18、watchOS 11；具体指标按系统可用性检查。打开 `ios/HealthRelay.xcodeproj`，选择 `HealthRelay` 或 `HealthRelayWatch` scheme，真机使用自己的签名 Team。
 
 在 iPhone 导入[任务示例](examples/watch-monitor/)，替换 `health.example.com`，在本机填写 `X-API-Key`，选择数据来源并授权。先手动运行，核对 App 日志和服务端入库结果，再启用自动化。导入任务默认关闭。Watch 的认证需在 Watch 重新绑定，配置同步不传递 iPhone 密钥。
+
+也可以在 App 导出「AI 配置参考」，把 Schema、指标目录和示例交给 AI 生成 JSON，再通过「粘贴 JSON」检查任务、执行设备、指标、接口及认证要求后导入。新任务使用独立 ID，默认关闭；配置包最多 100 个任务、1 MiB，导入导出都不携带认证值。
+
+在电脑上可先生成参考并校验 AI 的输出：
+
+```sh
+swift run --package-path packages/HealthRelayCore healthrelay-config reference > ai-reference.json
+swift run --package-path packages/HealthRelayCore healthrelay-config validate task.json
+```
+
+需要交给手表执行时，在任务菜单选择「复制为 Apple Watch」，检查副本后点击「同步 Watch 配置（不含认证）」，再在 Watch 绑定认证、授权并手动验证上报。副本与原任务独立，切换时检查两端启用状态，避免重复上传。完整字段和命令见 [AI 配置接口](docs/ai-configuration.md)。配置校验通过不代表真机上报已验收。
 
 ```sh
 # App 核心与隔离接收器

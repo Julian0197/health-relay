@@ -314,11 +314,19 @@ public enum ConfigurationCodec {
     public static func portable(_ config: AutomationConfig) -> AutomationConfig {
         var copy = config
         copy.enabled = false
+        // Old destinations used Authorization implicitly when only a local ref existed.
+        if copy.destination.credentialRef != nil, copy.destination.credentialHeader == nil {
+            copy.destination.credentialHeader = "Authorization"
+        }
         let names = Set(copy.destination.requiredSecretHeaders ?? [])
             .union((copy.destination.secretHeaders ?? [:]).keys)
             .union(copy.destination.headers.keys.filter { isSensitiveHeader($0) })
-        copy.destination.requiredSecretHeaders = names.isEmpty ? nil : names.sorted()
-        copy.destination.headers = copy.destination.headers.filter { !isSensitiveHeader($0.key) }
+        var seen = Set([copy.destination.credentialHeader].compactMap { $0?.lowercased() })
+        let requirements = names.sorted().filter { seen.insert($0.lowercased()).inserted }
+        copy.destination.requiredSecretHeaders = requirements.isEmpty ? nil : requirements
+        copy.destination.headers = copy.destination.headers.filter {
+            !isSensitiveHeader($0.key) && !seen.contains($0.key.lowercased())
+        }
         copy.destination.credentialRef = nil
         copy.destination.secretHeaders = nil
         return copy

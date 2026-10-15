@@ -1,0 +1,144 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "HealthRelay portable automation configuration",
+  "description": "One task or a bundle of 1–100 tasks, maximum input 1 MiB. Imports are disabled and credentials are removed. Validation does not authorize execution; bind authentication and HealthKit permissions on each execution device. Metric availability, units and export capabilities are checked against the bundled catalog and target OS.",
+  "oneOf": [{"$ref": "#/$defs/automation"}, {"$ref": "#/$defs/bundle"}],
+  "$defs": {
+    "bundle": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "schemaVersion", "tasks"],
+      "properties": {
+        "kind": {"const": "healthrelay.automations"},
+        "schemaVersion": {"const": 1},
+        "tasks": {"type": "array", "minItems": 1, "maxItems": 100, "description": "Task IDs must be unique. Import assigns new IDs and revision 1.", "items": {"$ref": "#/$defs/automation"}}
+      }
+    },
+    "automation": {
+      "type": "object", "additionalProperties": false,
+      "required": ["schemaVersion", "id", "revision", "name", "enabled", "data", "range", "export", "destination", "execution"],
+      "properties": {
+        "schemaVersion": {"const": 1},
+        "device": {"type": ["string", "null"], "enum": ["iPhone", "watch", null], "default": "iPhone", "description": "Omitted or null legacy values default to iPhone."},
+        "id": {"type": "string", "format": "uuid"},
+        "revision": {"type": "integer", "minimum": 1},
+        "name": {"type": "string", "minLength": 1, "pattern": "\\S"},
+        "enabled": {"type": "boolean", "description": "Always reset to false at the portable import/export boundary."},
+        "data": {"$ref": "#/$defs/data"},
+        "range": {"$ref": "#/$defs/range"},
+        "export": {"$ref": "#/$defs/export"},
+        "destination": {"$ref": "#/$defs/destination"},
+        "execution": {"$ref": "#/$defs/execution"}
+      }
+    },
+    "data": {
+      "type": "object", "additionalProperties": false,
+      "required": ["family", "selections", "excludedSources"],
+      "properties": {
+        "family": {"enum": ["healthMetrics", "quantity", "category", "correlation", "workout", "special"]},
+        "selections": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/selection"}, "description": "Select unique catalog typeIdentifier values supported on the target device and OS."},
+        "excludedSources": {"type": "array", "items": {"type": "string"}},
+        "workoutOptions": {"$ref": "#/$defs/workoutOptions"}
+      }
+    },
+    "selection": {
+      "type": "object", "additionalProperties": false,
+      "required": ["typeIdentifier", "sources"],
+      "properties": {
+        "typeIdentifier": {"type": "string", "description": "Exact ID from catalog.metrics; availability and family are validated by the app."},
+        "unit": {"type": ["string", "null"], "description": "Required catalog unit for quantity metrics; omit or use null for other families."},
+        "sources": {"type": "array", "items": {"type": "string"}},
+        "statistics": {"type": ["array", "null"], "items": {"$ref": "#/$defs/statistic"}, "description": "Per-metric aggregate statistics override export.statistics."}
+      }
+    },
+    "statistic": {"enum": ["sum", "average", "minimum", "maximum"]},
+    "workoutOptions": {
+      "type": ["object", "null"], "additionalProperties": false,
+      "required": ["includeRoutes", "includeMetrics", "metricGrouping"],
+      "properties": {
+        "includeRoutes": {"type": "boolean"},
+        "includeMetrics": {"type": "boolean"},
+        "metricGrouping": {"enum": ["seconds", "minutes"]}
+      },
+      "description": "Only valid for the workout data family. Optional null is accepted."
+    },
+    "range": {
+      "type": "object", "additionalProperties": false, "required": ["mode"],
+      "properties": {
+        "mode": {"enum": ["incremental", "today", "yesterday", "pastDays", "previousDays", "defaultRange", "custom"]},
+        "bootstrapDays": {"type": ["integer", "null"], "description": "Incremental mode requires 1–3650 days; ignored in other modes."},
+        "days": {"type": ["integer", "null"], "description": "pastDays and previousDays require 1–3650 days; ignored in other modes."},
+        "start": {"type": ["string", "null"], "description": "Custom mode requires an ISO-8601 timestamp earlier than end."},
+        "end": {"type": ["string", "null"], "description": "Custom mode requires an ISO-8601 timestamp later than start."}
+      },
+      "allOf": [
+        {"if": {"properties": {"mode": {"const": "incremental"}}}, "then": {"required": ["bootstrapDays"], "properties": {"bootstrapDays": {"type": "integer", "minimum": 1, "maximum": 3650}}}},
+        {"if": {"properties": {"mode": {"enum": ["pastDays", "previousDays"]}}}, "then": {"required": ["days"], "properties": {"days": {"type": "integer", "minimum": 1, "maximum": 3650}}}},
+        {"if": {"properties": {"mode": {"const": "custom"}}}, "then": {"required": ["start", "end"], "properties": {"start": {"type": "string", "format": "date-time"}, "end": {"type": "string", "format": "date-time"}}}}
+      ]
+    },
+    "export": {
+      "type": "object", "additionalProperties": false,
+      "required": ["format", "mode", "grouping", "statistics", "timeZone"],
+      "properties": {
+        "deletionPolicy": {"enum": ["reject", "omit", null]},
+        "heaDataType": {"enum": ["automatic", "healthMetrics", "workouts", "symptoms", "cycleTracking", "ecg", "heartRateNotifications", "stateOfMind", "medications", null], "description": "HEA medication execution is currently unsupported; use healthrelay.v1."},
+        "format": {"enum": ["healthrelay.v1", "hea.v1", "hea.v2", "hea.csv", "csv", "markdown"]},
+        "mode": {"enum": ["raw", "aggregate"]},
+        "grouping": {"enum": ["none", "seconds", "minutes", "hours", "days", "weeks", "months", "years"]},
+        "statistics": {"type": "array", "items": {"$ref": "#/$defs/statistic"}},
+        "timeZone": {"type": "string", "description": "A valid system time-zone identifier such as Asia/Shanghai."}
+      },
+      "allOf": [
+        {"if": {"properties": {"mode": {"const": "raw"}}}, "then": {"properties": {"grouping": {"const": "none"}, "statistics": {"maxItems": 0}}}},
+        {"if": {"properties": {"mode": {"const": "aggregate"}}}, "then": {"properties": {"grouping": {"not": {"const": "none"}}}}}
+      ]
+    },
+    "destination": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "url", "method", "headers", "timeoutSeconds", "acknowledgement"],
+      "properties": {
+        "kind": {"const": "http"},
+        "url": {"type": "string", "format": "uri", "pattern": "^https://", "description": "Complete HTTPS URL without user info or fragment. Use a placeholder when asking AI to author configuration."},
+        "method": {"const": "POST"},
+        "headers": {"type": "object", "additionalProperties": {"type": "string"}, "description": "Non-secret HTTP headers. Sensitive header values are stripped and retained only as authentication requirements."},
+        "credentialRef": {"type": ["string", "null"], "description": "Legacy device-local keychain reference; always removed on portable import/export. Never put credential values here."},
+        "credentialHeader": {"type": ["string", "null"], "description": "Authentication header name only. A legacy credentialRef without this field implies Authorization."},
+        "credentialPrefix": {"type": ["string", "null"], "description": "Non-secret prefix such as Bearer followed by a space. Never put the token in this field."},
+        "secretHeaders": {"type": ["object", "null"], "additionalProperties": {"type": "string"}, "description": "Device-local header-to-keychain references; values are removed and names retained as requirements."},
+        "requiredSecretHeaders": {"type": ["array", "null"], "items": {"type": "string"}, "description": "Header names to bind on the execution device; never credential values."},
+        "timeoutSeconds": {"type": "integer", "minimum": 5, "maximum": 300},
+        "acknowledgement": {"enum": ["receipt", "http2xx"]}
+      }
+    },
+    "execution": {
+      "type": "object", "additionalProperties": false,
+      "required": ["onDataChange", "onForeground", "minimumIntervalSeconds", "batchMaxRecords", "batchMaxBytes"],
+      "properties": {
+        "onDataChange": {"type": "boolean"},
+        "onForeground": {"type": "boolean"},
+        "periodicPolling": {"type": ["boolean", "null"]},
+        "reminder": {"$ref": "#/$defs/reminder"},
+        "minimumIntervalSeconds": {"type": "integer", "minimum": 60, "maximum": 604800, "description": "Minimum interval between automatic runs, not an exact schedule. The operating system controls background execution opportunities."},
+        "batchMaxRecords": {"type": "integer", "minimum": 1, "maximum": 5000},
+        "batchMaxBytes": {"type": "integer", "minimum": 1024, "maximum": 10485760},
+        "notifyOnFailure": {"type": ["boolean", "null"]},
+        "notifyOnSuccess": {"type": ["boolean", "null"]}
+      }
+    },
+    "reminder": {
+      "type": ["object", "null"], "additionalProperties": false,
+      "required": ["enabled", "frequency", "hour", "minute", "weekdays"],
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "frequency": {"enum": ["hourly", "daily", "selectedDays"]},
+        "hour": {"type": "integer"},
+        "minute": {"type": "integer"},
+        "weekdays": {"type": "array", "items": {"type": "integer"}, "description": "Calendar weekdays: Sunday 1 through Saturday 7."}
+      },
+      "allOf": [
+        {"if": {"type": "object", "properties": {"enabled": {"const": true}}}, "then": {"properties": {"hour": {"minimum": 0, "maximum": 23}, "minute": {"minimum": 0, "maximum": 59}}}},
+        {"if": {"type": "object", "properties": {"enabled": {"const": true}, "frequency": {"const": "selectedDays"}}}, "then": {"properties": {"weekdays": {"minItems": 1, "items": {"minimum": 1, "maximum": 7}}}}}
+      ]
+    }
+  }
+}
