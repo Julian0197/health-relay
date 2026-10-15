@@ -206,6 +206,120 @@ final class ConfigurationUITests: XCTestCase {
         capture(app, "HEA版本与数据族重启恢复")
     }
 
+
+    @MainActor
+    func testPasteConfigurationImportsDisabledAndPersists() throws {
+        let app = launchConfigurationImport()
+        let input = app.textViews["configuration-json"]
+        XCTAssertTrue(input.waitForExistence(timeout: 5)); input.tap()
+        input.typeText(configurationJSON())
+        app.buttons["check-configuration"].tap()
+        XCTAssertTrue(app.staticTexts["configuration-valid"].waitForExistence(timeout: 5))
+        let preview = app.staticTexts["preview-task-0"]
+        reveal(preview, in: app)
+        XCTAssertTrue(preview.label.contains("JSON 导入验收"))
+        XCTAssertTrue(preview.label.contains("Authorization"))
+        capture(app, "JSON检查与配置预览")
+        let importButton = app.buttons["import-new-configurations"]
+        reveal(importButton, in: app); XCTAssertTrue(importButton.isEnabled); importButton.tap()
+        let row = app.buttons["task-JSON 导入验收"]
+        XCTAssertTrue(row.waitForExistence(timeout: 5)); XCTAssertTrue(row.label.contains("已关闭"))
+        app.terminate(); app.launchArguments = ["--ui-testing"]; app.launch()
+        XCTAssertTrue(row.waitForExistence(timeout: 10)); XCTAssertTrue(row.label.contains("已关闭"))
+        XCTAssertTrue(row.label.contains("iPhone"))
+        capture(app, "JSON导入重启后保持关闭")
+        row.press(forDuration: 1)
+        app.buttons["复制为 Apple Watch"].tap()
+        XCTAssertTrue(app.textFields["task-name"].waitForExistence(timeout: 5))
+        XCTAssertEqual(app.textFields["task-name"].value as? String, "JSON 导入验收 · Watch")
+        XCTAssertTrue(app.buttons.containing(NSPredicate(format: "label CONTAINS %@", "Apple Watch")).firstMatch.exists)
+        app.buttons["save-task"].tap()
+        let copy = app.buttons["task-JSON 导入验收 · Watch"]
+        XCTAssertTrue(copy.waitForExistence(timeout: 5)); XCTAssertTrue(copy.label.contains("已关闭"))
+        XCTAssertTrue(copy.label.contains("Apple Watch")); XCTAssertTrue(row.exists)
+        capture(app, "独立Watch副本默认关闭")
+    }
+
+    @MainActor
+    func testInvalidNestedFieldShowsPathAndCannotSave() throws {
+        let app = launchConfigurationImport()
+        let input = app.textViews["configuration-json"]
+        XCTAssertTrue(input.waitForExistence(timeout: 5)); input.tap()
+        input.typeText(configurationJSON(unknownField: true))
+        app.buttons["check-configuration"].tap()
+        let issue = app.staticTexts["configuration-issue-0"]
+        reveal(issue, in: app)
+        XCTAssertTrue(issue.waitForExistence(timeout: 5))
+        XCTAssertTrue(issue.label.contains("/execution/unknownOption"))
+        XCTAssertFalse(app.buttons["import-new-configurations"].exists)
+        capture(app, "未知嵌套字段显示路径并阻止保存")
+        app.buttons["cancel-configuration-import"].tap()
+        XCTAssertFalse(app.buttons["task-JSON 导入验收"].exists)
+        app.terminate(); app.launchArguments = ["--ui-testing"]; app.launch()
+        XCTAssertTrue(app.buttons["new-task"].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.buttons["task-JSON 导入验收"].exists)
+    }
+
+
+    @MainActor
+    func testChangingCheckedJSONRequiresAnotherCheck() throws {
+        let app = launchConfigurationImport()
+        let input = app.textViews["configuration-json"]
+        XCTAssertTrue(input.waitForExistence(timeout: 5)); input.tap()
+        input.typeText(configurationJSON())
+        app.buttons["check-configuration"].tap()
+        XCTAssertTrue(app.staticTexts["configuration-valid"].waitForExistence(timeout: 5))
+        for _ in 0..<6 where !input.isHittable { app.swipeDown() }
+        let checkedJSON = input.value as? String
+        input.tap(); input.typeText(" ")
+        XCTAssertNotEqual(input.value as? String, checkedJSON)
+        XCTAssertFalse(app.buttons["import-new-configurations"].exists)
+        XCTAssertFalse(app.staticTexts["configuration-valid"].exists)
+        app.buttons["check-configuration"].tap()
+        // Tapping the editor can insert inside a field; either new verdict is valid evidence of rechecking.
+        let newReport = app.staticTexts.matching(NSPredicate(format: "identifier IN %@", ["configuration-valid", "configuration-invalid"])).firstMatch
+        XCTAssertTrue(newReport.waitForExistence(timeout: 5))
+        if app.staticTexts["configuration-invalid"].exists {
+            XCTAssertFalse(app.buttons["import-new-configurations"].exists)
+        }
+        capture(app, "编辑JSON后重新检查")
+    }
+
+
+    @MainActor
+    func testInvalidSingleTaskCanOpenEditorForRepair() throws {
+        let app = launchConfigurationImport()
+        let input = app.textViews["configuration-json"]
+        XCTAssertTrue(input.waitForExistence(timeout: 5)); input.tap()
+        input.typeText(configurationJSON().replacingOccurrences(of: "https://api.example.com/ingest", with: "invalid"))
+        app.buttons["check-configuration"].tap()
+        XCTAssertTrue(app.staticTexts["configuration-invalid"].waitForExistence(timeout: 5))
+        let edit = app.buttons["edit-imported-configuration"]
+        reveal(edit, in: app); edit.tap()
+        XCTAssertTrue(app.textFields["task-name"].waitForExistence(timeout: 5))
+        XCTAssertEqual(app.textFields["task-name"].value as? String, "JSON 导入验收")
+        XCTAssertFalse(app.buttons["save-task"].isEnabled)
+        capture(app, "语义错误配置进入编辑页修复")
+    }
+
+    @MainActor private func launchConfigurationImport() -> XCUIApplication {
+        let app = XCUIApplication()
+        app.launchArguments = ["--ui-testing", "--reset-configurations"]
+        app.launch()
+        XCTAssertTrue(app.buttons["new-task"].waitForExistence(timeout: 10))
+        let entry = app.buttons["paste-configuration"]
+        reveal(entry, in: app)
+        XCTAssertTrue(entry.exists, "The automation list must offer a paste JSON entry")
+        entry.tap()
+        return app
+    }
+
+    private func configurationJSON(unknownField: Bool = false) -> String {
+        """
+        {"schemaVersion":1,"device":"iPhone","id":"11111111-1111-4111-8111-111111111111","revision":9,"name":"JSON 导入验收","enabled":true,"data":{"family":"quantity","selections":[{"typeIdentifier":"HKQuantityTypeIdentifierStepCount","unit":"count","sources":[]}],"excludedSources":[]},"range":{"mode":"today"},"export":{"format":"healthrelay.v1","mode":"raw","grouping":"none","statistics":[],"timeZone":"Asia/Shanghai"},"destination":{"kind":"http","url":"https://api.example.com/ingest","method":"POST","headers":{},"credentialHeader":"Authorization","timeoutSeconds":30,"acknowledgement":"http2xx"},"execution":{"onDataChange":false,"onForeground":false,"minimumIntervalSeconds":1800,"batchMaxRecords":500,"batchMaxBytes":1048576\(unknownField ? ",\"unknownOption\":true" : "")}}
+        """
+    }
+
     @MainActor private func reveal(_ element: XCUIElement, in app: XCUIApplication) {
         for _ in 0..<20 where !element.isHittable {
             let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.60))

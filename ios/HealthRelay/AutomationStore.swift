@@ -156,6 +156,18 @@ final class AutomationStore {
         Task { await configureObservers() }
     }
 
+    func importConfigurations(_ inspection: ConfigurationInspection) throws {
+        guard configurationReady, protectedDataAvailable() else { throw ConfigurationError("本地配置未能读取，导入已停止以保护原文件") }
+        let copies = try ConfigurationExchange.copiesForImport(inspection)
+        let updated = tasks + copies
+        if copies.contains(where: { $0.device == .watch }) {
+            _ = try WatchConfigurationSnapshot(tasks: updated.filter { $0.device == .watch })
+        }
+        try repository.save(updated)
+        tasks = updated
+        Task { await configureObservers() }
+    }
+
     func delete(_ task: AutomationConfig) throws {
         guard configurationReady else { throw ConfigurationError("本地配置未能读取") }
         try ensureEditable(task)

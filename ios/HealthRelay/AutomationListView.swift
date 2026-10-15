@@ -13,12 +13,17 @@ struct ConfigurationDocument: FileDocument {
     func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper { FileWrapper(regularFileWithContents: data) }
 }
 
+private struct ConfigurationInput: Identifiable {
+    let id = UUID()
+    var data: Data?
+}
+
 struct AutomationListView: View {
     @Bindable var store: AutomationStore
     @State private var viewing: AutomationConfig?
     @State private var editing: AutomationConfig?
     @State private var importing = false
-    @State private var importCandidate: AutomationConfig?
+    @State private var importInput: ConfigurationInput?
     @State private var exporting = false
     @State private var exportDocument = ConfigurationDocument()
     @State private var exportName = "healthrelay-task"
@@ -62,6 +67,12 @@ struct AutomationListView: View {
                                     Button("运行与日志", systemImage: "play.circle") { viewing = task }
                                     Button("编辑", systemImage: "pencil") { editing = task }
                                     Button("复制", systemImage: "doc.on.doc") { editing = task.duplicated() }
+                                    if task.device == .iPhone {
+                                        Button("复制为 Apple Watch", systemImage: "applewatch") {
+                                            do { editing = try ConfigurationExchange.watchCopy(task) }
+                                            catch { self.error = error.localizedDescription }
+                                        }
+                                    }
                                     Button("导出配置", systemImage: "square.and.arrow.up") { export(task) }
                                     Button("删除", systemImage: "trash", role: .destructive) { deleting = task }
                                 }
@@ -77,12 +88,23 @@ struct AutomationListView: View {
                         do { try store.syncWatch() } catch { self.error = error.localizedDescription }
                     }.disabled(store.loadError != nil)
                     Text(store.watchSync.status).font(.footnote)
+                    Text("复制为 Watch 会创建独立且关闭的任务。切换执行设备前，请检查两端任务的启用状态，避免重复上传。")
+                        .font(.caption).foregroundStyle(.secondary)
                     Text("发送全部 Watch 任务，不包含认证值。Watch 收到后默认关闭；在手表填写认证、授权并启用。移除也以本次完整列表为准。").font(.caption).foregroundStyle(.secondary)
                 }
                 Section {
+                    Button("粘贴 JSON", systemImage: "curlybraces") { importInput = ConfigurationInput() }
+                        .accessibilityIdentifier("paste-configuration")
+                        .disabled(!store.configurationReady)
                     Button("从 JSON 导入", systemImage: "square.and.arrow.down") { importing = true }
                         .accessibilityIdentifier("import-task")
                         .disabled(!store.configurationReady)
+                    Button("导出全部配置", systemImage: "square.and.arrow.up") {
+                        exportData(name: "healthrelay-automations") { try ConfigurationExchange.export(store.tasks) }
+                    }.disabled(store.tasks.isEmpty).accessibilityIdentifier("export-all-configurations")
+                    Button("导出 AI 配置参考", systemImage: "doc.text") {
+                        exportData(name: "healthrelay-ai-reference") { try ConfigurationExchange.reference() }
+                    }.accessibilityIdentifier("export-configuration-reference")
                 } footer: {
                     Text("配置文件不包含健康数据。导出时移除认证值；导入任务默认关闭，需在本机重新填写认证。")
                 }
@@ -101,39 +123,17 @@ struct AutomationListView: View {
             .sheet(item: $editing) { task in
                 NavigationStack { AutomationEditorView(store: store, initial: task) }
             }
-            .sheet(item: $importCandidate) { task in
+            .sheet(item: $importInput) { input in
                 NavigationStack {
-                    List {
-                        Section("配置预览") {
-                            LabeledContent("名称", value: task.name)
-                            LabeledContent("数据类型", value: task.data.family.title)
-                            LabeledContent("指标", value: "\(task.data.selections.count) 项")
-                            LabeledContent("接口", value: task.destination.url)
-                            Text("导入后任务关闭，认证信息需重新填写。进入编辑页检查后保存。")
-                                .font(.footnote).foregroundStyle(.secondary)
-                        }
-                        Button("创建为新任务") {
-                            var copy = task; copy.id = UUID(); copy.revision = 1
-                            importCandidate = nil
-                            DispatchQueue.main.async { editing = copy }
-                        }
-                        if let existing = store.tasks.first(where: { $0.id == task.id }) {
-                            Section("当前任务：\(existing.name)") {
-                                Text("保存后将更新这个任务，不修改其他任务。")
-                                Button("检查并更新现有任务") {
-                                    importCandidate = nil
-                                    DispatchQueue.main.async { editing = task }
-                                }
-                            }
-                        }
+                    ConfigurationImportView(store: store, data: input.data) { task in
+                        importInput = nil
+                        DispatchQueue.main.async { editing = task }
                     }
-                    .navigationTitle("导入配置")
-                    .toolbar { Button("取消") { importCandidate = nil } }
                 }
             }
             .onChange(of: store.reminderRoute?.id, initial: true) { _, _ in
                 guard let route = store.reminderRoute else { return }
-                editing = nil; importCandidate = nil; viewing = nil
+                editing = nil; importInput = nil; viewing = nil
                 store.reminderRoute = nil
                 DispatchQueue.main.async {
                     viewing = store.tasks.first { $0.id == route.taskID && $0.enabled }
@@ -145,8 +145,10 @@ struct AutomationListView: View {
                     let access = url.startAccessingSecurityScopedResource()
                     defer { if access { url.stopAccessingSecurityScopedResource() } }
                     let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
-                    guard size <= 1_048_576 else { throw ConfigurationError("配置文件超过 1 MiB") }
-                    importCandidate = try ConfigurationCodec.decode(Data(contentsOf: url))
+                    guard size <= ConfigurationExchange.maximumInputBytes else { throw ConfigurationError("配置文件超过 1 MiB") }
+                    let data = try Data(contentsOf: url)
+                    guard data.count <= ConfigurationExchange.maximumInputBytes else { throw ConfigurationError("配置文件超过 1 MiB") }
+                    importInput = ConfigurationInput(data: data)
                 } catch { self.error = error.localizedDescription }
             }
             .fileExporter(isPresented: $exporting, document: exportDocument, contentType: .json, defaultFilename: exportName) { result in
@@ -174,11 +176,19 @@ struct AutomationListView: View {
                 Spacer()
                 Text(task.enabled ? "已启用" : "已关闭").font(.caption).foregroundStyle(.secondary)
             }
-            Text("\(task.data.family.title) · \(task.data.selections.count) 项 · \(task.range.mode.title)")
+            Text("\(task.device.title) · \(task.data.family.title) · \(task.data.selections.count) 项 · \(task.range.mode.title)")
                 .font(.subheadline).foregroundStyle(.secondary)
             Text(URL(string: task.destination.url)?.host ?? task.destination.url)
                 .font(.caption).foregroundStyle(.secondary).lineLimit(1)
         }.padding(.vertical, 6)
+    }
+
+    private func exportData(name: String, data: () throws -> Data) {
+        do {
+            exportDocument = ConfigurationDocument(data: try data())
+            exportName = name
+            exporting = true
+        } catch { self.error = error.localizedDescription }
     }
 
     private func export(_ task: AutomationConfig) {
