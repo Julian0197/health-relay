@@ -69,6 +69,35 @@ export const pressureReason = (reason) =>
     mixed_sources: "设备来源混合",
     missing: "缺测",
   })[reason] ?? (reason ? `暂不可用 · ${reason}` : "暂无评分");
+// Same four-tier words as the published signature.
+export const pressureLabels = { relaxed: "状态优秀", balanced: "状态正常", elevated: "注意压力", high: "压力过载" };
+// The headline follows the signature's choice: today's aggregate, the current (or last night's)
+// result, a retained historical result, a baseline still building, or missing. Each keeps its time.
+export function pressureHeadline(dto, now = Date.now()) {
+  const p = dto?.healthIndices?.pressure ?? {};
+  const h = dto?.healthIndices?.headline ?? (finite(p.score)
+    ? { basis: p.retained ? "retained" : p.context === "nightly" ? "nightly" : "current", score: p.score, state: p.state, evidenceAt: p.evidenceAt }
+    : { basis: p.reason === "short_baseline" ? "building_baseline" : "missing", score: null, reason: p.reason });
+  const method = p.hrvMethod ?? "SDNN", label = pressureLabels[h.state] ?? "已评分";
+  // A current result past its own deadline reads as the signature will after the service
+  // republishes it: a historical result at its measurement time, never "expired".
+  const historical = h.basis === "retained" || (h.basis === "current" && finite(p.validUntil) && now >= p.validUntil);
+  const title = historical ? "上次压力" : { today_median: "今日压力", nightly: "最近夜间负荷" }[h.basis]
+    ?? (h.score == null && p.context === "nightly" ? "最近夜间负荷" : "最近压力");
+  // While the baseline builds, show progress toward the rule's requirement.
+  const need = p.baselineRequirement, have = p.baselineDays;
+  const progress = h.basis === "building_baseline" && need && have
+    ? ` · ${method} ${have.hrv}/${need.hrv} 天 · 心率 ${have.heart}/${need.heart} 天` : "";
+  const caption = h.score == null
+    ? `${method} · ${pressureReason(h.basis === "building_baseline" ? "short_baseline" : h.reason ?? p.reason)}${progress}`
+    : `${method} · ${label}${historical ? " · 历史结果" : ""}`;
+  const time = h.basis === "today_median" ? `全天中位 · ${h.count ?? "—"} 次观测`
+    : h.basis === "nightly" ? beijingDate(h.evidenceAt) : finite(h.evidenceAt) ? formatTime(h.evidenceAt) : null;
+  return { basis: h.basis, title, score: h.score ?? null, caption, time, historical,
+    shortBaseline: h.score != null && p.confidence === "short_baseline" && h.basis !== "today_median" };
+}
+// The published signature without its link marker; the title already carries its measurement time.
+export const signatureText = (title) => (typeof title === "string" ? title.replace(/｜详情 ↗$/, "") : null);
 export function freshness(d, now = Date.now()) {
   const hi = d.healthIndices;
   // Recorded scores keep their measurement time; only describe data freshness here.

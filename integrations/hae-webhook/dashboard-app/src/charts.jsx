@@ -45,6 +45,8 @@ const axis = {
   axisLabel: { color: "#52675a", fontSize: 12, hideOverlap: true },
   splitLine: { lineStyle: { color: "#edf0ed" } },
 };
+const coarsePointer = () =>
+  typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
 function base({ zoom = false, unit = "", time = false } = {}) {
   return {
     animation: false,
@@ -103,6 +105,8 @@ function base({ zoom = false, unit = "", time = false } = {}) {
               type: "inside",
               zoomOnMouseWheel: "ctrl",
               moveOnMouseWheel: false,
+              // On touch screens a swipe over a chart must keep scrolling the page; the slider zooms.
+              ...(coarsePointer() ? { moveOnMouseMove: false, preventDefaultMouseMove: false } : {}),
             },
           ],
         }

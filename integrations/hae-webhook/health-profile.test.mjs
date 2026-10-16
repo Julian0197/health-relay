@@ -44,7 +44,7 @@ test('exporter scope requires a complete explicit configuration', () => {
 });
 test('minute RMSSD and source-less HR use only the declared new device epoch', () => {
   const input = { hrv: [], heart: [], sleep: [], workout: [] };
-  for (let d = 0; d <= 8; d++) {
+  for (let d = 0; d <= 9; d++) {
     for (let i = 0; i < 3; i++) input.hrv.push({ start: now - d * DAY - i * 5 * 60000,
       end: now - d * DAY - i * 5 * 60000 + 60000, value: 40, method: 'RMSSD', source: 'unknown', aggregation: 'minutes' });
     for (let i = 0; i < 20; i++) input.heart.push({ start: now - d * DAY - i * 60000,
@@ -54,12 +54,16 @@ test('minute RMSSD and source-less HR use only the declared new device epoch', (
   assert.equal(wider.pressure.score, 50);
   const fresh = evaluateHealthIndices(input, now + 60000, wider, { profile });
   assert.equal(fresh.features.hrv.method, 'RMSSD');
+  // Only the epoch's own days count toward the seven-day baseline.
   assert.equal(fresh.pressure.hrvBaseline.days, 1);
-  assert.equal(fresh.pressure.score, 50);
-  assert.equal(fresh.pressure.reason, null);
-  assert.equal(fresh.pressure.confidence, 'short_baseline');
+  assert.equal(fresh.pressure.score, null);
+  assert.equal(fresh.pressure.reason, 'short_baseline');
   assert.match(fresh.title, /恢复HRV40 心率60/);
-  assert.match(fresh.title, /状态正常/); assert.doesNotMatch(fresh.title, /待评估|待更新/);
+  assert.match(fresh.title, /^压力积累中 /); assert.doesNotMatch(fresh.title, /待评估|待更新/);
+  const matured = evaluateHealthIndices(input, now + 60000, wider, { profile: { ...profile, since: now - 7 * DAY - HOUR } });
+  assert.equal(matured.pressure.hrvBaseline.days, 7);
+  assert.equal(matured.pressure.score, 50);
+  assert.equal(matured.pressure.confidence, 'short_baseline');
   const firstDay = evaluateHealthIndices(input, now + 60000, fresh, { profile: { ...profile, since: now - HOUR } });
   assert.equal(firstDay.pressure.hrvBaseline.days, 0);
   assert.equal(firstDay.pressure.score, null);

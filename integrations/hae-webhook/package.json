@@ -9,6 +9,9 @@
     "test:contract": "node --test healthrelay-contract.mjs",
     "test:runtime": "node runtime-smoke.mjs node_modules/miniflare/dist/src/index.js health-indices-v1",
     "test:refresh": "node event-refresh-runtime.mjs node_modules/miniflare/dist/src/index.js",
+    "test:replay": "node pressure-replay-runtime.mjs node_modules/miniflare/dist/src/index.js",
+    "test:read-budget": "node read-budget-runtime.mjs node_modules/miniflare/dist/src/index.js",
+    "bench": "node bench-runtime.mjs node_modules/miniflare/dist/src/index.js",
     "dev": "wrangler dev --local",
     "check:deploy": "wrangler deploy --dry-run --outdir dist/worker"
   },

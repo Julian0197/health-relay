@@ -84,7 +84,11 @@ Apple Watch → Apple Health → HealthRelay or HAE
   failures. An expired runtime gets one reinitialization attempt.
 - `src/App.jsx`, `src/model.mjs`, and `src/charts.jsx` render the overview,
   pressure, heart/HRV, sleep, activity, workouts, and source notes. Missing data
-  stays missing. Sleep and workouts use the weekly payload; monthly workouts
+  stays missing. The first screen shows the live signature with its publication
+  time. The pressure card follows the signature's `healthIndices.headline`: today's
+  aggregate, the current result, or a retained result labelled 上次压力 at its own
+  measurement time. Both use the same four-tier words. On touch screens, a swipe
+  over a chart scrolls the page, and the slider below the chart zooms. Sleep and workouts use the weekly payload; monthly workouts
   require the additive `workoutHistory` field.
 - `fixtures.mjs` and `preview.mjs` provide the offline demo. `build.mjs` and
   `boot.js` package and load the single HTML; `bake-release.mjs` supplies private

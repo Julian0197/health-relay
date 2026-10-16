@@ -30,15 +30,15 @@ import {
   metrics,
   number,
   pressureDayRows,
+  pressureHeadline,
+  pressureLabels,
   pressureMode,
   pressureReason,
+  signatureText,
 } from "./model.mjs";
 
 const stateLabels = {
-  relaxed: "放松",
-  balanced: "平稳",
-  elevated: "偏高",
-  high: "高负荷",
+  ...pressureLabels,
   excellent: "好眠",
   good: "尚可",
   fair: "欠佳",
@@ -293,7 +293,7 @@ function DataNotes({ dto, now }) {
             <p>
               {dto.healthIndices?.ruleVersion === "health-indices-v5-rmssd-warmup"
                 ? "初估：两项各至少 1 个合格历史日；成熟：RMSSD ≥ 14 天，心率 ≥ 3 天。"
-                : "RMSSD 至少 7 个合格历史日，心率 ≥ 3 天。"}
+                : `RMSSD 至少 ${p.baselineRequirement?.hrv ?? 7} 个合格历史日（当日 ≥ 3 点、跨度 ≥ 10 min），心率 ≥ ${p.baselineRequirement?.heart ?? 3} 天（当日 ≥ 10 分钟）；≥ 14 天为成熟基线。`}
               SDNN 仅作独立参考，不参与 RMSSD 压力评分。
             </p>
           </>
@@ -303,7 +303,7 @@ function DataNotes({ dto, now }) {
       </details>
       <details>
         <summary>已收到哪些数据</summary>
-        <p>测量 / 记录时间；收到 ≠ 可评分。</p>
+        <p>测量 / 记录时间；收到 ≠ 可评分。最近接收 <time>{formatTime(dto.receivedAt)}</time>，接收时间不是测量时间。</p>
         <div className="data-coverage" role="list">
           {dataCoverage(dto, now).map((row) => (
             <div className="coverage-row" role="listitem" key={row.key}>
@@ -633,8 +633,9 @@ export function DashboardView({
   const status = dto
     ? freshness(dto, now)
     : { kind: "warn", text: loading ? "正在读取健康数据" : "等待数据" };
-  const p = dto?.healthIndices?.pressure ?? {},
+  const headline = pressureHeadline(dto, now),
     s = dto?.healthIndices?.sleep ?? {},
+    publication = dto?.publication;
     latest = dto?.heart?.latest;
   const hrv = [...hrvPoints(dto)].sort((a, b) => a.t - b.t).at(-1);
   const sdnn = [...hrvPoints(dto, "SDNN")].sort((a, b) => a.t - b.t).at(-1);
@@ -697,17 +698,27 @@ export function DashboardView({
         )}
         {dto ? (
           <>
+            {publication && (
+              <p className="signature-line" aria-label="当前签名">
+                <span>当前签名</span>
+                <b>{signatureText(publication.sentTitle) ?? "尚未发布"}</b>
+                {publication.sentTitle && <small>
+                  发布于 <time>{formatTime(publication.lastSentAt)}</time>
+                  {publication.pending ? " · 新签名等待发布" : ""}
+                </small>}
+              </p>
+            )}
             <div className="stats">
               <Stat
-                label={p.context === "nightly" ? "最近夜间负荷" : "最近压力"}
-                value={p.score}
+                label={headline.title}
+                value={headline.score}
                 unit="/100"
-                tone="teal"
-                progress={p.score}
-                caption={`${p.hrvMethod ?? "SDNN"} · ${p.score == null ? pressureReason(p.reason) : (stateLabels[p.state] ?? "已评分")}${p.context === "nightly" ? " · 夜间" : ""}`}
-                detail={p.score != null ? <>
-                  <time>{p.context === "nightly" ? beijingDate(p.evidenceAt) : formatTime(p.evidenceAt)}</time>
-                  {p.confidence === "short_baseline" ? " · 短期基线" : null}
+                tone={`teal${headline.historical ? " historical" : ""}`}
+                progress={headline.score}
+                caption={headline.caption}
+                detail={headline.time ? <>
+                  <time>{headline.time}</time>
+                  {headline.shortBaseline ? " · 短期基线" : null}
                 </> : null}
               />
               <Stat
@@ -761,16 +772,6 @@ export function DashboardView({
               <Activity dto={dto} now={now} />
             </div>
             <Sleep dto={weekly} emptyText={weeklyEmptyText} />
-            <details className="signature-panel">
-              <summary>
-                当前签名
-                <span className="signature-time">
-                  发布于 <time>{formatTime(dto.publication?.lastSentAt)}</time>
-                  {dto.publication?.pending ? " · 等待发布" : ""}
-                </span>
-              </summary>
-              <p>{dto.publication?.sentTitle ?? "尚未发布"}</p>
-            </details>
             <DataNotes dto={dto} now={now} />
             <footer>
               <p>Apple Health → 私有数据源</p>

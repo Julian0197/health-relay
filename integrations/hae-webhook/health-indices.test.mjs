@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { evaluateHealthIndices, scorePresentation } from './health-indices.mjs';
-import { renderHealthSignature } from './health-signature.mjs';
+import { pressureHeadline, renderHealthSignature } from './health-signature.mjs';
 const H = 3600000, D = 24 * H, T = Date.parse('2026-09-28T15:00:00+08:00');
 function fixture() {
  const s = { hrv: [], heart: [], daily: [], sleep: [], workout: [] };
@@ -20,7 +20,7 @@ test('charging gaps retain the last valid four-tier heading without claiming a c
  assert.equal(r.pressure.score, null);
  const title = renderHealthSignature(r, now);
  assert.match(title, /^🟢 状态优秀 /);
- assert.doesNotMatch(title, /压力暂无|上次|今日|昨夜/);
+ assert.doesNotMatch(title, /压力暂无|今日|最近|上次|昨夜/);
  assert.match(title, /HRV30 心率75｜09\/28 15:00｜详情 ↗$/);
  assert.equal((title.match(/\d{2}\/\d{2} \d{2}:\d{2}/g) ?? []).length, 1);
  for (const change of [{ ruleVersion: 'old' }, { source: 'Other' }, { evidenceAt: now + H },
@@ -285,13 +285,16 @@ test('compact signature retains pressure, sleep and available measurements', () 
  assert.match(r.title, /HRV30 心率75/);
 });
 
-test('a valid daily aggregate remains visible when the latest sample is excluded by a workout', () => {
+test('the signature uses the latest result; a daily aggregate is a dashboard-only choice', () => {
  const s = fixture(); s.workout.push({ start: T - 60000, end: T });
  const history = { days: [{ date: '2026-09-28', status: 'available', ruleVersion: 'health-indices-v3-nightly',
    median: 45, count: 5, spanMinutes: 240 }] };
  const r = evaluateHealthIndices(s, T + 60000, null, { pressureHistory: history });
  assert.equal(r.pressure.score, null);
- assert.match(r.title, /^🔵 状态正常/);
+ // The workout excludes the only recent sample, so the signature does not manufacture a state.
+ assert.match(r.title, /^压力暂无 /);
+ // The dashboard can still present the day's aggregate.
+ assert.equal(pressureHeadline(r, T + 60000, history).basis, 'today_median');
 });
 
 test('a source-less recent heart value can display without being assigned to an HRV scoring pair', () => {
@@ -350,7 +353,8 @@ function rmssdFixture() {
 }
 test('RMSSD pressure uses a trailing median and its own baseline, not SDNN or one outlier', () => {
  const s = rmssdFixture(), r = evaluateHealthIndices(s, T + 60000);
- assert.equal(r.ruleVersion, 'health-indices-v5-rmssd-warmup');
+ assert.equal(r.ruleVersion, 'health-indices-v7-rmssd-30d');
+ assert.deepEqual(r.pressure.baselineRequirement, { hrv: 7, heart: 3 });
  assert.equal(r.features.hrv.method, 'RMSSD');
  assert.equal(r.features.hrv.current, 120);
  assert.equal(r.pressure.hrvMethod, 'RMSSD');
@@ -366,45 +370,51 @@ test('RMSSD pressure uses a trailing median and its own baseline, not SDNN or on
 });
 test('RMSSD baseline counts comparable prior days, excluding other methods, devices and current day', () => {
  const s = rmssdFixture();
- s.hrv = s.hrv.filter(r => r.method !== 'RMSSD' || r.start >= T - 6 * D - 15 * 60000);
+ s.hrv = s.hrv.filter(r => r.method !== 'RMSSD' || r.start >= T - 7 * D - 15 * 60000);
  const r = evaluateHealthIndices(s, T + 60000);
- assert.equal(r.pressure.hrvBaseline.days, 6);
+ assert.equal(r.pressure.hrvBaseline.days, 7);
  assert.equal(r.pressure.score, 50);
  assert.equal(r.pressure.reason, null);
  assert.equal(r.pressure.confidence, 'short_baseline');
+ const six = rmssdFixture();
+ six.hrv = six.hrv.filter(r => r.method !== 'RMSSD' || r.start >= T - 6 * D - 15 * 60000);
+ assert.equal(evaluateHealthIndices(six, T + 60000).pressure.reason, 'short_baseline', 'six prior days no longer score');
  const first = rmssdFixture(); first.hrv.filter(r => r.method === 'RMSSD' && r.start < T - 15 * 60000).forEach(r => r.source = 'Old Watch');
  assert.equal(evaluateHealthIndices(first, T + 60000).pressure.hrvBaseline.days, 0);
  const thin = rmssdFixture(); thin.hrv = thin.hrv.filter(r => r.method !== 'RMSSD' || r.start >= T - 10 * 60000 || (T - r.start) % D === 0);
  assert.equal(evaluateHealthIndices(thin, T + 60000).pressure.hrvBaseline.days, 0, 'one point per day is not a comparable RMSSD day');
 });
 
-test('one comparable RMSSD and heart day permits a provisional score without using the current day as baseline', () => {
+test('one comparable day no longer scores: v6 withholds the score until the baseline matures', () => {
  const s = rmssdFixture(), since = T - D - 15 * 60000;
  s.hrv = s.hrv.filter(r => r.method !== 'RMSSD' || r.start >= since);
  s.heart = s.heart.filter(r => r.start >= since);
  const r = evaluateHealthIndices(s, T + 60000);
  assert.equal(r.pressure.hrvBaseline.days, 1);
  assert.equal(r.pressure.heartBaseline.days, 1);
- assert.equal(r.pressure.score, 50);
- assert.equal(r.pressure.reason, null);
- assert.equal(r.pressure.confidence, 'short_baseline');
- assert.match(r.title, /状态正常/);
- assert.doesNotMatch(r.title, /压力积累中|待更新|初估|·|@/);
+ assert.equal(r.pressure.score, null);
+ assert.equal(r.pressure.reason, 'short_baseline');
+ assert.match(r.title, /^压力积累中 /);
+ assert.doesNotMatch(r.title, /状态正常|待更新|初估|·|@/);
  assert.equal(r.title.match(/\d{2}\/\d{2} \d{2}:\d{2}/g)?.length, 1);
- for (const kind of ['hrv', 'heart']) {
-  const missing = structuredClone(s);
-  missing[kind] = missing[kind].filter(row => row.start >= T - 20 * 60000);
-  const result = evaluateHealthIndices(missing, T + 60000);
-  assert.equal(result.pressure.score, null);
+ for (const [kind, days] of [['hrv', 6], ['heart', 2]]) {
+  const short = rmssdFixture();
+  short[kind] = short[kind].filter(row => (kind === 'hrv' && row.method !== 'RMSSD') || row.start >= T - days * D - 15 * 60000);
+  const result = evaluateHealthIndices(short, T + 60000);
+  assert.equal(result.pressure.score, null, `${kind} with ${days} prior days`);
   assert.equal(result.pressure.reason, 'short_baseline');
  }
+ // A heart day counts only with as many minutes as a current window needs.
+ const thinHeart = rmssdFixture();
+ thinHeart.heart = thinHeart.heart.filter(row => row.start >= T - 20 * 60000 || (T - row.start) % D < 9 * 60000);
+ assert.equal(evaluateHealthIndices(thinHeart, T + 60000).pressure.heartBaseline.days, 0);
  const sparse = structuredClone(s);
  sparse.hrv = sparse.hrv.filter(row => row.start < T - 20 * 60000 || row.method !== 'RMSSD' || row.start === T);
  assert.equal(evaluateHealthIndices(sparse, T + 60000).pressure.reason, 'insufficient_samples');
  assert.equal(evaluateHealthIndices(s, T + 90 * 60000).pressure.reason, 'expired_hrv');
 });
 
-test('RMSSD scores retain the same formula as more baseline days accumulate and remove the provisional label', () => {
+test('RMSSD scores keep the formula as baseline days accumulate; a one-day heart baseline is withheld', () => {
  const s = rmssdFixture();
  for (let d = 9; d <= 14; d++) {
   for (let i = 0; i < 3; i++) {
@@ -420,9 +430,9 @@ test('RMSSD scores retain the same formula as more baseline days accumulate and 
  assert.doesNotMatch(r.title, /初估/);
  s.heart = s.heart.filter(row => row.start >= T - D - 15 * 60000);
  const shortHeart = evaluateHealthIndices(s, T + 60000);
- assert.equal(shortHeart.pressure.score, 50);
- assert.equal(shortHeart.pressure.confidence, 'short_baseline');
- assert.match(shortHeart.title, /状态正常/);
+ assert.equal(shortHeart.pressure.score, null);
+ assert.equal(shortHeart.pressure.reason, 'short_baseline');
+ assert.match(shortHeart.title, /^压力积累中 /);
 });
 
 test('short-baseline RMSSD daily summaries keep confidence metadata and compact public wording', () => {
@@ -563,4 +573,34 @@ test('missing sleep shows a dash and completed sleep is dated by its Beijing wak
  assert.match(r.title, /睡眠85/);
  const zero = { ...r, sleep: { ...r.sleep, score: 0, presentation: scorePresentation('sleep', 0) } };
  assert.match(renderHealthSignature(zero, T + 60000), /睡眠0/);
+});
+
+test('RMSSD heart baseline uses qualified days from the full 30-day window', () => {
+ const s = rmssdFixture();
+ s.heart = s.heart.filter(r => r.start >= T - 20 * 60000);
+ for (const d of [8, 15, 29, 31]) {
+  for (let i = 0; i < 20; i++) {
+   const start = T - d * D - i * 60000;
+   s.heart.push({ start, end: start + 60000, value: d === 31 ? 140 : 70, source: 'Watch' });
+  }
+ }
+ const r = evaluateHealthIndices(s, T + 60000);
+ assert.equal(r.pressure.heartBaseline.days, 3);
+ assert.equal(r.pressure.heartBaseline.median, 70);
+ assert.equal(r.pressure.reason, null);
+ assert.ok(r.pressure.score < 50);
+});
+
+test('legacy SDNN nightly scores retain their versioned seven-day baseline', () => {
+ const { s, now } = nightlyFixture();
+ for (const kind of ['hrv', 'heart', 'sleep']) {
+  const oldest = s[kind].filter(r => r.start < T - 4 * D);
+  s[kind].push(...oldest.map(r => ({ ...r, start: r.start - 6 * D, ...(r.end ? { end: r.end - 6 * D } : {}) })));
+ }
+ const r = evaluateHealthIndices(s, now);
+ assert.equal(r.ruleVersion, 'health-indices-v3-nightly');
+ assert.equal(r.pressure.context, 'nightly');
+ assert.equal(r.pressure.hrvBaseline.days, 4);
+ assert.equal(r.pressure.heartBaseline.days, 4);
+ assert.equal(r.pressure.score, 50);
 });

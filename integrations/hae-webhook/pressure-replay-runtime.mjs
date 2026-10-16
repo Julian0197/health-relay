@@ -79,6 +79,7 @@ try {
   assert.ok(dashboard.pressureHistory.points.every(p => p.basis === 'received_records_replay'));
   assert.equal(new Set(dashboard.pressureHistory.points.map(p => p.t)).size, dashboard.pressureHistory.points.length);
   assert.equal(dashboard.healthIndices.pressure.retained, true, 'dashboard may display a retained observation');
+  assert.equal(dashboard.healthIndices.headline.basis, 'retained', 'dashboard headline follows the signature basis');
   assert.ok(dashboard.healthIndices.pressure.evidenceAt < today, 'replay must preserve historical measurement time');
   const snapshot = await request('/snapshot');
   assert.equal(snapshot.healthIndices.pressure.score, null, 'expired measurements cannot become current pressure');
