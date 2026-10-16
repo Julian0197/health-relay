@@ -574,3 +574,33 @@ test('missing sleep shows a dash and completed sleep is dated by its Beijing wak
  const zero = { ...r, sleep: { ...r.sleep, score: 0, presentation: scorePresentation('sleep', 0) } };
  assert.match(renderHealthSignature(zero, T + 60000), /睡眠0/);
 });
+
+test('RMSSD heart baseline uses qualified days from the full 30-day window', () => {
+ const s = rmssdFixture();
+ s.heart = s.heart.filter(r => r.start >= T - 20 * 60000);
+ for (const d of [8, 15, 29, 31]) {
+  for (let i = 0; i < 20; i++) {
+   const start = T - d * D - i * 60000;
+   s.heart.push({ start, end: start + 60000, value: d === 31 ? 140 : 70, source: 'Watch' });
+  }
+ }
+ const r = evaluateHealthIndices(s, T + 60000);
+ assert.equal(r.pressure.heartBaseline.days, 3);
+ assert.equal(r.pressure.heartBaseline.median, 70);
+ assert.equal(r.pressure.reason, null);
+ assert.ok(r.pressure.score < 50);
+});
+
+test('legacy SDNN nightly scores retain their versioned seven-day baseline', () => {
+ const { s, now } = nightlyFixture();
+ for (const kind of ['hrv', 'heart', 'sleep']) {
+  const oldest = s[kind].filter(r => r.start < T - 4 * D);
+  s[kind].push(...oldest.map(r => ({ ...r, start: r.start - 6 * D, ...(r.end ? { end: r.end - 6 * D } : {}) })));
+ }
+ const r = evaluateHealthIndices(s, now);
+ assert.equal(r.ruleVersion, 'health-indices-v3-nightly');
+ assert.equal(r.pressure.context, 'nightly');
+ assert.equal(r.pressure.hrvBaseline.days, 4);
+ assert.equal(r.pressure.heartBaseline.days, 4);
+ assert.equal(r.pressure.score, 50);
+});

@@ -83,14 +83,14 @@ function nightlyPressure(sessions, hrv, heart, workouts, now, source, method) {
   };
   const current = summarize(latest);
   if (current.hrv === null || current.heart === null) return null;
-  const history = sessions.filter(s => s.main && s.date < latest.date && s.end >= latest.end - 30 * DAY &&
+  const history = sessions.filter(s => s.main && s.date < latest.date && s.end >= latest.end - (rmssd ? 30 : 7) * DAY &&
     usableSleep(s) && s.sources[0] === source).map(s => ({ ...summarize(s), end: s.end }));
   const comparable = history.filter(s => s.hrv !== null && s.heart !== null);
   const hrvNights = rmssd ? history.filter(s => s.hrv !== null) : comparable;
   const heartNights = rmssd ? history.filter(s => s.heart !== null) : comparable;
   if (hrvNights.length < (rmssd ? 7 : 3) || heartNights.length < 3) return null;
-  const hrvBaseline = summarizeBaseline(hrvNights.map(s => s.hrv), 30, true, 'equal_night');
-  const heartBaseline = summarizeBaseline(heartNights.map(s => s.heart), 30, false, 'equal_night');
+  const hrvBaseline = summarizeBaseline(hrvNights.map(s => s.hrv), rmssd ? 30 : 7, true, 'equal_night');
+  const heartBaseline = summarizeBaseline(heartNights.map(s => s.heart), rmssd ? 30 : 7, false, 'equal_night');
   return { ...pressureFromBaselines(current.hrv, current.heart, hrvBaseline, heartBaseline),
     reason: null, context: 'nightly', hrvMethod: method,
     confidence: rmssd && hrvNights.length >= 14 ? 'personal_baseline' : 'short_baseline', activityCoverage: 'workouts_only',
@@ -167,7 +167,7 @@ export function evaluateHealthIndices(series, now, previous = null, options = {}
   };
   const hrvHistory = cleanHistory(hrv).filter(r => !rmssd || (r.aggregation ?? 'raw') === (current?.aggregation ?? 'raw'));
   const hrvBaseline = current ? baseline(hrvHistory, current, 30, true) : { days: 0, median: null };
-  const heartBaseline = current ? baseline(cleanHistory(heart), current, 7, false, rmssd) : { days: 0, median: null };
+  const heartBaseline = current ? baseline(cleanHistory(heart), current, rmssd ? 30 : 7, false, rmssd) : { days: 0, median: null };
   const recentHrv = current && rmssd ? hrv.filter(r => r.start > current.start - RMSSD_WINDOW && r.start <= current.start &&
     r.source === current.source && (r.aggregation ?? 'raw') === (current.aggregation ?? 'raw')) : [];
   const windowHrv = cleanHistory(recentHrv).filter(r => !excluded((r.end ?? r.start + 1) - 1));
@@ -191,7 +191,7 @@ export function evaluateHealthIndices(series, now, previous = null, options = {}
   else if (rmssd && (windowHrv.length < 3 || hrvSpanMinutes < 10)) pressure.reason = 'insufficient_samples';
   else if (heartValue === null) pressure.reason = 'missing_or_conflicting_aligned_hr';
   else if (rmssd && alignedHeart.length < 10) pressure.reason = 'missing_or_conflicting_aligned_hr';
-  // One independent prior day enables an explicitly provisional RMSSD estimate.
+  // Withhold scores until enough independent prior days qualify.
   else if (hrvBaseline.days < requirement.hrv || heartBaseline.days < requirement.heart) pressure.reason = 'short_baseline';
   else {
     Object.assign(pressure, pressureFromBaselines(hrvValue, heartValue, hrvBaseline, heartBaseline));
