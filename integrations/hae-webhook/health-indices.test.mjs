@@ -20,7 +20,7 @@ test('charging gaps retain the last valid four-tier heading without claiming a c
  assert.equal(r.pressure.score, null);
  const title = renderHealthSignature(r, now);
  assert.match(title, /^🟢 状态优秀 /);
- assert.doesNotMatch(title, /压力暂无|上次|今日|昨夜/);
+ assert.doesNotMatch(title, /压力暂无|今日|最近|上次|昨夜/);
  assert.match(title, /HRV30 心率75｜09\/28 15:00｜详情 ↗$/);
  assert.equal((title.match(/\d{2}\/\d{2} \d{2}:\d{2}/g) ?? []).length, 1);
  for (const change of [{ ruleVersion: 'old' }, { source: 'Other' }, { evidenceAt: now + H },

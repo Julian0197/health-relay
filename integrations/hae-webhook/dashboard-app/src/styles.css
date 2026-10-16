@@ -193,28 +193,35 @@ h1 {
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
-.signature-panel {
+.signature-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
   background: #f7f9f3;
   border: 1px solid #d9e3d6;
   border-radius: 12px;
-  padding: 14px 18px;
-  margin: 22px 0 0;
-}
-.signature-panel summary {
+  padding: 10px 14px;
+  margin: 0 0 16px;
   font-size: 13px;
   color: #405a4b;
 }
-.signature-panel .signature-time {
-  margin-left: 12px;
-  font-weight: 400;
-}
-.signature-panel p {
-  margin: 12px 0 0;
+.signature-line b {
+  font-weight: 500;
+  color: #2f4a3f;
   overflow-wrap: anywhere;
+  flex: 1 1 16em;
 }
-.signature-time {
+.signature-line small {
   font-size: 12px;
   color: #52675a;
+}
+.signature-line time {
+  font-variant-numeric: tabular-nums;
+}
+/* A retained or expired result keeps its value but reads as history, not as now. */
+.historical .stat-value {
+  opacity: 0.62;
 }
 .teal .stat-value {
   color: #357e73;

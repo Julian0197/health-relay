@@ -1,6 +1,6 @@
 // Personal wellness estimates; not StressWatch's proprietary score or a medical assessment.
 import { sleepSessions } from './analysis.mjs';
-import { renderHealthSignature, scorePresentation } from './health-signature.mjs';
+import { pressureHeadline, renderHealthSignature, scorePresentation, SIGNATURE_TEXT_VERSION } from './health-signature.mjs';
 import { scopeHealthSeries, scopePressureSleep } from './health-profile.mjs';
 export { scorePresentation } from './health-signature.mjs';
 const HOUR = 3600000, DAY = 24 * HOUR;
@@ -218,11 +218,12 @@ export function evaluateHealthIndices(series, now, previous = null, options = {}
   const measuredTimes = [displayedHrvAt, displayHeart?.measuredAt].filter(Number.isFinite);
   const asOfAt = measuredTimes.length ? Math.max(...measuredTimes) : sleep.endAt;
   const expiries = [pressure.validUntil, pressure.evidenceAt && pressure.evidenceAt + 45 * 60000, displayHeart && displayHeart.measuredAt + 90 * 60000, current && current.start + freshness, sleep.endAt && sleep.endAt + 36 * HOUR, sleep.endAt && sleep.endAt + HOUR].filter(t => t > now);
-  const indices = { mode: 'health-indices-v1', ruleVersion, state: 'indices', asOfAt, timeMeaning: 'latest_displayed_measurement', scoreAt: pressure.evidenceAt, displayedHeart: displayHeart, evaluatedAt: now,
+  const indices = { mode: 'health-indices-v1', ruleVersion, textVersion: SIGNATURE_TEXT_VERSION, state: 'indices', asOfAt, timeMeaning: 'latest_displayed_measurement', scoreAt: pressure.evidenceAt, displayedHeart: displayHeart, evaluatedAt: now,
     validUntil: expiries.length ? Math.min(...expiries) : null, pressure, sleep, nightlyEvidence,
     features: { hrv: { current: current?.value ?? null, measuredAt: current?.start ?? null, method },
       heart: { current: heartValue, startAt: aligned.length ? Math.min(...aligned.map(r => r.start)) : null,
         endAt: aligned.length ? Math.max(...aligned.map(r => r.end)) : null,
         method: rmssd ? 'trailing_20min_median' : 'aligned_30min_median' } } };
-  return { ...indices, title: renderHealthSignature(indices, now, options.pressureHistory) };
+  return { ...indices, headline: pressureHeadline(indices, now, options.pressureHistory),
+    title: renderHealthSignature(indices, now, options.pressureHistory) };
 }

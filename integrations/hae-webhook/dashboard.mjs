@@ -3,7 +3,7 @@
 // so the dashboard can never diverge in scoring semantics. Contract: docs/dashboard-realtime-milestones.md
 import { sleepSessions } from './analysis.mjs';
 import { scoreSleepSession } from './health-indices.mjs';
-import { scorePresentation } from './health-signature.mjs';
+import { pressureHeadline, retainedPressure, scorePresentation } from './health-signature.mjs';
 import { buildWorkoutHistory } from './workouts.mjs';
 const HOUR = 3600000, DAY = 24 * HOUR;
 export const DASHBOARD_VERSION = 'dashboard-v1';
@@ -36,9 +36,9 @@ function fnv1a(text, offset) {
 }
 export function contentHash(payload) {
   // generatedAt shifts on every render and window edges slide with now; neither is
-  // rendered content. A row entering/leaving the window still changes the data
+  // rendered content. A duplicate receipt moves receivedAt without changing any fact. A row entering/leaving the window still changes the data
   // arrays themselves, and new measurements move dataUpdatedAt, so real changes hash.
-  const { generatedAt, window, ...content } = payload;
+  const { generatedAt, window, receivedAt, ...content } = payload;
   if (content.healthIndices) {
     const { evaluatedAt, ...indices } = content.healthIndices;
     content.healthIndices = indices;
@@ -108,7 +108,7 @@ export function bucketHeartPoints(points, bucketMs) {
   });
 }
 
-export function buildDashboard(series, now, { range = '24h', indices = null, publication = null, heartBucketMs = null, pressureHistory = null, workoutHeart = null } = {}) {
+export function buildDashboard(series, now, { range = '24h', indices = null, publication = null, heartBucketMs = null, pressureHistory = null, workoutHeart = null, receivedAt = null } = {}) {
   const windowMs = RANGES[range];
   if (!windowMs) throw new Error('invalid_range');
   const startAt = now - windowMs;
@@ -198,7 +198,8 @@ export function buildDashboard(series, now, { range = '24h', indices = null, pub
   const payload = {
     schemaVersion: DASHBOARD_VERSION,
     generatedAt: now,
-    dataUpdatedAt,
+    // Three separate clocks: measurement (dataUpdatedAt, healthIndices.asOfAt), receipt, publication.
+    dataUpdatedAt, receivedAt,
     timezone: 'Asia/Shanghai',
     range,
     window: { startAt, endAt: now },
@@ -216,15 +217,15 @@ export function buildDashboard(series, now, { range = '24h', indices = null, pub
 function indicesView(indices, now) {
   if (!indices) return null;
   const p = indices.pressure ?? {}, sl = indices.sleep ?? {};
-  const last = indices.lastValidPressure;
-  // A dashboard shows a recorded result at its own measurement time. Do not
-  // reuse an observation invalidated by a correction at that same anchor.
-  const retained = !Number.isFinite(p.score) && last?.ruleVersion === indices.ruleVersion &&
-    last.source === p.source && Number.isFinite(last.score) && Number.isFinite(last.evidenceAt) && last.evidenceAt <= now &&
-    (last.evidenceAt !== p.evidenceAt || p.reason === 'expired_hrv');
+  // A dashboard shows a recorded result at its own measurement time, under the signature's retention rule.
+  const last = indices.pressure ? retainedPressure(indices, now) : null, retained = Boolean(last);
   const displayed = retained ? { ...last, presentation: scorePresentation('pressure', last.score) } : p;
+  // The signature's own choice (today's aggregate, current, retained, baseline, missing).
+  const headline = indices.headline ?? (indices.pressure && indices.features ? pressureHeadline(indices, now) : null);
   return {
     ruleVersion: indices.ruleVersion ?? null,
+    textVersion: indices.textVersion ?? null,
+    headline,
     evaluatedAt: indices.evaluatedAt ?? null,
     asOfAt: indices.asOfAt ?? null,
     validUntil: indices.validUntil ?? null,
@@ -253,7 +254,7 @@ function publicationView(p) {
   if (!p) return null;
   return {
     mode: p.mode ?? null, sentTitle: p.sentTitle ?? null,
-    lastSentAt: p.lastSentAt ?? null, pending: p.pending ?? false,
+    lastSentAt: p.lastSentAt ?? null, pending: p.pending ?? false, measuredAt: p.measuredAt ?? null,
   };
 }
 

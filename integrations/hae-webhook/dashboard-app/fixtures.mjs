@@ -1,4 +1,5 @@
 // Synthetic data only. This module is never imported by the production entry point.
+const stamp = (t) => new Date(t + 8 * 3600000).toISOString().slice(5, 16).replace("-", "/").replace("T", " ");
 export function makeFixture(range = "24h", now = Date.now()) {
   const H = 3600000,
     D = H * 24,
@@ -69,8 +70,11 @@ export function makeFixture(range = "24h", now = Date.now()) {
     dataUpdatedAt: now - 120000,
     timezone: "Asia/Shanghai",
     window: { startAt, endAt: now },
+    receivedAt: now - 60000,
     healthIndices: {
       ruleVersion: "health-indices-v5-rmssd-warmup",
+      textVersion: "health-signature-text-v1",
+      headline: { basis: "current", score: 38, state: "balanced", label: "状态正常", evidenceAt: now - H / 2 },
       asOfAt: now - H / 2,
       evaluatedAt: now,
       validUntil: now + H * 5,
@@ -93,9 +97,11 @@ export function makeFixture(range = "24h", now = Date.now()) {
       },
     },
     publication: {
-      sentTitle: "压力指数38 · 睡眠86",
-      lastSentAt: now - H / 4,
+      mode: "health-indices-v1",
+      sentTitle: `🔵 状态正常 🙂 睡眠86｜恢复HRV40 心率68｜${stamp(now - 120000)}｜详情 ↗`,
+      lastSentAt: now - 60000,
       pending: false,
+      measuredAt: now - 120000,
     },
     hrv: Array.from({ length: range === "7d" ? 46 : 8 }, (_, i) => ({
       t: startAt + ((i + 0.5) * (now - startAt)) / (range === "7d" ? 46 : 8),

@@ -4,7 +4,7 @@ import { SeriesStore } from './series.mjs';
 import { SqlUsage } from './sql-usage.mjs';
 import { PressureHistory } from './pressure-history.mjs';
 import { evaluateHealthIndices } from './health-indices.mjs';
-import { renderHealthSignature } from './health-signature.mjs';
+import { pressureHeadline, renderHealthSignature, RETAINED_PRESSURE_MS } from './health-signature.mjs';
 import { healthProfile } from './health-profile.mjs';
 import { buildDashboard, dashboardRange } from './dashboard.mjs';
 import { analyze } from './analysis.mjs';
@@ -20,7 +20,7 @@ const DASHBOARD_CACHE_THROTTLE_MS = 2 * 60000;
 // With no changed data, retain the published snapshot until its actual expiry or midnight.
 const PRESSURE_REPLAY_BATCH = 24;
 const PRESSURE_REPLAY_INTERVAL_MS = 1000;
-const INDICES_CACHE_VERSION = 'health-indices-cache-v3';
+const INDICES_CACHE_VERSION = 'health-indices-cache-v4';
 const initialDelivery = () => ({ pending: false, lastSentAt: null, sentContent: null, dueAt: null, attempts: 0, error: null });
 const reply = data => Response.json(data, { headers: { 'Cache-Control': 'no-store' } });
 const nextMidnight = now => Math.floor((now + 8 * HOUR) / (24 * HOUR)) * 24 * HOUR + 16 * HOUR;
@@ -43,8 +43,9 @@ export class HealthStore {
   async transaction(fn) {
     try { return await this.storage.transaction(fn); }
     catch (error) {
-      // SQL rollback must also discard samples read after an uncommitted write.
+      // SQL rollback must also discard samples and review times derived from an uncommitted write.
       this.series.invalidate();
+      this.reviewCache = null;
       throw error;
     }
   }
@@ -71,23 +72,29 @@ export class HealthStore {
       [kind, this.series.list(kind, now - 35 * 86400000)]));
   }
 
+  // The title depends on recorded history; it is rendered once by refreshSignaturePresentation.
+  evaluateIndices(series, now, previous = null) {
+    return evaluateHealthIndices(series, now, previous, { profile: this.healthProfile });
+  }
+
   healthIndices(series, now, previous = null) {
-    const history = this.pressureHistory.view(now, '24h');
-    const indices = evaluateHealthIndices(series, now, previous, {
-      profile: this.healthProfile, pressureHistory: history,
-    });
-    return this.refreshSignaturePresentation(indices, now);
+    return this.refreshSignaturePresentation(this.evaluateIndices(series, now, previous), now);
+  }
+
+  // Read-only reuse of the decision the signature and display copy were built from.
+  cachedHealthIndices(state, now) {
+    const cached = state.indicesCache;
+    return cached?.key === JSON.stringify([INDICES_CACHE_VERSION, this.healthProfile]) &&
+      cached.revision === (state.dataRevision ?? 0) && cached.decision.evaluatedAt <= now && cached.expiresAt > now
+      ? structuredClone(cached.decision) : null;
   }
 
   currentHealthIndices(state, now, force = false) {
     const key = JSON.stringify([INDICES_CACHE_VERSION, this.healthProfile]);
-    const cached = state.indicesCache;
-    if (!force && cached?.key === key && cached.revision === (state.dataRevision ?? 0) &&
-        cached.decision.evaluatedAt <= now && cached.expiresAt > now) {
-      return structuredClone(cached.decision);
-    }
+    const cached = !force && this.cachedHealthIndices(state, now);
+    if (cached) return cached;
     const series = { ...this.physiologySeries(now), heart: this.series.list('heart', now - 7 * 86400000) };
-    const decision = this.healthIndices(series, now, state.signatureDelivery?.publishedDecision);
+    const decision = this.evaluateIndices(series, now, state.signatureDelivery?.publishedDecision);
     this.pressureHistory.record(decision, now);
     this.refreshSignaturePresentation(decision, now);
     // Do not hide an accepted interval that becomes complete after this evaluation.
@@ -97,13 +104,14 @@ export class HealthStore {
     return structuredClone(decision);
   }
 
-  refreshSignaturePresentation(indices, now) {
+  refreshSignaturePresentation(indices, now, history = this.pressureHistory.view(now, '24h')) {
     indices.lastValidPressure = this.pressureHistory.latest(now, indices.ruleVersion, indices.pressure.source);
-    const retainedUntil = indices.lastValidPressure?.evidenceAt + 7 * 24 * HOUR;
+    const retainedUntil = indices.lastValidPressure?.evidenceAt + RETAINED_PRESSURE_MS;
     if (indices.pressure.score === null && retainedUntil > now) {
       indices.validUntil = Math.min(indices.validUntil ?? Infinity, retainedUntil);
     }
-    indices.title = renderHealthSignature(indices, now, this.pressureHistory.view(now, '24h'));
+    indices.headline = pressureHeadline(indices, now, history);
+    indices.title = renderHealthSignature(indices, now, history);
     return indices;
   }
 
@@ -210,6 +218,21 @@ export class HealthStore {
     return planPhysiologySignature(state.signatureDelivery, now, state.signatureCandidate);
   }
 
+  // Publication facts carried into the dashboard: what is live, when it was written and from which measurement.
+  publicationView(state) {
+    const signature = state.signatureDelivery;
+    return { mode: ['physiology-v2', 'health-indices-v1'].includes(this.env.SIGNATURE_MODE) ? this.env.SIGNATURE_MODE : 'sync-status-v1',
+      sentTitle: signature?.sentTitle ?? null, lastSentAt: signature?.lastSentAt ?? null, pending: signature?.pending ?? false,
+      measuredAt: signature?.publishedDecision?.asOfAt ?? null };
+  }
+
+  // Let a signature write that is about to land go first, so the display copy shows the live title.
+  dashboardDueAt(state, at) {
+    const signature = signatureEnabled(this.env) ? state.signatureDelivery : null;
+    return signature?.pending && !signature.error && signature.dueAt <= at + PHYSIOLOGY_WRITE_INTERVAL_MS
+      ? Math.max(at, signature.dueAt + 1000) : at;
+  }
+
   dataTimes(now) {
     const times = {};
     for (const kind of ['hrv', 'heart', 'daily', 'sleep', 'workout']) {
@@ -257,7 +280,22 @@ export class HealthStore {
   }
 
   nextReview(view, now) {
-    const times = [nextMidnight(now)];
+    return Math.min(nextMidnight(now), ...this.reviewTimes(view).filter(time => time > now));
+  }
+
+  // Candidate review times come from stored facts only; times already past are ignored by
+  // nextReview. One alarm commits several times, so reuse them while the facts are unchanged.
+  reviewAt(state, now, view) {
+    const key = JSON.stringify([state.dataRevision ?? 0, new Date(now + 8 * HOUR).toISOString().slice(0, 10),
+      state.metrics.map(m => [m.name, m.latest.time]), state.workouts.map(w => [w.id, w.end])]);
+    if (view || this.reviewCache?.key !== key) {
+      this.reviewCache = { key, times: this.reviewTimes(view ?? this.view(state, now)) };
+    }
+    return Math.min(nextMidnight(now), ...this.reviewCache.times.filter(time => time > now));
+  }
+
+  reviewTimes(view) {
+    const times = [];
     for (const m of view.metrics) {
       const hours = m.name === 'heart_rate' ? 1.5 : ['heart_rate_variability', 'heart_rate_variability_rmssd'].includes(m.name) ? 6 : null;
       if (hours) times.push(m.latest.time + hours * HOUR + 1);
@@ -265,11 +303,11 @@ export class HealthStore {
     if (view.analysis?.daytime.measuredAt) times.push(view.analysis.daytime.measuredAt + 6 * HOUR + 1);
     if (view.analysis?.nightly.end) times.push(view.analysis.nightly.end + 36 * HOUR + 1);
     for (const w of view.workouts) times.push(w.end + HOUR + 1);
-    return Math.min(...times.filter(time => time > now));
+    return times;
   }
 
-  async save(state, now, view = this.view(state, now)) {
-    const reviewAt = this.nextReview(view, now);
+  async save(state, now, view = null) {
+    const reviewAt = this.reviewAt(state, now, view);
     const signature = signatureEnabled(this.env) ? state.signatureDelivery : null;
     state.nextAlarmAt = Math.min(state.delivery.dueAt ?? Infinity, reviewAt,
       signature?.dueAt ?? Infinity, signature?.validUntil > now ? signature.validUntil : Infinity,
@@ -309,12 +347,13 @@ export class HealthStore {
         if (!range) return Response.json({ error: 'invalid_range', allowed: ['24h', '7d'] },
           { status: 400, headers: { 'Cache-Control': 'no-store' } });
         const series = this.seriesForView(now);
-        const indices = this.healthIndices(series, now, state.signatureDelivery?.publishedDecision);
-        const publication = { mode: ['physiology-v2', 'health-indices-v1'].includes(this.env.SIGNATURE_MODE) ? this.env.SIGNATURE_MODE : 'sync-status-v1',
-          sentTitle: state.signatureDelivery?.sentTitle ?? null, lastSentAt: state.signatureDelivery?.lastSentAt ?? null,
-          pending: state.signatureDelivery?.pending ?? false };
-        const body = buildDashboard(series, now, { range, indices, publication, workoutHeart: this.workoutHeart(series, now),
-          pressureHistory: this.pressureHistory.view(now, range) });
+        const history = this.pressureHistory.view(now, range);
+        // Show the decision the signature was built from; evaluate read-only when it is not current.
+        const indices = this.cachedHealthIndices(state, now) ?? this.refreshSignaturePresentation(
+          this.evaluateIndices(series, now, state.signatureDelivery?.publishedDecision), now,
+          range === '24h' ? history : undefined);
+        const body = buildDashboard(series, now, { range, indices, publication: this.publicationView(state),
+          workoutHeart: this.workoutHeart(series, now), pressureHistory: history, receivedAt: state.lastReceivedAt ?? null });
         // ETag is the rendered-content hash: same content returns 304 even when
         // re-requested at a later generatedAt; a corrected same-timestamp row changes it.
         const etag = `"${body.contentHash}"`;
@@ -409,9 +448,10 @@ export class HealthStore {
           (old.signatureDelivery.mode ?? 'sync-status-v1') === (this.env.SIGNATURE_MODE ?? 'sync-status-v1'));
         if (mode !== 'backfill' && !summaryChanged && !pruned && accepted.stats.inserted + accepted.stats.updated === 0 &&
             old.nextAlarmAt > now && old.delivery.sentContent && sameSignatureMode &&
-            Object.values(old.streams).every(info => info.mode !== 'backfill')) {
+            (old.evaluatedRevision ?? -1) === (old.dataRevision ?? 0)) {
           // Receipt/deduplication facts changed; already published decisions did not.
-          // Keep pending work and its alarm. Silent backfill still needs live evaluation.
+          // Keep pending work and its alarm. Facts stored silently since the last live
+          // evaluation (backfill, retention) still need one.
           await this.storage.put('state', state);
           return response();
         }
@@ -443,7 +483,7 @@ export class HealthStore {
         if (dashboardCacheEnabled(this.env) && mode !== 'backfill' &&
             accepted.stats.inserted + accepted.stats.updated > 0) {
           state.dashboardCache ??= { lastPublishedAt: null, dueAt: null, error: null };
-          state.dashboardCache.dueAt = Math.min(state.dashboardCache.dueAt ?? Infinity, now + 60000);
+          state.dashboardCache.dueAt = Math.min(state.dashboardCache.dueAt ?? Infinity, this.dashboardDueAt(state, now + 60000));
           state.dashboardCache.revision = (state.dashboardCache.revision ?? 0) + 1;
         }
         // Numeric signature planning already evaluates and records this live observation.
@@ -451,6 +491,7 @@ export class HealthStore {
         if (!pressureRecorded && mode !== 'backfill' && this.series.hasRecords()) {
           this.currentHealthIndices(state, now);
         }
+        if (mode !== 'backfill') state.evaluatedRevision = state.dataRevision ?? 0;
         await this.save(state, now, view);
         return response();
       });
@@ -516,6 +557,11 @@ export class HealthStore {
         if (!signature.pending) signature.urgent = false;
         signature.attempts = 0;
         signature.error = null;
+        const cache = dashboardCacheEnabled(this.env) ? state.dashboardCache : null;
+        if (cache?.lastPublishedAt && cache.publishedSignature !== signature.sentTitle) {
+          cache.dueAt = Math.min(cache.dueAt ?? Infinity, now);
+          cache.revision = (cache.revision ?? 0) + 1;
+        }
       } else {
         signature.pending = true;
         signature.attempts++;
@@ -541,9 +587,7 @@ export class HealthStore {
         cache.dueAt = now + 60000;
         const series = this.seriesForView(now);
         const indices = this.currentHealthIndices(state, now, force);
-        const publication = { mode: this.env.SIGNATURE_MODE ?? 'sync-status-v1',
-          sentTitle: state.signatureDelivery?.sentTitle ?? null, lastSentAt: state.signatureDelivery?.lastSentAt ?? null,
-          pending: state.signatureDelivery?.pending ?? false };
+        const publication = this.publicationView(state);
         const workoutHeart = this.workoutHeart(series, now);
         const payload = range => {
           // Leave headroom for HRV and monthly facts in the Base text field.
@@ -559,14 +603,15 @@ export class HealthStore {
           let value;
           do {
             value = JSON.stringify(buildDashboard(series, now, { range, indices, publication,
-              pressureHistory: history, heartBucketMs: bucket, workoutHeart }));
+              pressureHistory: history, heartBucketMs: bucket, workoutHeart, receivedAt: state.lastReceivedAt ?? null }));
             if (value.length <= 80000 || bucket >= 3600000) break;
             bucket = Math.min(bucket * 2, 3600000);
           } while (true);
           if (value.length > 99000) throw new Error('dashboard_payload_too_large');
           return value;
         };
-        const result = { revision: cache.revision ?? 0, payload24h: payload('24h'), payload7d: payload('7d'), generatedAt: now };
+        const result = { revision: cache.revision ?? 0, payload24h: payload('24h'), payload7d: payload('7d'), generatedAt: now,
+          signatureTitle: publication.sentTitle };
         const reviewAt = await this.save(state, now);
         return { ...result, refreshAt: Math.min(reviewAt, indices.validUntil ?? Infinity) };
       });
@@ -579,6 +624,7 @@ export class HealthStore {
         const cache = latest.dashboardCache, finishedAt = this.clock();
         if (result.ok) {
           cache.lastPublishedAt = finishedAt;
+          cache.publishedSignature = snapshot.signatureTitle;
           cache.error = null;
           cache.attempts = 0;
           // If I/O crossed the boundary, immediately regenerate the expired snapshot.

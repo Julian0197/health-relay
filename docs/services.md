@@ -97,4 +97,20 @@ npm --prefix integrations/hae-webhook/dashboard-app run preview
 
 依次检查手机是否有样本、请求是否到达、`dataRange` 是否包含期望时段、`stats` 是否新增/修订、算法是否缺基线，以及各投递状态。接收时间不是测量时间；收到重复数据不代表手表产生了新记录。
 
+`/status` 中的 `dashboardCache.publishedSignature` 是展示副本最近写入时的签名标题，可与 `signature.sentTitle` 对照。数据和签名都未变化的重复上传只更新接收统计。静默补入或保留期清理改变数据之后，下一次 live 上传会完整评估一次，之后的重复上传会复用这次结果。`GET /dashboard` 复用签名所依据的有效判定，判定过期时只做只读重算，不写入压力历史或状态。
+
+本地验证与对照（均使用合成数据、拦截全部外部请求）：
+
+```sh
+npm run test:replay      # 压力回放：历史锚点与展示依据
+npm run test:read-budget # SQL 读取预算
+npm run bench            # 五流接收、Alarm、重复上传、看板读取的耗时 / SQL 行数 / 调用次数
+# 与旧版本对照：workerd 只加载启动目录内的模块，因此在旧提交的 worktree 内运行同一脚本
+MF="$PWD/node_modules/miniflare/dist/src/index.js"
+cp bench-runtime.mjs /tmp/baseline/integrations/hae-webhook/
+(cd /tmp/baseline/integrations/hae-webhook && node bench-runtime.mjs "$MF" .)
+```
+
+`bench` 会输出每个场景的中位耗时、按类别统计的 SQL 读取行数和各方法调用次数，并统计有多少轮结束时展示副本显示的是当前已生效的签名。其中一轮会故意让一次签名写入失败。
+
 `DASHBOARD_VIEWER_SECRET/OPENIDS/ORIGINS` 属于可选直接读取 Worker 的 viewer-token 接入，本迁移的 Base HTML 路径不需要它们。未配置 CORS 来源时拒绝跨域预检，不使用通配符开放健康接口。

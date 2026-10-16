@@ -174,6 +174,7 @@ test("current RMSSD pressure is distinct from daily aggregates and project sleep
   fixture.healthIndices.pressure.hrvMethod = "RMSSD";
   fixture.healthIndices.pressure.score = null;
   fixture.healthIndices.pressure.reason = "short_baseline";
+  delete fixture.healthIndices.headline; // derived from pressure, as for payloads before text v2
   const html = render(fixture);
   assert.match(html, /最近压力/);
   assert.match(html, /RMSSD · 个人基线不足/);
@@ -187,9 +188,12 @@ test("recorded pressure remains visible with its own time after the live deadlin
     score: 52, evidenceAt: now - 2 * 3600000, validUntil: now - 1,
     retained: true, reason: null,
   });
+  delete fixture.healthIndices.headline;
   const html = render(fixture);
   const cards = html.split('class="stats">')[1].split('01 / MOVEMENT')[0];
-  assert.match(cards, /最近压力/);
+  // Historical on the dashboard, and never called expired.
+  assert.match(cards, /上次压力/);
+  assert.match(cards, /状态正常 · 历史结果/);
   assert.match(cards, />52</);
   assert.match(cards, /10\/02 18:00/);
   assert.doesNotMatch(html, /评分已过期|等待新测量|有效至|已过期/);
@@ -276,6 +280,7 @@ test("no awake observations shows an explanation instead of an empty pressure ch
   fixture.pressureHistory.totalPoints = 0;
   fixture.healthIndices.pressure.score = null;
   fixture.healthIndices.pressure.reason = "short_baseline";
+  delete fixture.healthIndices.headline; // derived from pressure, as for payloads before text v2
   const html = render(fixture);
   assert.match(html, /还没有有效清醒观测/);
   assert.match(html, /个人基线不足/);
@@ -455,4 +460,30 @@ test("sleep tooltip never renders either sleep boundary", () => {
     option.tooltip.formatter({ dataIndex: 0, seriesName: "深睡", value: 1 }),
     "2026-10-02\n深睡 60 min",
   );
+});
+
+test("first screen shows the live signature, its publication time and the matching headline", () => {
+  const fixture = makeFixture("24h", now);
+  fixture.healthIndices.headline = { basis: "today_median", score: 70, state: "elevated", label: "注意压力", count: 9 };
+  fixture.publication.pending = true;
+  const html = render(fixture);
+  const first = html.split("01 / MOVEMENT")[0];
+  assert.ok(first.indexOf('class="signature-line"') < first.indexOf('class="stats"'), "signature precedes the cards");
+  assert.match(first, /当前签名<\/span><b>🔵 状态正常 🙂 睡眠86｜恢复HRV40 心率68｜\d{2}\/\d{2} \d{2}:\d{2}<\/b>/);
+  assert.match(first, /发布于 <time>[^<]+<\/time> · 新签名等待发布/);
+  assert.match(first, /今日压力.*>70<.*RMSSD · 注意压力.*全天中位 · 9 次观测/);
+  assert.match(html, /最近接收 <time>/);
+  assert.doesNotMatch(html, /平稳|高负荷/);
+});
+test("touch screens keep page scrolling over zoomable charts; the slider still zooms", () => {
+  const points = [{ t: now - 3600000, score: 40, ruleVersion: "v" }];
+  const desktop = pressureChartOption({ since: now - 86400000, points }, "time", { startAt: now - 86400000, endAt: now });
+  assert.notEqual(desktop.dataZoom[1].moveOnMouseMove, false);
+  globalThis.matchMedia = query => ({ matches: query === "(pointer: coarse)" });
+  try {
+    const touch = pressureChartOption({ since: now - 86400000, points }, "time", { startAt: now - 86400000, endAt: now });
+    assert.equal(touch.dataZoom[0].type, "slider");
+    assert.equal(touch.dataZoom[1].moveOnMouseMove, false);
+    assert.equal(touch.dataZoom[1].preventDefaultMouseMove, false);
+  } finally { delete globalThis.matchMedia; }
 });

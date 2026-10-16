@@ -141,7 +141,10 @@ test('signature refresh and restart display a retained score without recording i
   } }, f.now());
   const count = f.store.storage.sql.exec('SELECT COUNT(*) AS n FROM pressure_observations').one().n;
   await f.store.fetch(new Request('https://store/signature/refresh', { method: 'POST' }));
+  // The signature names the state only; the dashboard headline records that it is historical.
   assert.match(f.data().signatureDelivery.desiredTitle, /^🔵 状态正常 睡眠 - ｜/);
+  assert.equal(f.data().signatureCandidate.headline.basis, 'retained');
+  assert.equal(f.data().signatureCandidate.headline.evidenceAt, at);
   assert.equal(f.data().signatureCandidate.pressure.score, null);
   assert.equal(f.data().signatureCandidate.lastValidPressure.evidenceAt, at);
   const restarted = new HealthStore({ storage: f.storage }, f.store.env, undefined, f.now);
@@ -802,14 +805,14 @@ test('a concurrent descriptive update with no expiry respects the two-minute wri
 
 test('numeric signature records candidate and successful publication latency without duplicate receipts changing the origin', async () => {
   const f = signatureFixture(undefined, 'health-indices-v1'), receivedAt = f.now();
-  const evaluate = f.store.healthIndices.bind(f.store);
-  f.store.healthIndices = (...args) => { f.advance(7); return evaluate(...args); };
+  const evaluate = f.store.evaluateIndices.bind(f.store);
+  f.store.evaluateIndices = (...args) => { f.advance(7); return evaluate(...args); };
   f.store.signaturePublisher.publish = async () => { f.advance(9); return { ok: true }; };
   await detailUpload(f);
   const candidate = { trigger: 'ingest', receivedAt, builtAt: receivedAt + 7, buildMs: 7 };
   assert.deepEqual(f.data().signatureDelivery.candidateTiming, candidate);
   assert.equal(f.data().signatureDelivery.dueAt, receivedAt + 30000);
-  f.store.healthIndices = evaluate;
+  f.store.evaluateIndices = evaluate;
   f.advance(10000); await detailUpload(f);
   assert.deepEqual(f.data().signatureDelivery.candidateTiming, candidate);
   f.advance(receivedAt + 30000 - f.now()); await f.store.alarm();
@@ -1258,4 +1261,98 @@ test('a cold midnight alarm clears signature sleep without relabeling historical
  assert.equal(dashboard.healthIndices.sleep.score, 100);
  assert.equal(dashboard.sleep.at(-1).date, '2026-09-24');
  assert.equal(dashboard.sleep.at(-1).score, 100);
+});
+
+// The display copy must describe the signature that is actually live, not one still waiting to be written.
+function liveSignatureCacheFixture(write) {
+  const f = signatureFixture(write, 'health-indices-v1');
+  Object.assign(f.store.env, { DASHBOARD_CACHE_TABLE_ID: 'cache', DASHBOARD_CACHE_RECORD_ID: 'cache' });
+  const shown = [];
+  f.store.dashboardCachePublisher.publish = async snapshot => { shown.push(JSON.parse(snapshot.payload24h).publication); return { ok: true }; };
+  return { ...f, shown };
+}
+
+test('a successful signature retry refreshes a display copy that captured the pending title', async () => {
+  let fail = true;
+  const f = liveSignatureCacheFixture(async () => Response.json({ code: fail ? 91403 : 0, data: { record: { record_id: 'record' } } }));
+  await detailUpload(f);
+  f.advance(60000); await f.store.alarm();
+  assert.equal(f.shown.length, 1);
+  assert.equal(f.shown[0].pending, true, 'the failed write leaves the copy describing a pending signature');
+  fail = false; f.advance(300000); await f.store.alarm();
+  assert.equal(f.data().signatureDelivery.pending, false);
+  assert.equal(f.shown.length, 2, 'the successful retry republishes the copy once');
+  assert.deepEqual([f.shown[1].sentTitle, f.shown[1].pending], [f.data().signatureDelivery.sentTitle, false]);
+  assert.equal(f.shown[1].measuredAt, f.data().signatureDelivery.publishedDecision.asOfAt);
+  f.advance(300000); await f.store.alarm();
+  assert.equal(f.shown.length, 2, 'an unchanged live title does not republish the copy');
+});
+
+test('a display copy due just before a rate-limited signature write waits for it', async () => {
+  const f = liveSignatureCacheFixture();
+  await detailUpload(f);
+  f.advance(60000); await f.store.alarm();
+  const sentAt = f.data().signatureDelivery.lastSentAt;
+  f.advance(30000); await changedDetail(f);
+  const signatureDue = f.data().signatureDelivery.dueAt;
+  assert.equal(signatureDue, sentAt + 120000, 'the two-minute write interval holds the signature');
+  assert.equal(f.data().dashboardCache.dueAt, signatureDue + 1000);
+  f.advance(signatureDue - f.now()); await f.store.alarm();
+  f.advance(1000); await f.store.alarm();
+  assert.deepEqual([f.shown.at(-1).sentTitle, f.shown.at(-1).pending], [f.data().signatureDelivery.sentTitle, false]);
+  assert.equal(f.shown.length, 2);
+});
+
+test('the private dashboard shows the cached decision the signature uses, without writing', async () => {
+  const f = signatureFixture(undefined, 'health-indices-v1');
+  await detailUpload(f);
+  const before = structuredClone(f.data());
+  const observations = f.store.storage.sql.exec('SELECT COUNT(*) AS n FROM pressure_observations').one().n;
+  const evaluate = f.store.evaluateIndices.bind(f.store);
+  let evaluations = 0;
+  f.store.evaluateIndices = (...args) => { evaluations++; return evaluate(...args); };
+  const dto = await (await f.store.fetch(new Request('https://store/dashboard?range=24h'))).json();
+  assert.equal(evaluations, 0, 'a current cached decision is reused');
+  assert.deepEqual(dto.healthIndices.headline, f.data().signatureCandidate.headline);
+  assert.equal(dto.healthIndices.textVersion, 'health-signature-text-v1');
+  assert.equal(dto.receivedAt, f.data().lastReceivedAt);
+  assert.deepEqual(f.data(), before);
+  assert.equal(f.store.storage.sql.exec('SELECT COUNT(*) AS n FROM pressure_observations').one().n, observations);
+  f.advance(7 * 3600000);
+  await f.store.fetch(new Request('https://store/dashboard?range=24h'));
+  assert.equal(evaluations, 1, 'an expired decision is evaluated read-only');
+  assert.deepEqual(f.data(), before);
+});
+
+test('facts stored silently are evaluated by the next live duplicate once, then duplicates reuse it', async () => {
+  const f = fixture();
+  await detailUpload(f); f.advance(60000); await f.store.alarm();
+  const view = f.store.view.bind(f.store);
+  let views = 0;
+  f.store.view = (...args) => { views++; return view(...args); };
+  f.advance(60000); await detailUpload(f);
+  assert.equal(views, 0, 'a duplicate of evaluated facts is receipt-only');
+  const late = structuredClone(detailPayload);
+  late.data.metrics[0].data = [{ date: '2026-09-23T01:00:00Z', qty: 55, source: 'Watch' }];
+  await f.store.fetch(new Request('https://store/ingest', { method: 'POST', body: JSON.stringify({
+    stream: 'hrv', aggregation: 'raw', mode: 'backfill', records: parseSeries(late, 'hrv'), summary: summarizeHealth(late) }) }));
+  views = 0;
+  f.advance(60000); await detailUpload(f);
+  assert.equal(views, 1, 'the first live upload after a silent backfill evaluates it');
+  f.advance(60000); await detailUpload(f);
+  assert.equal(views, 1, 'later duplicates reuse that evaluation');
+});
+
+test('alarm commits reuse review times while stored facts are unchanged, and a rollback drops them', async () => {
+  const f = fixture();
+  await detailUpload(f);
+  const view = f.store.view.bind(f.store);
+  let views = 0;
+  f.store.view = (...args) => { views++; return view(...args); };
+  const state = f.data();
+  const first = await f.store.reviewAt(state, f.now());
+  assert.equal(await f.store.reviewAt(state, f.now() + 1000), first);
+  assert.equal(views, 0, 'the upload already computed the review times for this revision');
+  await assert.rejects(f.store.transaction(async () => { f.store.reviewAt({ ...state, dataRevision: 99 }, f.now()); throw new Error('rollback'); }));
+  assert.equal(f.store.reviewCache, null);
 });

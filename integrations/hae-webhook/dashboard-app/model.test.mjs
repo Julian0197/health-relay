@@ -306,3 +306,25 @@ test("unavailable pressure retains actionable reasons", () => {
   assert.match(pressureReason("source_or_sample_conflict"), /来源|冲突/);
   assert.match(pressureReason("missing_hrv"), /HRV/);
 });
+
+test("pressure headline follows the signature basis and keeps each result's own time", () => {
+  const dto = (headline, pressure = {}) => ({ healthIndices: { headline, pressure: { hrvMethod: "RMSSD", score: 51, state: "balanced",
+    evidenceAt: now - 600000, validUntil: now + 3600000, confidence: "personal_baseline", ...pressure } } });
+  let h = model.pressureHeadline(dto({ basis: "today_median", score: 70, state: "elevated", date: "2026-10-02", count: 14 }), now);
+  assert.deepEqual([h.title, h.score, h.caption, h.time], ["今日压力", 70, "RMSSD · 注意压力", "全天中位 · 14 次观测"]);
+  h = model.pressureHeadline(dto({ basis: "current", score: 51, state: "balanced", evidenceAt: now - 600000 }), now);
+  assert.deepEqual([h.title, h.caption, h.historical], ["最近压力", "RMSSD · 状态正常", false]);
+  h = model.pressureHeadline(dto({ basis: "current", score: 51, state: "balanced", evidenceAt: now - 600000 }, { validUntil: now - 1 }), now);
+  assert.deepEqual([h.title, h.caption, h.historical], ["上次压力", "RMSSD · 状态正常 · 历史结果", true]);
+  h = model.pressureHeadline(dto({ basis: "retained", score: 75, state: "elevated", evidenceAt: now - 3 * 86400000 }, { score: null }), now);
+  assert.deepEqual([h.title, h.score, h.caption, h.time], ["上次压力", 75, "RMSSD · 注意压力 · 历史结果", formatTime(now - 3 * 86400000)]);
+  h = model.pressureHeadline(dto({ basis: "building_baseline", score: null, reason: "insufficient_samples" }, { score: null }), now);
+  assert.deepEqual([h.score, h.caption], [null, "RMSSD · 个人基线不足"]);
+  h = model.pressureHeadline(dto({ basis: "missing", score: null, reason: "expired_hrv" }, { score: null }), now);
+  assert.deepEqual([h.score, h.caption, h.time], [null, "RMSSD · HRV 已过期", null]);
+  // Payloads written before the headline existed keep their previous meaning.
+  h = model.pressureHeadline(dto(undefined, { retained: true, score: 52 }), now);
+  assert.equal(h.title, "上次压力");
+  assert.equal(model.signatureText("🔵 状态正常 睡眠 - ｜恢复HRV42｜10/14 15:00｜详情 ↗"), "🔵 状态正常 睡眠 - ｜恢复HRV42｜10/14 15:00");
+  assert.equal(model.signatureText(null), null);
+});

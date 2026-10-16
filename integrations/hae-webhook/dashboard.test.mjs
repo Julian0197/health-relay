@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildDashboard, dashboardRange, HEART_POINT_CAP, bucketHeartPoints } from './dashboard.mjs';
 import { evaluateHealthIndices } from './health-indices.mjs';
+import { pressureHeadline, renderHealthSignature, PRESSURE_LABELS } from './health-signature.mjs';
 
 const H = 3600000, D = 24 * H;
 const NOW = Date.parse('2026-09-28T20:00:00+08:00');
@@ -374,6 +375,35 @@ test('dashboard keeps the last recorded pressure at its measurement time after e
   assert.equal(buildDashboard(series, later, { indices }).healthIndices.pressure.score, null);
   indices.pressure.evidenceAt = later - H;
   assert.equal(buildDashboard(series, later, { indices }).healthIndices.pressure.score, last.score);
+});
+test('dashboard headline and retention follow the signature, including the seven-day limit', () => {
+  const series = fixture(), measured = evaluateHealthIndices(series, NOW);
+  const last = { ruleVersion: measured.ruleVersion, source: measured.pressure.source, score: measured.pressure.score,
+    evidenceAt: measured.pressure.evidenceAt, context: measured.pressure.context };
+  const at = (now, lastValidPressure, history = null) => {
+    // Attach the recorded result as HealthStore.refreshSignaturePresentation does.
+    const indices = evaluateHealthIndices(series, now);
+    indices.lastValidPressure = lastValidPressure;
+    indices.headline = pressureHeadline(indices, now, history);
+    return { indices, history, dto: buildDashboard(series, now, { indices }), title: renderHealthSignature(indices, now, history) };
+  };
+  const retained = at(NOW + 8 * H, last);
+  assert.equal(retained.dto.healthIndices.headline.basis, 'retained');
+  assert.equal(retained.dto.healthIndices.headline.evidenceAt, last.evidenceAt);
+  // The signature names the state only; the 「上次」 distinction lives in the dashboard headline.
+  assert.ok(retained.title.startsWith(`🔵 ${retained.dto.healthIndices.headline.label}`) || retained.title.includes(` ${retained.dto.healthIndices.headline.label} `));
+  assert.doesNotMatch(retained.title, /上次|今日压力|最近压力/);
+  // Older than the signature keeps it: neither copy presents it any longer.
+  const old = at(last.evidenceAt + 7 * D + H, last);
+  assert.equal(old.dto.healthIndices.pressure.retained, false);
+  assert.equal(old.dto.healthIndices.pressure.score, null);
+  assert.equal(old.dto.healthIndices.headline.basis, 'missing');
+  assert.match(old.title, /^压力暂无/);
+  // A current result labels both copies with the same four-tier words.
+  const current = at(NOW, null);
+  assert.equal(current.dto.healthIndices.headline.basis, 'current');
+  assert.equal(current.dto.healthIndices.headline.label, PRESSURE_LABELS[current.dto.healthIndices.pressure.state]);
+  assert.ok(current.title.includes(current.dto.healthIndices.headline.label));
 });
 test('daily dates are complete and normalized; conflicting sources cannot overwrite silently', () => {
   const row = (value, unit, source) => ({ metric: 'active_energy', start: NOW - H, end: NOW - H, value, unit, source });
