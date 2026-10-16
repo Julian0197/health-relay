@@ -20,7 +20,7 @@ const DASHBOARD_CACHE_THROTTLE_MS = 2 * 60000;
 // With no changed data, retain the published snapshot until its actual expiry or midnight.
 const PRESSURE_REPLAY_BATCH = 24;
 const PRESSURE_REPLAY_INTERVAL_MS = 1000;
-const INDICES_CACHE_VERSION = 'health-indices-cache-v4';
+const INDICES_CACHE_VERSION = 'health-indices-cache-v5';
 const initialDelivery = () => ({ pending: false, lastSentAt: null, sentContent: null, dueAt: null, attempts: 0, error: null });
 const reply = data => Response.json(data, { headers: { 'Cache-Control': 'no-store' } });
 const nextMidnight = now => Math.floor((now + 8 * HOUR) / (24 * HOUR)) * 24 * HOUR + 16 * HOUR;
@@ -93,7 +93,7 @@ export class HealthStore {
     const key = JSON.stringify([INDICES_CACHE_VERSION, this.healthProfile]);
     const cached = !force && this.cachedHealthIndices(state, now);
     if (cached) return cached;
-    const series = { ...this.physiologySeries(now), heart: this.series.list('heart', now - 7 * 86400000) };
+    const series = { ...this.physiologySeries(now), heart: this.series.list('heart', now - 30 * 86400000) };
     const decision = this.evaluateIndices(series, now, state.signatureDelivery?.publishedDecision);
     this.pressureHistory.record(decision, now);
     this.refreshSignaturePresentation(decision, now);
@@ -135,7 +135,7 @@ export class HealthStore {
       if (!job?.pending || job.dueAt > now) return;
       const series = this.seriesForView(now);
       // Each historical anchor needs its own prior seven-day HR baseline.
-      series.heart = this.series.list('heart', job.since - 7 * 24 * HOUR);
+      series.heart = this.series.list('heart', job.since - 30 * 24 * HOUR);
       const anchors = [...new Set(series.hrv.filter(r => r.method === 'RMSSD' &&
         r.start > job.cursor && r.start <= job.until).map(r => r.start))].sort((a, b) => a - b);
       for (const anchor of anchors.slice(0, PRESSURE_REPLAY_BATCH)) {
@@ -348,9 +348,10 @@ export class HealthStore {
           { status: 400, headers: { 'Cache-Control': 'no-store' } });
         const series = this.seriesForView(now);
         const history = this.pressureHistory.view(now, range);
+        const scorerSeries = { ...series, heart: this.series.list('heart', now - 30 * 86400000) };
         // Show the decision the signature was built from; evaluate read-only when it is not current.
         const indices = this.cachedHealthIndices(state, now) ?? this.refreshSignaturePresentation(
-          this.evaluateIndices(series, now, state.signatureDelivery?.publishedDecision), now,
+          this.evaluateIndices(scorerSeries, now, state.signatureDelivery?.publishedDecision), now,
           range === '24h' ? history : undefined);
         const body = buildDashboard(series, now, { range, indices, publication: this.publicationView(state),
           workoutHeart: this.workoutHeart(series, now), pressureHistory: history, receivedAt: state.lastReceivedAt ?? null });

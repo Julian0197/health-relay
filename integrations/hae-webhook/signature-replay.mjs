@@ -45,7 +45,7 @@ const scenarios = [
   { name: 'expired, last result 8 d ago', now: T + 2 * HOUR, series: series(), lastValidPressure: retainedAt(T - 8 * DAY) },
   { name: 'retained from another device', now: T + 2 * HOUR, series: series(), lastValidPressure: rule => ({ ...retainedAt(T)(rule), source: 'Other' }) },
   { name: 'baseline building (today only)', now: T, series: series({ days: 0 }) },
-  ...[1, 3, 6, 7, 14].map(days => ({ name: `${days} prior days, stressed now`, now: T, series: series({ days, todayRmssd: 30, todayHeart: 80 }) })),
+  ...[1, 3, 6, 7, 14, 25, 30].map(days => ({ name: `${days} prior days, stressed now`, now: T, series: series({ days, todayRmssd: 30, todayHeart: 80 }) })),
   { name: '10 prior days, sparse heart history', now: T,
     series: (s => ({ ...s, heart: s.heart.filter(r => dateKey(r.start) === dateKey(T) || (r.start / MINUTE) % 30 === 0) }))(series({ days: 10 })) },
   { name: 'missing HRV', now: T, series: { ...series(), hrv: [] } },

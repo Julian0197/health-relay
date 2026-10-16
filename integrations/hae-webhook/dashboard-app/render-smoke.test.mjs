@@ -212,9 +212,9 @@ test("warmup pressure explains the single-day baseline beside the current score"
   fixture.healthIndices.pressure.context = "nightly";
   assert.match(render(fixture), /至少 7 个合格历史夜晚/);
 });
-test("v6 notes state the baseline requirement carried by the payload", () => {
+test("v7 notes state the baseline requirement carried by the payload", () => {
   const fixture = makeFixture("24h", now);
-  fixture.healthIndices.ruleVersion = "health-indices-v6-rmssd";
+  fixture.healthIndices.ruleVersion = "health-indices-v7-rmssd-30d";
   Object.assign(fixture.healthIndices.pressure, { hrvMethod: "RMSSD", baselineRequirement: { hrv: 7, heart: 3 } });
   const html = render(fixture);
   assert.match(html, /RMSSD 至少 7 个合格历史日（当日 ≥ 3 点、跨度 ≥ 10 min），心率 ≥ 3 天（当日 ≥ 10 分钟）/);

@@ -35,18 +35,19 @@ export function retainedPressure(indices, now) {
 // Which pressure result is shown, shared by the signature and the dashboard headline:
 // today's aggregate > the current result (or last night's) > a retained historical result >
 // baseline still building > missing. Each keeps its own measurement time.
-export function pressureHeadline(indices, now, history = null) {
+export function pressureHeadline(indices, now, history = null, { today = true } = {}) {
   const p = indices.pressure, method = indices.features.hrv.method ?? p.hrvMethod ?? 'SDNN';
-  const today = history?.days?.find(d => d.date === dateKey(now) && d.status === 'available' &&
+  const todayRow = today ? history?.days.find(d =>
+    d.date === dateKey(now) && d.status === 'available' &&
     d.ruleVersion === indices.ruleVersion && Number.isFinite(d.median) &&
     (!d.method || d.method === method) && (!d.deviceEpoch || d.deviceEpoch === p.deviceEpoch) &&
-    (p.deviceEpoch ? d.sourceScope === `hae-profile:${p.deviceEpoch}` : !d.sourceScope));
+    (p.deviceEpoch ? d.sourceScope === `hae-profile:${p.deviceEpoch}` : !d.sourceScope)) : null;
   const result = (basis, score, fields) => {
     const presentation = scorePresentation('pressure', score);
     return { version: SIGNATURE_TEXT_VERSION, basis, score, state: presentation.state, color: presentation.color,
       label: labels[presentation.state], evidenceAt: null, date: null, reason: null, ...fields };
   };
-  if (today) return result('today_median', today.median, { date: today.date, count: today.count });
+  if (todayRow) return result('today_median', todayRow.median, { date: todayRow.date, count: todayRow.count });
   if (Number.isFinite(p.score)) return result(p.context === 'nightly' ? 'nightly' : 'current', p.score, { evidenceAt: p.evidenceAt });
   const last = retainedPressure(indices, now);
   if (last) return result('retained', last.score, { evidenceAt: last.evidenceAt, context: last.context, reason: p.reason });
@@ -58,7 +59,8 @@ export function pressureHeadline(indices, now, history = null) {
 export function renderHealthSignature(indices, now, history = null) {
   const p = indices.pressure, sleep = indices.sleep, hrv = indices.features.hrv;
   const method = hrv.method ?? p.hrvMethod ?? 'SDNN';
-  const headline = pressureHeadline(indices, now, history);
+  // The signature names the most recent result only; the daily aggregate stays on the dashboard.
+  const headline = pressureHeadline(indices, now, history, { today: false });
   const heading = headline.basis === 'building_baseline' ? '压力积累中' : headline.basis === 'missing' ? '压力暂无'
     : `${headline.color} ${({ nightly: '昨夜' })[headline.basis] ?? ''}${headline.label}`;
   const todaySleep = sleep.date === dateKey(now) && Number.isFinite(sleep.score);

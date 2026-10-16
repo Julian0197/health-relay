@@ -203,7 +203,7 @@ export function buildDashboard(series, now, { range = '24h', indices = null, pub
     timezone: 'Asia/Shanghai',
     range,
     window: { startAt, endAt: now },
-    healthIndices: indicesView(indices, now),
+    healthIndices: indicesView(indices, now, pressureHistory),
     publication: publicationView(publication),
     hrv, recoveryHrv, heart, sleep, daily, workouts,
     workoutHistory: buildWorkoutHistory({ workout: series.workout, heart: workoutHeart ?? series.heart }, now), channels, pressureHistory,
@@ -214,14 +214,15 @@ export function buildDashboard(series, now, { range = '24h', indices = null, pub
 }
 
 // Reuse the evaluated indices' presentation fields; the DTO never carries baselines or raw evidence.
-function indicesView(indices, now) {
+function indicesView(indices, now, pressureHistory) {
   if (!indices) return null;
   const p = indices.pressure ?? {}, sl = indices.sleep ?? {};
   // A dashboard shows a recorded result at its own measurement time, under the signature's retention rule.
   const last = indices.pressure ? retainedPressure(indices, now) : null, retained = Boolean(last);
   const displayed = retained ? { ...last, presentation: scorePresentation('pressure', last.score) } : p;
-  // The signature's own choice (today's aggregate, current, retained, baseline, missing).
-  const headline = indices.headline ?? (indices.pressure && indices.features ? pressureHeadline(indices, now) : null);
+  // The dashboard keeps the daily aggregate as its headline; the signature's title uses the latest result.
+  const headline = indices.pressure && indices.features
+    ? pressureHeadline(indices, now, pressureHistory, { today: true }) : null;
   return {
     ruleVersion: indices.ruleVersion ?? null,
     textVersion: indices.textVersion ?? null,

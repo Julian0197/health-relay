@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { evaluateHealthIndices, scorePresentation } from './health-indices.mjs';
-import { renderHealthSignature } from './health-signature.mjs';
+import { pressureHeadline, renderHealthSignature } from './health-signature.mjs';
 const H = 3600000, D = 24 * H, T = Date.parse('2026-09-28T15:00:00+08:00');
 function fixture() {
  const s = { hrv: [], heart: [], daily: [], sleep: [], workout: [] };
@@ -285,13 +285,16 @@ test('compact signature retains pressure, sleep and available measurements', () 
  assert.match(r.title, /HRV30 心率75/);
 });
 
-test('a valid daily aggregate remains visible when the latest sample is excluded by a workout', () => {
+test('the signature uses the latest result; a daily aggregate is a dashboard-only choice', () => {
  const s = fixture(); s.workout.push({ start: T - 60000, end: T });
  const history = { days: [{ date: '2026-09-28', status: 'available', ruleVersion: 'health-indices-v3-nightly',
    median: 45, count: 5, spanMinutes: 240 }] };
  const r = evaluateHealthIndices(s, T + 60000, null, { pressureHistory: history });
  assert.equal(r.pressure.score, null);
- assert.match(r.title, /^🔵 状态正常/);
+ // The workout excludes the only recent sample, so the signature does not manufacture a state.
+ assert.match(r.title, /^压力暂无 /);
+ // The dashboard can still present the day's aggregate.
+ assert.equal(pressureHeadline(r, T + 60000, history).basis, 'today_median');
 });
 
 test('a source-less recent heart value can display without being assigned to an HRV scoring pair', () => {
@@ -350,7 +353,7 @@ function rmssdFixture() {
 }
 test('RMSSD pressure uses a trailing median and its own baseline, not SDNN or one outlier', () => {
  const s = rmssdFixture(), r = evaluateHealthIndices(s, T + 60000);
- assert.equal(r.ruleVersion, 'health-indices-v6-rmssd');
+ assert.equal(r.ruleVersion, 'health-indices-v7-rmssd-30d');
  assert.deepEqual(r.pressure.baselineRequirement, { hrv: 7, heart: 3 });
  assert.equal(r.features.hrv.method, 'RMSSD');
  assert.equal(r.features.hrv.current, 120);
