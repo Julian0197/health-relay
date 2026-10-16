@@ -5,7 +5,10 @@ import { scopeHealthSeries, scopePressureSleep } from './health-profile.mjs';
 export { scorePresentation } from './health-signature.mjs';
 const HOUR = 3600000, DAY = 24 * HOUR;
 const RULE_VERSION = 'health-indices-v3-nightly';
-const RMSSD_RULE_VERSION = 'health-indices-v5-rmssd-warmup';
+// v6 retires the v5 one-day warmup: a provisional score from a single prior day moved with that day's noise.
+const RMSSD_RULE_VERSION = 'health-indices-v6-rmssd';
+// Qualified prior days each baseline needs before a score is produced.
+export const BASELINE_REQUIREMENT = { RMSSD: { hrv: 7, heart: 3 }, SDNN: { hrv: 3, heart: 3 } };
 const RMSSD_WINDOW = 20 * 60000;
 const clamp = v => Math.max(0, Math.min(1, v));
 const day = t => Math.floor((t + 8 * HOUR) / DAY);
@@ -17,16 +20,18 @@ const median = values => {
   return a.length ? a.length % 2 ? a[i] : (a[i - 1] + a[i]) / 2 : null;
 };
 const unique = rows => [...new Map(rows.map(r => [JSON.stringify([r.start, r.end, r.value, r.stage, r.source, r.method]), r])).values()];
-function baseline(rows, current, days, logarithmic = false) {
+function baseline(rows, current, days, logarithmic = false, rmssdCurrent = current.method === 'RMSSD') {
   const groups = new Map();
   for (const r of rows) {
     if (r.source !== current.source || day(r.start) >= day(current.start) || r.start < current.start - days * DAY ||
       Math.abs(distance(minute(r.start), minute(current.start))) > 180) continue;
     const d = day(r.start); if (!groups.has(d)) groups.set(d, []); groups.get(d).push(r);
   }
-  const rmssd = logarithmic && current.method === 'RMSSD';
-  const values = [...groups.values()].filter(g => !rmssd || (g.length >= 3 &&
-    Math.max(...g.map(r => r.start)) - Math.min(...g.map(r => r.start)) >= 10 * 60000))
+  // A qualified RMSSD day needs what a current score needs: >=3 HRV samples over >=10 min, or >=10 HR minutes.
+  const qualified = g => !rmssdCurrent || (logarithmic
+    ? g.length >= 3 && Math.max(...g.map(r => r.start)) - Math.min(...g.map(r => r.start)) >= 10 * 60000
+    : g.length >= 10);
+  const values = [...groups.values()].filter(qualified)
     .map(g => median(g.map(r => r.value)));
   return summarizeBaseline(values, days, logarithmic);
 }
@@ -143,7 +148,7 @@ export function evaluateHealthIndices(series, now, previous = null, options = {}
   // Once RMSSD is in use, missing/stale data must not silently select the old SDNN baseline.
   const method = allHrv.some(r => r.method === 'RMSSD') || previous?.features?.hrv?.method === 'RMSSD' ? 'RMSSD' : 'SDNN';
   const rmssd = method === 'RMSSD', ruleVersion = rmssd ? RMSSD_RULE_VERSION : RULE_VERSION;
-  const freshness = rmssd ? 90 * 60000 : 6 * HOUR;
+  const freshness = rmssd ? 90 * 60000 : 6 * HOUR, requirement = BASELINE_REQUIREMENT[method];
   const hrv = allHrv.filter(r => r.method === method);
   const heart = valid(series.heart).filter(r => r.end <= now);
   // Do not fall back to an older sample when the latest one is sleeping, exercising or ambiguous.
@@ -162,7 +167,7 @@ export function evaluateHealthIndices(series, now, previous = null, options = {}
   };
   const hrvHistory = cleanHistory(hrv).filter(r => !rmssd || (r.aggregation ?? 'raw') === (current?.aggregation ?? 'raw'));
   const hrvBaseline = current ? baseline(hrvHistory, current, rmssd ? 28 : 30, true) : { days: 0, median: null };
-  const heartBaseline = current ? baseline(cleanHistory(heart), current, 7) : { days: 0, median: null };
+  const heartBaseline = current ? baseline(cleanHistory(heart), current, 7, false, rmssd) : { days: 0, median: null };
   const recentHrv = current && rmssd ? hrv.filter(r => r.start > current.start - RMSSD_WINDOW && r.start <= current.start &&
     r.source === current.source && (r.aggregation ?? 'raw') === (current.aggregation ?? 'raw')) : [];
   const windowHrv = cleanHistory(recentHrv).filter(r => !excluded((r.end ?? r.start + 1) - 1));
@@ -177,7 +182,7 @@ export function evaluateHealthIndices(series, now, previous = null, options = {}
       ...(rmssd ? { hrvSamples: windowHrv.length, hrvSpanMinutes, heartWindows: alignedHeart.length,
         aggregation: current?.aggregation ?? 'raw' } : {}) },
     activityCoverage: 'workouts_only', components: null, excludedHeartWindows: alignedWindow.length - aligned.length,
-    hrvBaseline, heartBaseline, confidence: hrvBaseline.days >= 14 && (!rmssd || heartBaseline.days >= 3)
+    hrvBaseline, heartBaseline, baselineRequirement: requirement, confidence: hrvBaseline.days >= 14 && (!rmssd || heartBaseline.days >= 3)
       ? 'personal_baseline' : 'short_baseline' };
   if (!current) pressure.reason = 'missing_hrv';
   else if (!known(current.source) || conflicting(hrv.filter(r => r.start === current.start)) || (rmssd && conflicting(recentHrv))) pressure.reason = 'source_or_sample_conflict';
@@ -187,7 +192,7 @@ export function evaluateHealthIndices(series, now, previous = null, options = {}
   else if (heartValue === null) pressure.reason = 'missing_or_conflicting_aligned_hr';
   else if (rmssd && alignedHeart.length < 10) pressure.reason = 'missing_or_conflicting_aligned_hr';
   // One independent prior day enables an explicitly provisional RMSSD estimate.
-  else if (hrvBaseline.days < (rmssd ? 1 : 3) || heartBaseline.days < (rmssd ? 1 : 3)) pressure.reason = 'short_baseline';
+  else if (hrvBaseline.days < requirement.hrv || heartBaseline.days < requirement.heart) pressure.reason = 'short_baseline';
   else {
     Object.assign(pressure, pressureFromBaselines(hrvValue, heartValue, hrvBaseline, heartBaseline));
   }

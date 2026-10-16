@@ -12,7 +12,9 @@
 
 - 当前窗口：最新 RMSSD 前 20 分钟，至少 3 条、跨度至少 10 分钟；配对同来源、同期至少 10 个心率分钟窗口。
 - 取窗口中位数，排除睡眠、已收到的锻炼及锻炼后 1 小时。运动排除只覆盖已上传的 workout，不能推断未上传活动。
-- HRV 基线查看前 28 天，心率查看前 7 天，按相近时段的日中位数建立。HRV 和心率各至少一个合格历史日才出分；短基线标记继续保留。
+- HRV 基线查看前 28 天，心率查看前 7 天，按相近时段（±3 小时）的日中位数建立，当天数据不计入。
+- 规则 `health-indices-v6-rmssd`：HRV 至少 7 个合格历史日（当日相近时段 ≥3 个样本、跨度 ≥10 分钟），心率至少 3 个合格历史日（当日相近时段 ≥10 个分钟窗口）才出分；不足时显示「压力积累中」，看板显示进度（如 `RMSSD 3/7 天`）。HRV ≥14 天为成熟基线，否则标记短期基线。
+- v5 曾允许各 1 个合格历史日即出初估分数，单日噪声会直接带进分数，v6 取消了这个初估。v5 → v6 用同一批输入回放：历史 ≥7 天时分数完全一致；不足 7 天时 v6 不出分。
 - HRV 用对数，心率用原值。尺度为 `max(1.4826 × MAD, floor)`；HRV 的 floor 是 `ln(1.15)`，心率是 5 bpm。
 
 ```text
@@ -61,14 +63,14 @@ z    = 0.6 × zHRV + 0.4 × zHR
 
 保留结果不会写回“当前压力”。若当前时刻的同一锚点已因更正失效，也不会再沿用。四档文字为状态优秀、状态正常、注意压力、压力过载，签名和看板使用同一组文字。
 
-签名文案版本仍是 `health-signature-text-v1`（`textVersion`），计分规则 `ruleVersion`、公式、权重和门槛均未变化。今后修改文案、公式、权重或门槛时，需要提升对应版本，并用同一批输入回放对照：
+签名文案版本仍是 `health-signature-text-v1`（`textVersion`）。计分规则从 `health-indices-v5-rmssd-warmup` 升级到 `health-indices-v6-rmssd`，只收紧基线门槛，公式、权重和分档不变。压力历史按规则版本隔离，部署 v6 后执行一次 `POST /signature/refresh?rebuildPressure=1`，用已收到的记录按新规则重建近 7 天的观测，否则当天汇总要等新观测累积后才会出现。今后修改文案、公式、权重或门槛时，需要提升对应版本，并用同一批输入回放对照：
 
 ```sh
 git worktree add /tmp/baseline <旧提交>
-node signature-replay.mjs /tmp/baseline/integrations/hae-webhook [私有 fixture.json ...]
+node signature-replay.mjs /tmp/baseline/integrations/hae-webhook [--rule-change] [私有 fixture.json ...]
 ```
 
-脚本会断言分数、原因、规则版本和有效期完全一致，然后逐条列出文案差异。本次统一展示依据后，合成回放 10 个场景的标题全部不变。
+只改文案时，脚本断言分数、原因、规则版本和有效期完全一致，逐条列出文案差异；改规则时加 `--rule-change`，逐条并列新旧分数、原因和基线天数。本次统一展示依据后，合成回放 10 个场景的标题全部不变。
 
 HRV / 心率显示最近可用测量值，末尾时间取二者较新的测量时间。它不表示所有指标在同一刻产生，也不是接收时间或发布时刻。三个时间分别保存：测量时间（`asOfAt`、`dataUpdatedAt`、各结果的 `evidenceAt`）、接收时间（`receivedAt`、`/status` 中各流的 `receivedAt`）、发布时间（`publication.lastSentAt`）。看板 DTO 同时带有已发布签名所依据的测量时间 `publication.measuredAt`。
 

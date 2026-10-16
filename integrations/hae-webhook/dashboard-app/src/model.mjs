@@ -84,8 +84,12 @@ export function pressureHeadline(dto, now = Date.now()) {
   const historical = h.basis === "retained" || (h.basis === "current" && finite(p.validUntil) && now >= p.validUntil);
   const title = historical ? "上次压力" : { today_median: "今日压力", nightly: "最近夜间负荷" }[h.basis]
     ?? (h.score == null && p.context === "nightly" ? "最近夜间负荷" : "最近压力");
+  // While the baseline builds, show progress toward the rule's requirement.
+  const need = p.baselineRequirement, have = p.baselineDays;
+  const progress = h.basis === "building_baseline" && need && have
+    ? ` · ${method} ${have.hrv}/${need.hrv} 天 · 心率 ${have.heart}/${need.heart} 天` : "";
   const caption = h.score == null
-    ? `${method} · ${pressureReason(h.basis === "building_baseline" ? "short_baseline" : h.reason ?? p.reason)}`
+    ? `${method} · ${pressureReason(h.basis === "building_baseline" ? "short_baseline" : h.reason ?? p.reason)}${progress}`
     : `${method} · ${label}${historical ? " · 历史结果" : ""}`;
   const time = h.basis === "today_median" ? `全天中位 · ${h.count ?? "—"} 次观测`
     : h.basis === "nightly" ? beijingDate(h.evidenceAt) : finite(h.evidenceAt) ? formatTime(h.evidenceAt) : null;

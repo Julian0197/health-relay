@@ -386,7 +386,8 @@ function signatureFixture(write = async () => Response.json({ code: 0, data: { r
 
 function delayedPressureRecords(now) {
   const records = [], minute = 60000, day = 86400000;
-  for (let d = 0; d <= 2; d++) {
+  // Eight days: the current day plus the seven prior days a v6 RMSSD baseline needs.
+  for (let d = 0; d <= 7; d++) {
     for (const hours of [5, 3, 1]) {
       const anchor = now - d * day - hours * 3600000;
       for (const i of [0, 5, 10]) records.push({ kind: 'hrv', method: 'RMSSD', aggregation: 'minutes',

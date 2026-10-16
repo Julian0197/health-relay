@@ -72,7 +72,7 @@ export function makeFixture(range = "24h", now = Date.now()) {
     window: { startAt, endAt: now },
     receivedAt: now - 60000,
     healthIndices: {
-      ruleVersion: "health-indices-v5-rmssd-warmup",
+      ruleVersion: "health-indices-v6-rmssd",
       textVersion: "health-signature-text-v1",
       headline: { basis: "current", score: 38, state: "balanced", label: "状态正常", evidenceAt: now - H / 2 },
       asOfAt: now - H / 2,
@@ -87,6 +87,7 @@ export function makeFixture(range = "24h", now = Date.now()) {
         evidenceAt: now - H / 2,
         validUntil: now + H * 5,
         baselineDays: { hrv: 19, heart: 17 },
+        baselineRequirement: { hrv: 7, heart: 3 },
         arrow: "↓",
       },
       sleep: {

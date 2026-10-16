@@ -51,7 +51,7 @@ export function pressureHeadline(indices, now, history = null) {
   const last = retainedPressure(indices, now);
   if (last) return result('retained', last.score, { evidenceAt: last.evidenceAt, context: last.context, reason: p.reason });
   const buildingBaseline = p.reason === 'short_baseline' || (['expired_hrv', 'insufficient_samples'].includes(p.reason) &&
-    (p.hrvBaseline.days < (method === 'RMSSD' ? 1 : 3) || p.heartBaseline.days < (method === 'RMSSD' ? 1 : 3)));
+    (p.hrvBaseline.days < (p.baselineRequirement?.hrv ?? 3) || p.heartBaseline.days < (p.baselineRequirement?.heart ?? 3)));
   return { ...result(buildingBaseline ? 'building_baseline' : 'missing', null, { reason: p.reason }), label: null };
 }
 

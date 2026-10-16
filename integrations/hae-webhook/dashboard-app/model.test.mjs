@@ -320,6 +320,9 @@ test("pressure headline follows the signature basis and keeps each result's own 
   assert.deepEqual([h.title, h.score, h.caption, h.time], ["上次压力", 75, "RMSSD · 注意压力 · 历史结果", formatTime(now - 3 * 86400000)]);
   h = model.pressureHeadline(dto({ basis: "building_baseline", score: null, reason: "insufficient_samples" }, { score: null }), now);
   assert.deepEqual([h.score, h.caption], [null, "RMSSD · 个人基线不足"]);
+  h = model.pressureHeadline(dto({ basis: "building_baseline", score: null, reason: "short_baseline" },
+    { score: null, baselineDays: { hrv: 3, heart: 2 }, baselineRequirement: { hrv: 7, heart: 3 } }), now);
+  assert.equal(h.caption, "RMSSD · 个人基线不足 · RMSSD 3/7 天 · 心率 2/3 天");
   h = model.pressureHeadline(dto({ basis: "missing", score: null, reason: "expired_hrv" }, { score: null }), now);
   assert.deepEqual([h.score, h.caption, h.time], [null, "RMSSD · HRV 已过期", null]);
   // Payloads written before the headline existed keep their previous meaning.

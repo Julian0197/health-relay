@@ -238,6 +238,7 @@ function indicesView(indices, now) {
       validUntil: retained ? null : p.validUntil ?? (p.evidenceAt == null ? null : p.evidenceAt + 6 * HOUR),
       confidence: displayed.confidence ?? null,
       baselineDays: retained ? null : { hrv: p.hrvBaseline?.days ?? 0, heart: p.heartBaseline?.days ?? 0 },
+      baselineRequirement: p.baselineRequirement ?? null,
       components: retained ? null : p.components ?? null,
     },
     sleep: {

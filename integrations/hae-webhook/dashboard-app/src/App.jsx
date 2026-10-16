@@ -293,7 +293,7 @@ function DataNotes({ dto, now }) {
             <p>
               {dto.healthIndices?.ruleVersion === "health-indices-v5-rmssd-warmup"
                 ? "初估：两项各至少 1 个合格历史日；成熟：RMSSD ≥ 14 天，心率 ≥ 3 天。"
-                : "RMSSD 至少 7 个合格历史日，心率 ≥ 3 天。"}
+                : `RMSSD 至少 ${p.baselineRequirement?.hrv ?? 7} 个合格历史日（当日 ≥ 3 点、跨度 ≥ 10 min），心率 ≥ ${p.baselineRequirement?.heart ?? 3} 天（当日 ≥ 10 分钟）；≥ 14 天为成熟基线。`}
               SDNN 仅作独立参考，不参与 RMSSD 压力评分。
             </p>
           </>

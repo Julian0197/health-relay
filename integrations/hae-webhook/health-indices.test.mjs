@@ -350,7 +350,8 @@ function rmssdFixture() {
 }
 test('RMSSD pressure uses a trailing median and its own baseline, not SDNN or one outlier', () => {
  const s = rmssdFixture(), r = evaluateHealthIndices(s, T + 60000);
- assert.equal(r.ruleVersion, 'health-indices-v5-rmssd-warmup');
+ assert.equal(r.ruleVersion, 'health-indices-v6-rmssd');
+ assert.deepEqual(r.pressure.baselineRequirement, { hrv: 7, heart: 3 });
  assert.equal(r.features.hrv.method, 'RMSSD');
  assert.equal(r.features.hrv.current, 120);
  assert.equal(r.pressure.hrvMethod, 'RMSSD');
@@ -366,45 +367,51 @@ test('RMSSD pressure uses a trailing median and its own baseline, not SDNN or on
 });
 test('RMSSD baseline counts comparable prior days, excluding other methods, devices and current day', () => {
  const s = rmssdFixture();
- s.hrv = s.hrv.filter(r => r.method !== 'RMSSD' || r.start >= T - 6 * D - 15 * 60000);
+ s.hrv = s.hrv.filter(r => r.method !== 'RMSSD' || r.start >= T - 7 * D - 15 * 60000);
  const r = evaluateHealthIndices(s, T + 60000);
- assert.equal(r.pressure.hrvBaseline.days, 6);
+ assert.equal(r.pressure.hrvBaseline.days, 7);
  assert.equal(r.pressure.score, 50);
  assert.equal(r.pressure.reason, null);
  assert.equal(r.pressure.confidence, 'short_baseline');
+ const six = rmssdFixture();
+ six.hrv = six.hrv.filter(r => r.method !== 'RMSSD' || r.start >= T - 6 * D - 15 * 60000);
+ assert.equal(evaluateHealthIndices(six, T + 60000).pressure.reason, 'short_baseline', 'six prior days no longer score');
  const first = rmssdFixture(); first.hrv.filter(r => r.method === 'RMSSD' && r.start < T - 15 * 60000).forEach(r => r.source = 'Old Watch');
  assert.equal(evaluateHealthIndices(first, T + 60000).pressure.hrvBaseline.days, 0);
  const thin = rmssdFixture(); thin.hrv = thin.hrv.filter(r => r.method !== 'RMSSD' || r.start >= T - 10 * 60000 || (T - r.start) % D === 0);
  assert.equal(evaluateHealthIndices(thin, T + 60000).pressure.hrvBaseline.days, 0, 'one point per day is not a comparable RMSSD day');
 });
 
-test('one comparable RMSSD and heart day permits a provisional score without using the current day as baseline', () => {
+test('one comparable day no longer scores: v6 withholds the score until the baseline matures', () => {
  const s = rmssdFixture(), since = T - D - 15 * 60000;
  s.hrv = s.hrv.filter(r => r.method !== 'RMSSD' || r.start >= since);
  s.heart = s.heart.filter(r => r.start >= since);
  const r = evaluateHealthIndices(s, T + 60000);
  assert.equal(r.pressure.hrvBaseline.days, 1);
  assert.equal(r.pressure.heartBaseline.days, 1);
- assert.equal(r.pressure.score, 50);
- assert.equal(r.pressure.reason, null);
- assert.equal(r.pressure.confidence, 'short_baseline');
- assert.match(r.title, /状态正常/);
- assert.doesNotMatch(r.title, /压力积累中|待更新|初估|·|@/);
+ assert.equal(r.pressure.score, null);
+ assert.equal(r.pressure.reason, 'short_baseline');
+ assert.match(r.title, /^压力积累中 /);
+ assert.doesNotMatch(r.title, /状态正常|待更新|初估|·|@/);
  assert.equal(r.title.match(/\d{2}\/\d{2} \d{2}:\d{2}/g)?.length, 1);
- for (const kind of ['hrv', 'heart']) {
-  const missing = structuredClone(s);
-  missing[kind] = missing[kind].filter(row => row.start >= T - 20 * 60000);
-  const result = evaluateHealthIndices(missing, T + 60000);
-  assert.equal(result.pressure.score, null);
+ for (const [kind, days] of [['hrv', 6], ['heart', 2]]) {
+  const short = rmssdFixture();
+  short[kind] = short[kind].filter(row => (kind === 'hrv' && row.method !== 'RMSSD') || row.start >= T - days * D - 15 * 60000);
+  const result = evaluateHealthIndices(short, T + 60000);
+  assert.equal(result.pressure.score, null, `${kind} with ${days} prior days`);
   assert.equal(result.pressure.reason, 'short_baseline');
  }
+ // A heart day counts only with as many minutes as a current window needs.
+ const thinHeart = rmssdFixture();
+ thinHeart.heart = thinHeart.heart.filter(row => row.start >= T - 20 * 60000 || (T - row.start) % D < 9 * 60000);
+ assert.equal(evaluateHealthIndices(thinHeart, T + 60000).pressure.heartBaseline.days, 0);
  const sparse = structuredClone(s);
  sparse.hrv = sparse.hrv.filter(row => row.start < T - 20 * 60000 || row.method !== 'RMSSD' || row.start === T);
  assert.equal(evaluateHealthIndices(sparse, T + 60000).pressure.reason, 'insufficient_samples');
  assert.equal(evaluateHealthIndices(s, T + 90 * 60000).pressure.reason, 'expired_hrv');
 });
 
-test('RMSSD scores retain the same formula as more baseline days accumulate and remove the provisional label', () => {
+test('RMSSD scores keep the formula as baseline days accumulate; a one-day heart baseline is withheld', () => {
  const s = rmssdFixture();
  for (let d = 9; d <= 14; d++) {
   for (let i = 0; i < 3; i++) {
@@ -420,9 +427,9 @@ test('RMSSD scores retain the same formula as more baseline days accumulate and 
  assert.doesNotMatch(r.title, /初估/);
  s.heart = s.heart.filter(row => row.start >= T - D - 15 * 60000);
  const shortHeart = evaluateHealthIndices(s, T + 60000);
- assert.equal(shortHeart.pressure.score, 50);
- assert.equal(shortHeart.pressure.confidence, 'short_baseline');
- assert.match(shortHeart.title, /状态正常/);
+ assert.equal(shortHeart.pressure.score, null);
+ assert.equal(shortHeart.pressure.reason, 'short_baseline');
+ assert.match(shortHeart.title, /^压力积累中 /);
 });
 
 test('short-baseline RMSSD daily summaries keep confidence metadata and compact public wording', () => {
