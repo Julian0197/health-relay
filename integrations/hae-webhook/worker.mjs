@@ -4,12 +4,15 @@ import { timingSafeEqual, verifyViewerToken } from './dashboard-auth.mjs';
 export { HealthStore } from './health-store.mjs';
 
 const MAX_BODY_BYTES = 1024 * 1024;
+// Workout batches include GPS routes the service does not store; a long ride can be several MiB.
+// Cloudflare accepts up to 100 MiB on the free plan; 25 MiB covers roughly 6 h of 1 Hz routes.
+const MAX_WORKOUT_BODY_BYTES = 25 * 1024 * 1024;
 
 function reply(status, data) {
   return Response.json(data, { status, headers: { 'Cache-Control': 'no-store' } });
 }
 
-async function readBody(request) {
+async function readBody(request, maxBytes = MAX_BODY_BYTES) {
   const reader = request.body?.getReader();
   if (!reader) return '';
   const chunks = [];
@@ -18,7 +21,7 @@ async function readBody(request) {
     const { value, done } = await reader.read();
     if (done) break;
     size += value.byteLength;
-    if (size > MAX_BODY_BYTES) {
+    if (size > maxBytes) {
       await reader.cancel();
       throw new RangeError('body too large');
     }
@@ -123,7 +126,7 @@ export async function handleRequest(request, env) {
 
   let payload;
   try {
-    payload = JSON.parse(await readBody(request));
+    payload = JSON.parse(await readBody(request, stream === 'workouts' ? MAX_WORKOUT_BODY_BYTES : MAX_BODY_BYTES));
   } catch (error) {
     return reply(error instanceof RangeError ? 413 : 400, { error: error instanceof RangeError ? 'body_too_large' : 'invalid_json' });
   }

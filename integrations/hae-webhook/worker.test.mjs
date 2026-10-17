@@ -330,3 +330,28 @@ test('dashboard forwards If-None-Match so identical content can answer 304', asy
   }), authEnv);
   assert.equal(received.headers.get('If-None-Match'), '"abc123"');
 });
+
+test('workout batches may exceed the one-MiB general limit; other streams may not', async () => {
+  const env2 = { ...env, FEISHU_WEBHOOK_URL: 'https://open.larkoffice.com/open-apis/bot/v2/hook/fixture',
+    HEALTH_STORE: { idFromName: () => 'personal', get: () => ({ fetch: async () => Response.json({ ok: true }) }) } };
+  const json = workouts => ({ data: { workouts } });
+  const small = { id: 'w', name: 'Running', start: new Date().toISOString(), end: new Date(Date.now() + 600000).toISOString(), duration: 600 };
+  // ~1.2 MiB body, accepted for workouts and rejected for the other streams.
+  const big = { ...small, routeLocations: [] };
+  let oversized;
+  do {
+    big.routeLocations.push({ lat: 31.2, lon: 121.5, t: big.routeLocations.length });
+    oversized = JSON.stringify(json([big]));
+  } while (oversized.length < 1.2 * 1024 * 1024);
+  assert.ok(oversized.length < 2 * 1024 * 1024);
+  const req = (path, body) => new Request(`https://store${path}`, { method: 'POST',
+    headers: { 'X-API-Key': 'fixture-ingest-key', 'X-HAE-Aggregation': 'days' }, body });
+  const accepted = await handleRequest(req('/ingest/workouts', oversized), env2);
+  assert.equal(accepted.status, 200, (await accepted.text()).slice(0, 200));
+  // A metric stream carrying the same size must still be rejected at the one-MiB gate.
+  const metrics = JSON.stringify({ data: { metrics: [{ name: 'step_count', units: 'count',
+    data: [{ date: '2026-10-17', qty: oversized.length }], filler: 'x'.repeat(oversized.length) }] } });
+  const rejected = await handleRequest(req('/ingest/health', metrics), env);
+  assert.equal(rejected.status, 413);
+  assert.equal((await rejected.json()).error, 'body_too_large');
+});
