@@ -214,7 +214,7 @@ export function buildDashboard(series, now, { range = '24h', indices = null, pub
 }
 
 // Reuse the evaluated indices' presentation fields; the DTO never carries baselines or raw evidence.
-function indicesView(indices, now, pressureHistory) {
+export function indicesView(indices, now, pressureHistory) {
   if (!indices) return null;
   const p = indices.pressure ?? {}, sl = indices.sleep ?? {};
   // A dashboard shows a recorded result at its own measurement time, under the signature's retention rule.

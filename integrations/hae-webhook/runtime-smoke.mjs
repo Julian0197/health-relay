@@ -11,7 +11,7 @@ const storagePath = await mkdtemp(join(tmpdir(), 'hae-runtime-'));
 let sends = 0, sentCard, signatureWrites = 0, cacheWrites = 0, cacheFields = null;
 const options = { cf: false, resourcePersistencePath: storagePath, workers: [{
   name: 'hae-runtime-test',
-  modules: ['worker', 'health-card', 'health-state', 'health-store', 'delivery', 'series', 'sql-usage', 'workouts', 'analysis', 'signature', 'physiology', 'health-indices', 'health-profile', 'health-signature', 'dashboard', 'pressure-history', 'dashboard-auth', 'dashboard-cache', 'signature-phrases', 'signature-holidays', 'miaobi'].map(name => ({ type: 'ESModule', path: fileURLToPath(new URL(`./${name}.mjs`, import.meta.url)) })),
+  modules: ['worker', 'health-card', 'overview-card', 'health-state', 'health-store', 'delivery', 'series', 'sql-usage', 'workouts', 'analysis', 'signature', 'physiology', 'health-indices', 'health-profile', 'health-signature', 'dashboard', 'pressure-history', 'dashboard-auth', 'dashboard-cache', 'signature-phrases', 'signature-holidays', 'miaobi'].map(name => ({ type: 'ESModule', path: fileURLToPath(new URL(`./${name}.mjs`, import.meta.url)) })),
   compatibilityDate: '2026-09-01',
   durableObjects: { HEALTH_STORE: { className: 'HealthStore', useSQLite: true } },
   bindings: { HAE_API_KEY: 'fixture', FEISHU_SIGN_SECRET: 'fixture', FEISHU_WEBHOOK_URL: 'https://open.larkoffice.com/open-apis/bot/v2/hook/fixture',
@@ -101,7 +101,16 @@ try {
   assert.equal(cached7d.heart.bucketMinutes, 10, '7d cache must bucket at build time');
   assert.equal(cached7d.heart.truncated, false);
   assert.ok(cached7d.heart.points.length <= 145, '1440 minutes bucket into ~144 ten-minute buckets');
-  assert.match(JSON.stringify(sentCard), /1235/); assert.match(JSON.stringify(sentCard), /7 小时/); assert.match(JSON.stringify(sentCard), /Running/);
+  if (signatureMode === 'health-indices-v1') {
+    assert.equal(sentCard.header.title.content, '健康速览');
+    assert.match(JSON.stringify(sentCard), /跑步/);
+    assert.match(JSON.stringify(sentCard), /"tag":"chart"/);
+    assert.match(JSON.stringify(sentCard), /恢复 HRV/);
+  } else {
+    assert.match(JSON.stringify(sentCard), /1235/);
+    assert.match(JSON.stringify(sentCard), /Running/);
+  }
+  assert.match(JSON.stringify(sentCard), /7 小时/);
   await mf.dispose(); mf = new Miniflare(convertV4MiniflareOptions(options));
   assert.equal((await upload('/ingest/health', health)).notification, 'unchanged');
   const status = await (await mf.dispatchFetch('http://local/status', { headers })).json();

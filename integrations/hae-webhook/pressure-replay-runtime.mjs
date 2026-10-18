@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 const { Miniflare, convertV4MiniflareOptions } = await import(pathToFileURL(process.argv[2]).href);
 const storagePath = await mkdtemp(join(tmpdir(), 'hae-pressure-replay-'));
-const modules = ['worker', 'health-card', 'health-state', 'health-store', 'sql-usage', 'workouts', 'delivery', 'series', 'analysis',
+const modules = ['worker', 'health-card', 'overview-card', 'health-state', 'health-store', 'sql-usage', 'workouts', 'delivery', 'series', 'analysis',
   'signature', 'physiology', 'health-indices', 'health-profile', 'health-signature', 'dashboard',
   'pressure-history', 'dashboard-auth', 'dashboard-cache', 'signature-phrases', 'signature-holidays', 'miaobi'];
 const options = { cf: false, resourcePersistencePath: storagePath, workers: [{

@@ -18,3 +18,7 @@ DASHBOARD_CACHE_RECORD_ID=""
 HEALTH_DEVICE_PROFILE=""
 HEALTH_DEVICE_EPOCH_START=""
 HEALTH_REPORTED_SOURCE=""
+
+# Optional group card metadata; keep personal document URLs in private deployment config.
+HEALTH_DASHBOARD_URL="https://example.com/health"
+HEALTH_DEVICE_LABEL=""

@@ -9,7 +9,8 @@ const { Miniflare, convertV4MiniflareOptions } = await import(pathToFileURL(proc
 const storagePath = await mkdtemp(join(tmpdir(), 'hae-event-refresh-'));
 const MINUTE = 60000, HOUR = 60 * MINUTE;
 // Keep real alarms in the future; drive the production alarm method through the test endpoint.
-const began = Math.floor(Date.now() / MINUTE) * MINUTE + HOUR;
+// Use tomorrow morning in Beijing: wall-clock runs near midnight must not cross a date boundary.
+const began = Math.floor((Date.now() + 8 * HOUR) / (24 * HOUR)) * 24 * HOUR + 26 * HOUR;
 const probe = `
 import { HealthStore } from './health-store.mjs';
 import { handleRequest } from './worker.mjs';
@@ -38,7 +39,7 @@ export default { fetch(request, env) {
 } };
 `;
 let cacheWrites = 0, cached;
-const modules = ['worker', 'health-card', 'health-state', 'health-store', 'sql-usage', 'workouts', 'delivery', 'series', 'analysis',
+const modules = ['worker', 'health-card', 'overview-card', 'health-state', 'health-store', 'sql-usage', 'workouts', 'delivery', 'series', 'analysis',
   'signature', 'physiology', 'health-indices', 'health-profile', 'health-signature', 'dashboard',
   'pressure-history', 'dashboard-auth', 'dashboard-cache', 'signature-phrases', 'signature-holidays', 'miaobi'];
 const options = { cf: false, resourcePersistencePath: storagePath, workers: [{

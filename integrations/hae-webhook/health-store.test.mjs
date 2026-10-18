@@ -1357,3 +1357,24 @@ test('alarm commits reuse review times while stored facts are unchanged, and a r
   await assert.rejects(f.store.transaction(async () => { f.store.reviewAt({ ...state, dataRevision: 99 }, f.now()); throw new Error('rollback'); }));
   assert.equal(f.store.reviewCache, null);
 });
+
+test('numeric group card shares dashboard scores, sends native chart and suppresses duplicate receipts', async () => {
+  const cards = [];
+  const f = fixture(async (_, options) => { cards.push(JSON.parse(options.body).card); return Response.json({ code: 0 }); },
+    { SIGNATURE_MODE: 'health-indices-v1', HEALTH_DASHBOARD_URL: 'https://example.com/health', HEALTH_DEVICE_LABEL: 'Test Watch' });
+  await detailUpload(f);
+  f.advance(60000); await f.store.alarm();
+  assert.equal(cards.length, 1);
+  const card = await (await f.store.fetch(new Request('https://store/card'))).json();
+  const dashboard = await (await f.store.fetch(new Request('https://store/dashboard'))).json();
+  assert.equal(card.header.title.content, '健康速览');
+  assert.ok(JSON.stringify(card).includes('"tag":"chart"'));
+  assert.match(JSON.stringify(card), /https:\/\/example.com\/health/);
+  assert.match(card.config.summary.content, new RegExp(`最近压力 ${dashboard.healthIndices.pressure.score ?? '-'}`));
+  const fingerprint = f.data().delivery.sentContent;
+  f.advance(60000);
+  assert.equal((await (await detailUpload(f)).json()).notification, 'unchanged');
+  await f.store.alarm();
+  assert.equal(cards.length, 1);
+  assert.equal(f.data().delivery.sentContent, fingerprint);
+});
