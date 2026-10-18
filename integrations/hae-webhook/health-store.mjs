@@ -1,12 +1,14 @@
 import { emptyState, mergeSummary, overview, fingerprint } from './health-state.mjs';
 import { buildHealthCard } from './health-card.mjs';
+import { buildOverviewCard } from './overview-card.mjs';
+import { buildWorkoutHistory } from './workouts.mjs';
 import { SeriesStore } from './series.mjs';
 import { SqlUsage } from './sql-usage.mjs';
 import { PressureHistory } from './pressure-history.mjs';
 import { evaluateHealthIndices } from './health-indices.mjs';
 import { pressureHeadline, renderHealthSignature, RETAINED_PRESSURE_MS } from './health-signature.mjs';
 import { healthProfile } from './health-profile.mjs';
-import { buildDashboard, dashboardRange } from './dashboard.mjs';
+import { buildDashboard, dashboardRange, indicesView } from './dashboard.mjs';
 import { analyze } from './analysis.mjs';
 import { buildSignatureSnapshot } from './signature.mjs';
 import { evaluatePhysiology, neutralPhysiology, withLatestHeartOverview } from './physiology.mjs';
@@ -271,12 +273,29 @@ export class HealthStore {
       const decision = this.physiology(now, state.physiologyDecision);
       view.signatureStatus = { state: decision.state, reasons: decision.reasons, observation: decision.observation };
     }
+    if (this.env.SIGNATURE_MODE === 'health-indices-v1') {
+      const series = this.seriesForView(now);
+      const indices = this.cachedHealthIndices(state, now) ?? this.healthIndices(
+        { ...series, heart: this.series.list('heart', now - 30 * 86400000) }, now, state.signatureDelivery?.publishedDecision);
+      // Share the dashboard's score presentation and workout facts, without building its charts.
+      view.cardData = {
+        healthIndices: indicesView(indices, now), sleep: analysis.sleep,
+        heart: { latest: series.heart.filter(r => r.end <= now && r.value > 0).at(-1) },
+        recoveryHrv: hrvRows.filter(r => r.method === 'RMSSD' && r.end <= now && r.value > 0).at(-1),
+        workoutHistory: buildWorkoutHistory(series, now),
+      };
+    }
     return view;
+  }
+
+  renderCard(view, context) {
+    return view.cardData ? buildOverviewCard(view.cardData, { ...context,
+      dashboardUrl: this.env.HEALTH_DASHBOARD_URL, deviceLabel: this.env.HEALTH_DEVICE_LABEL }) : buildHealthCard(view, context);
   }
 
   contentFingerprint(view, now) {
     // Hash exactly what is displayed, with a fixed receipt timestamp.
-    return fingerprint(buildHealthCard({ ...view, hrvSync: view.hrvSync ? { ...view.hrvSync, receivedAt: null, stats: null } : undefined }, { now, syncedAt: 0 }));
+    return fingerprint(this.renderCard({ ...view, hrvSync: view.hrvSync ? { ...view.hrvSync, receivedAt: null, stats: null } : undefined }, { now, syncedAt: 0 }));
   }
 
   nextReview(view, now) {
@@ -365,7 +384,7 @@ export class HealthStore {
         return Response.json(body, { headers });
       }
       const view = this.view(state, now);
-      if (path === '/card') return reply(buildHealthCard(view, { now, syncedAt: state.lastReceivedAt ?? now }));
+      if (path === '/card') return reply(this.renderCard(view, { now, syncedAt: state.lastReceivedAt ?? now }));
       const { sentContent, ...delivery } = state.delivery;
       return reply({ ok: true, date: view.date, metrics: view.metrics.length, workouts: view.workouts.length,
         signature: { ...(state.signatureDelivery ?? {}), enabled: signatureEnabled(this.env),
@@ -463,6 +482,14 @@ export class HealthStore {
           const exclusionTail = stream === 'workouts' ? HOUR : 0;
           this.queuePressureReplay(state, accepted.changedRange.startAt, accepted.changedRange.endAt + exclusionTail + 20 * 60000, now);
         }
+        // Plan once before rendering, so the card and signature share the decision and its build timing.
+        let signaturePlanned = false;
+        if (mode !== 'backfill' && this.env.SIGNATURE_MODE === 'health-indices-v1' && this.series.hasRecords()) {
+          if (signatureEnabled(this.env)) {
+            state.signatureDelivery = this.planSignature(state, now, true, { trigger: 'ingest', receivedAt: now });
+            signaturePlanned = true;
+          } else this.currentHealthIndices(state, now);
+        }
         const view = this.view(state, now);
         const content = await this.contentFingerprint(view, now);
         const hasData = view.metrics.length || view.workouts.length || view.analysis?.sleep.some(s => now - s.end < 7 * 86400000);
@@ -474,8 +501,8 @@ export class HealthStore {
             delivery.attempts = 0;
           } else if (!delivery.pending) delivery.dueAt = null;
         }
-        const signaturePlanned = signatureEnabled(this.env) && mode !== 'backfill' && hasData;
-        if (signaturePlanned) {
+        const shouldPlanSignature = signatureEnabled(this.env) && mode !== 'backfill' && hasData;
+        if (shouldPlanSignature && !signaturePlanned) {
           state.signatureDelivery = this.planSignature(state, now,
             !old.signatureDelivery || summaryChanged || accepted.stats.inserted + accepted.stats.updated > 0,
             { trigger: 'ingest', receivedAt: now });
@@ -488,7 +515,7 @@ export class HealthStore {
           state.dashboardCache.revision = (state.dashboardCache.revision ?? 0) + 1;
         }
         // Numeric signature planning already evaluates and records this live observation.
-        const pressureRecorded = signaturePlanned && this.env.SIGNATURE_MODE === 'health-indices-v1';
+        const pressureRecorded = (signaturePlanned || shouldPlanSignature) && this.env.SIGNATURE_MODE === 'health-indices-v1';
         if (!pressureRecorded && mode !== 'backfill' && this.series.hasRecords()) {
           this.currentHealthIndices(state, now);
         }
@@ -701,7 +728,7 @@ export class HealthStore {
       return due && state.delivery.pending ? { view, now, syncedAt: state.lastReceivedAt } : null;
     });
     if (!snapshot) return;
-    const response = await deliverCard(buildHealthCard(snapshot.view, { now: snapshot.now, syncedAt: snapshot.syncedAt }), this.env, this.send);
+    const response = await deliverCard(this.renderCard(snapshot.view, { now: snapshot.now, syncedAt: snapshot.syncedAt }), this.env, this.send);
     const result = await response.json();
     await this.transaction(async () => {
       const state = await this.storage.get('state');
