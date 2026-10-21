@@ -116,7 +116,7 @@ test('24h dashboard is windowed, pivoted and limited to render fields', () => {
   assert.equal(d.channels.hrv.count, 7);
   assert.equal(d.channels.hrv.latestAt, NOW - 2 * H);
   // Indices view carries scores and presentation only.
-  assert.equal(d.healthIndices.ruleVersion, 'health-indices-v3-nightly');
+  assert.equal(d.healthIndices.ruleVersion, 'health-indices-v4-nightly');
   assert.equal(typeof d.healthIndices.pressure.score, 'number');
   assert.ok(d.healthIndices.pressure.emoji);
   assert.equal(d.publication.sentTitle, 'x');

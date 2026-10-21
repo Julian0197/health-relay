@@ -118,6 +118,18 @@ test('signature publication reuses its persisted decision across a cold restart 
   assert.equal(f.data().signatureCandidate.evaluatedAt, before.evaluatedAt);
 });
 
+test('a cached decision from the workout-exclusion rule is recomputed after upgrade', async () => {
+  const f = signatureFixture(undefined, 'health-indices-v1');
+  await detailUpload(f);
+  const state = f.data();
+  state.indicesCache.key = JSON.stringify(['health-indices-cache-v5', f.store.healthProfile]);
+  state.indicesCache.decision.ruleVersion = 'health-indices-v3-nightly';
+  state.indicesCache.decision.pressure.reason = 'sleep_or_workout';
+  const result = f.store.currentHealthIndices(state, f.now());
+  assert.equal(result.ruleVersion, 'health-indices-v4-nightly');
+  assert.notEqual(result.pressure.reason, 'sleep_or_workout');
+});
+
 test('signature and read-only snapshot use recorded daily pressure while the current pair is missing', async () => {
   const f = signatureFixture(undefined, 'health-indices-v1');
   const ruleVersion = evaluateHealthIndices({ hrv: [], heart: [], sleep: [], workout: [] }, f.now()).ruleVersion;
@@ -469,7 +481,7 @@ test('pressure replay is bounded, resumes after restart and never counts duplica
   const points = f.store.pressureHistory.view(f.now(), '24h').points;
   assert.ok(points.every(p => p.t < f.now() - 6 * 3600000 || p.t > f.now() - 4 * 3600000));
   assert.equal(new Set(points.map(p => p.t)).size, points.length);
-  assert.ok(f.data().pressureReplay.reasons.sleep_or_workout > 0);
+  assert.ok(f.data().pressureReplay.reasons.sleeping > 0);
 });
 
 test('replay evaluates exactly its anchor when an RMSSD measurement exists in the following minute', async () => {
@@ -492,7 +504,7 @@ test('replay evaluates exactly its anchor when an RMSSD measurement exists in th
   assert.ok(!f.store.pressureHistory.view(f.now(), '24h').points.some(p => p.t > anchor && p.basis === 'received_records_replay'));
 });
 
-test('late workout corrects replayed pressure throughout the post-workout exclusion hour', async () => {
+test('late workout preserves replayed pressure during exercise and the following hour', async () => {
   const f = signatureFixture(undefined, 'health-indices-v1');
   f.store.series.put(delayedPressureRecords(f.now()), f.now());
   await f.upload();
@@ -503,12 +515,13 @@ test('late workout corrects replayed pressure throughout the post-workout exclus
   const affected = () => f.store.pressureHistory.view(f.now(), '24h').points.filter(p =>
     p.t >= workout.start && p.t <= workout.end + 3600000);
   assert.ok(affected().length > 0);
+  const before = affected().map(p => ({ t: p.t, score: p.score }));
   await f.store.fetch(new Request('https://store/ingest', { method: 'POST', body: JSON.stringify({
     stream: 'workouts', aggregation: 'unknown', mode: 'live', records: [workout],
     summary: { samples: 1, skipped: 0, metrics: [], workouts: [], workoutReceived: null },
   }) }));
   await finishPressureReplay(f);
-  assert.equal(affected().length, 0);
+  assert.deepEqual(affected().map(p => ({ t: p.t, score: p.score })), before);
 });
 test('HAE upload persists before asynchronous signature; repeated data and restart do not republish', async () => {
   const f = signatureFixture();

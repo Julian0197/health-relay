@@ -265,7 +265,9 @@ test('signature refresh is an authenticated mutation; analysis key and GET canno
 
 const enc = new TextEncoder();
 const b64url = bytes => btoa(String.fromCharCode(...bytes)).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');
-async function viewerToken(envAuth, payload = { sub: 'ou_owner', iat: Date.now(), exp: Date.now() + 300000 }) {
+async function viewerToken(envAuth, payload) {
+  const now = Date.now();
+  payload ??= { sub: 'ou_owner', iat: now, exp: now + 300000 };
   const part = b64url(enc.encode(JSON.stringify(payload)));
   const key = await crypto.subtle.importKey('raw', enc.encode(envAuth.DASHBOARD_VIEWER_SECRET),
     { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);

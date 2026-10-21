@@ -30,7 +30,7 @@ export class PressureHistory {
     if (!p || !Number.isFinite(p.evidenceAt)) return;
     // Natural expiry is not a correction. A newly discovered conflict/exclusion is.
     const invalidReason = p.primaryReason ?? p.reason;
-    if (['source_or_sample_conflict', 'sleep_or_workout', 'missing_or_conflicting_aligned_hr', 'short_baseline', 'insufficient_samples'].includes(invalidReason)) {
+    if (['source_or_sample_conflict', 'sleeping', 'sleep_or_workout', 'missing_or_conflicting_aligned_hr', 'short_baseline', 'insufficient_samples'].includes(invalidReason)) {
       const anchor = indices.features?.hrv?.measuredAt ?? p.evidenceAt;
       this.sql.exec("DELETE FROM pressure_observations WHERE rule=? AND context='awake_sample' AND evidence_at=?", indices.ruleVersion, anchor);
     }

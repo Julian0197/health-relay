@@ -3,6 +3,63 @@ import HealthRelayCore
 @testable import HealthRelayWatch
 
 @MainActor final class LifecycleTests: XCTestCase {
+    func testBackgroundCompletionAddsTimeWithoutBreakingOldResultsOrIdentityDescriptions() throws {
+        let identity = BatchIdentity(taskID: UUID(), batchID: "batch", fingerprint: "fingerprint")
+        let at = Date(timeIntervalSince1970: 1_792_550_000)
+        let description = UploadAttemptDescription(identity: identity, attemptID: "attempt", startedAt: at)
+        let text = String(decoding: try JSONEncoder().encode(description), as: UTF8.self)
+        XCTAssertEqual(BatchIdentity.decodeDescription(text), identity)
+        var completion = UploadCompletion(identity: identity, status: 200, body: Data(), retryable: true)
+        completion.completedAt = at; completion.completionID = "completion"; completion.attemptID = "attempt"
+        let decoded = try JSONDecoder().decode(UploadCompletion.self, from: JSONEncoder().encode(completion))
+        XCTAssertEqual(decoded.completedAt, at)
+        XCTAssertEqual(decoded.attemptID, "attempt")
+        var legacy = try JSONSerialization.jsonObject(with: JSONEncoder().encode(completion)) as! [String: Any]
+        legacy.removeValue(forKey: "completedAt"); legacy.removeValue(forKey: "completionID"); legacy.removeValue(forKey: "attemptID")
+        let old = try JSONDecoder().decode(UploadCompletion.self, from: JSONSerialization.data(withJSONObject: legacy))
+        XCTAssertNil(old.completedAt); XCTAssertEqual(old.identity, identity)
+    }
+    func testWatchStartupImportsLocalLegacyHistoryWithoutChangingTasks() throws {
+        let directory = try directory()
+        var task = AutomationConfig.newTask(); task.device = .watch
+        try ConfigurationRepository(fileURL: directory.appendingPathComponent("tasks.json")).save([task])
+        let journal = SyncJournal(directory: directory.appendingPathComponent("sync"))
+        var state = SyncState(); state.logs = [RunLog(state: .succeeded, message: "旧记录", records: 2)]
+        try journal.save(state, for: task.id)
+        let store = WatchStore(directory: directory, connectServices: false)
+        XCTAssertEqual(store.tasks, [task])
+        XCTAssertEqual(try store.history.page().entries.count, 1)
+        XCTAssertEqual(try store.history.page().entries[0].summary.recordCount, 2)
+    }
+    func testSignatureSetupPreservesTasksAndKeepsAuthenticationInWatchKeychain() async throws {
+        let directory = try directory()
+        var old = AutomationConfig.newTask(); old.device = .watch
+        try ConfigurationRepository(fileURL: directory.appendingPathComponent("tasks.json")).save([old])
+        let store = WatchStore(directory: directory, connectServices: false)
+        try await store.installHealthSignature(endpoint: "https://example.com/ingest", key: "synthetic-watch-token")
+        XCTAssertEqual(store.tasks.count, 3)
+        XCTAssertEqual(store.tasks.first, old)
+        let installed = Array(store.tasks.dropFirst())
+        let refs = installed.compactMap { $0.destination.secretHeaders?["X-Acceptance-Key"] }
+        defer { for ref in refs { CredentialStore().delete(ref) } }
+        XCTAssertEqual(Set(refs).count, 2)
+        XCTAssertTrue(installed.allSatisfy { $0.device == .watch && !$0.enabled && $0.executionIssues.isEmpty })
+        let saved = try Data(contentsOf: directory.appendingPathComponent("tasks.json"))
+        XCTAssertFalse(String(decoding: saved, as: UTF8.self).contains("synthetic-watch-token"))
+    }
+
+    func testUploadBodyIsDurableAndReadableByTheSystemTransferService() throws {
+        let file = try directory().appendingPathComponent("body")
+        let body = Data("synthetic-upload".utf8)
+        try Data("old".utf8).write(to: file, options: [.atomic, .completeFileProtection])
+        try BackgroundUploader.writeUploadBody(body, to: file)
+        XCTAssertEqual(try Data(contentsOf: file), body)
+        #if !targetEnvironment(simulator)
+        let attributes = try FileManager.default.attributesOfItem(atPath: file.path)
+        XCTAssertEqual(attributes[.protectionKey] as? FileProtectionType, .completeUntilFirstUserAuthentication)
+        #endif
+    }
+
     func directory() throws -> URL {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)

@@ -14,27 +14,41 @@ public struct BatchIdentity: Codable, Equatable, Sendable {
 
 extension SyncJournal {
     /// False means stale/duplicate callback. It must not change any journal state.
-    @discardableResult public func confirm(_ identity: BatchIdentity, task: AutomationConfig, status: Int, data: Data, now: Date = Date()) throws -> Bool {
+    @discardableResult public func confirm(_ identity: BatchIdentity, task: AutomationConfig, status: Int, data: Data, now: Date = Date(), completionID: String? = nil, attemptID: String? = nil, confirmationTimeKnown: Bool = true) throws -> Bool {
         guard identity.taskID == task.id, identity.fingerprint == (try SyncIdentity.fingerprint(task)) else { return false }
         var state = try load(identity.taskID)
-        guard let pending = state.pending, identity.matches(pending) else { return false }
+        guard var pending = state.pending, identity.matches(pending) else { return false }
+        if let expected = pending.history?.attemptID, let attemptID, expected != attemptID { return false }
+        if pending.history == nil {
+            pending.history = SyncHistoryMetadata(context: SyncHistoryContext(task: task), summary: SyncHistorySummary(recordCount: pending.recordCount), queuedAt: now)
+            pending.history?.legacy = true
+        }
         try HTTPAcknowledgement.validate(status: status, data: data, batchID: pending.batchID, count: pending.recordCount, mode: task.destination.acknowledgement)
         state.checkpoints[pending.checkpointKey] = pending.checkpoint
         state.pending = nil; state.lastConfirmedAt = now
-        state.logs.insert(RunLog(state: .succeeded, message: "后台已确认 \(pending.recordCount) 条", records: pending.recordCount, batches: 1, httpStatus: status), at: 0)
+        appendHistory(.succeeded, pending: pending, to: &state, at: now, eventID: completionID, attemptID: attemptID, httpStatus: status, confirmationTimeKnown: confirmationTimeKnown)
+        var log = RunLog(state: .succeeded, message: "后台已确认 \(pending.recordCount) 条", records: pending.recordCount, batches: 1, httpStatus: status)
+        log.date = now; log.historyRecorded = true
+        state.logs.insert(log, at: 0)
         state.logs = Array(state.logs.prefix(30))
         try save(state, for: identity.taskID)
         return true
     }
-    @discardableResult public func recordFailure(_ identity: BatchIdentity, failure: UploadFailure, now: Date = Date()) throws -> Bool {
+    @discardableResult public func recordFailure(_ identity: BatchIdentity, failure: UploadFailure, now: Date = Date(), completionID: String? = nil, attemptID: String? = nil) throws -> Bool {
         var state = try load(identity.taskID)
         guard var pending = state.pending, identity.matches(pending) else { return false }
+        if let expected = pending.history?.attemptID, let attemptID, expected != attemptID { return false }
+        if let completionID, pending.history?.lastCompletionID == completionID { return false }
         pending.attempts += 1
         pending.automaticRetry = failure.retryable
         let delay = failure.retryAfter ?? min(3600, 30 * pow(2, Double(min(7, pending.attempts - 1))))
         pending.nextAttempt = now.addingTimeInterval(max(30, delay))
+        pending.history?.lastCompletionID = completionID
         state.pending = pending
-        state.logs.insert(RunLog(state: .failed, message: failure.message, httpStatus: failure.status), at: 0)
+        appendHistory(.failed, pending: pending, to: &state, at: now, eventID: completionID, attemptID: attemptID, message: failure.message, httpStatus: failure.status)
+        var log = RunLog(state: .failed, message: failure.message, httpStatus: failure.status)
+        log.date = now; log.historyRecorded = true
+        state.logs.insert(log, at: 0)
         state.logs = Array(state.logs.prefix(30))
         try save(state, for: identity.taskID)
         return true
@@ -59,7 +73,9 @@ extension SyncJournal {
         var state = try load(identity.taskID)
         guard let pending = state.pending, identity.matches(pending) else { return false }
         state.pending = nil
-        state.logs.insert(RunLog(state: .queued, message: "已取消未确认批次；未推进游标，下次从已确认位置重新读取"), at: 0)
+        appendHistory(.cancelled, pending: pending, to: &state, at: Date(), eventID: pending.batchID + ":cancelled")
+        var log = RunLog(state: .queued, message: "已取消未确认批次；未推进游标，下次从已确认位置重新读取")
+        log.historyRecorded = true; state.logs.insert(log, at: 0)
         state.logs = Array(state.logs.prefix(30))
         try save(state, for: identity.taskID)
         return true

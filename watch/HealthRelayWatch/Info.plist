@@ -5,4 +5,8 @@
 <key>WKCompanionAppBundleIdentifier</key><string>org.healthrelay.app</string>
 <key>WKWatchOnly</key><false/>
 <key>NSHealthShareUsageDescription</key><string>读取你选择的 Watch 健康记录，并上传到你配置的 HTTPS 接口。</string>
+<key>NSHealthUpdateUsageDescription</key><string>在你主动开始并结束运动时，将本次运动保存到 Apple 健康。</string>
+<key>NSLocalNetworkUsageDescription</key><string>连接同一网络中的 Mac HealthRelay 服务并上传你选择的健康数据。</string>
+<key>NSAppTransportSecurity</key><dict><key>NSAllowsLocalNetworking</key><true/></dict>
+<key>WKBackgroundModes</key><array><string>workout-processing</string></array>
 </dict></plist>

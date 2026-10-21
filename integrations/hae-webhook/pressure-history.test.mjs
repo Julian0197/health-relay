@@ -19,9 +19,12 @@ test('latest retained pressure matches the rule and device and survives restart'
   assert.equal(restarted.latest(NOW, 'v1', null), null);
   assert.equal(restarted.latest(NOW + 8 * 24 * H, 'v1', 'Watch')?.score, 80);
   assert.equal(restarted.latest(NOW + 36 * 24 * H, 'v1', 'Watch'), null);
-  h.record({ ...decision(NOW - 26 * H), pressure: { ...decision(NOW - 26 * H).pressure,
-    score: null, reason: 'sleep_or_workout' } }, NOW);
-  assert.equal(restarted.latest(NOW, 'v1', 'Watch'), null);
+  for (const reason of ['sleeping', 'sleep_or_workout']) {
+    h.record(decision(NOW - 26 * H, 45), NOW);
+    h.record({ ...decision(NOW - 26 * H), pressure: { ...decision(NOW - 26 * H).pressure,
+      score: null, reason } }, NOW);
+    assert.equal(restarted.latest(NOW, 'v1', 'Watch'), null);
+  }
 });
 test('received-record replay is marked separately and cannot relabel a live observation', () => {
   const h = new PressureHistory(testSql()), t = NOW - H;

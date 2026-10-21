@@ -49,12 +49,30 @@ test('missing or conflicting HR does not become zero stress',()=>{
   assert.equal(r.pressure.score,null); assert.match(r.title,/压力暂无/); assert.doesNotMatch(r.title,/待评估|待更新|—/);
  }
 });
-test('sleep and workouts exclude pressure evidence; duplicate records never increase coverage',()=>{
- const s=fixture();s.workout=[{start:T-60000,end:T+60000}];
+test('sleep excludes awake pressure evidence; duplicate records never increase coverage',()=>{
+ const s=fixture();s.sleep.push({start:T-60000,end:T+60000,stage:'core',source:'Watch'});
  assert.equal(evaluateHealthIndices(s,T+60000).pressure.score,null);
  const a=fixture(), before=evaluateHealthIndices(a,T+60000);
  a.hrv.push({...a.hrv[0]});a.heart.push({...a.heart[0]});
  assert.deepEqual(evaluateHealthIndices(a,T+60000).pressure,before.pressure);
+});
+test('workout and recovery observations contribute to current SDNN pressure and its baselines', () => {
+ for (const [start, end] of [
+  [T - 60000, T + 60000],
+  [T - 30 * 60000, T],
+  [T - 32 * 60000, T - 2 * 60000],
+  [T - 89 * 60000, T - 59 * 60000],
+  [T - 90 * 60000, T - H],
+ ]) {
+  const s = fixture();
+  for (let d = 0; d <= 5; d++) s.workout.push({ start: start - d * D, end: end - d * D });
+  const r = evaluateHealthIndices(s, T + 60000);
+  assert.equal(r.pressure.score, 95);
+  assert.equal(r.pressure.reason, null);
+  assert.equal(r.pressure.context, 'awake_sample');
+  assert.equal(r.pressure.hrvBaseline.days, 5);
+  assert.equal(r.pressure.heartBaseline.days, 5);
+ }
 });
 test('sparse baselines, expired HRV, and unknown source do not produce scores',()=>{
  const s=fixture();s.hrv=s.hrv.slice(0,3);
@@ -74,11 +92,12 @@ test('score and timestamp are invariant to duplicate upload within the same fres
  assert.equal(evaluateHealthIndices(s,T+6*H).pressure.score,null);
 });
 
-test('future workout in pairing window excludes exercise HR without discarding earlier resting pair', () => {
+test('workout HR in the aligned pairing window contributes to pressure', () => {
  const s=fixture();s.workout=[{start:T+10*60000,end:T+H}];
  s.heart.push({start:T+11*60000,end:T+12*60000,value:150,source:'Watch'});
  const r=evaluateHealthIndices(s,T+20*60000);
- assert.ok(r.pressure.score >= 90);assert.equal(r.pressure.excludedHeartWindows,1);
+ assert.equal(r.pressure.evidence.heart, 112.5);
+ assert.ok(r.pressure.score >= 90);assert.equal(r.pressure.excludedHeartWindows,0);
 });
 test('sleep waits an hour after last received segment before assigning a score', () => {
  const s=fixture(), now=T-7*H+60000;
@@ -218,7 +237,7 @@ test('nightly pressure uses per-night HRV and HR baselines rather than discardin
  assert.equal(r.scoreAt, end);
  assert.match(r.title, /🔵 昨夜状态正常/);
  assert.equal(r.features.hrv.current, 100); // public raw HRV remains the latest sample
- assert.equal(r.pressure.primaryReason, 'sleep_or_workout');
+ assert.equal(r.pressure.primaryReason, 'sleeping');
  assert.equal(r.pressure.reason, null);
 });
 test('new display HR cannot change a nightly score; completed-night evidence outlives a single HRV point', () => {
@@ -231,7 +250,7 @@ test('new display HR cannot change a nightly score; completed-night evidence out
  assert.equal(evaluateHealthIndices(s, end + 12 * H).pressure.score, 50);
  assert.equal(evaluateHealthIndices(s, end + 36 * H).pressure.score, null);
 });
-test('nightly fallback requires three comparable nights and rejects conflicts, unknown sources and workouts', () => {
+test('nightly fallback requires three comparable nights and rejects conflicts and unknown sources', () => {
  const { s, end, now } = nightlyFixture();
  const sparse = structuredClone(s); sparse.sleep = sparse.sleep.slice(0, 3);
  assert.equal(evaluateHealthIndices(sparse, now).pressure.score, null);
@@ -239,9 +258,16 @@ test('nightly fallback requires three comparable nights and rejects conflicts, u
  assert.equal(evaluateHealthIndices(conflict, now).pressure.score, null);
  const unknown = structuredClone(s); unknown.hrv.forEach(r => r.source = 'unknown');
  assert.equal(evaluateHealthIndices(unknown, now).pressure.score, null);
- const exercise = structuredClone(s); exercise.workout.push({ start: end - 8 * H, end });
- assert.equal(evaluateHealthIndices(exercise, now).pressure.score, null);
  assert.equal(evaluateHealthIndices(s, end + 30 * 60000).pressure.score, null);
+});
+test('workout labels do not discard eligible nightly observations or reference nights', () => {
+ const { s, end, now } = nightlyFixture();
+ for (let d = 0; d <= 4; d++) s.workout.push({ start: end - d * D - 8 * H, end: end - d * D });
+ const r = evaluateHealthIndices(s, now);
+ assert.equal(r.pressure.score, 50);
+ assert.equal(r.pressure.context, 'nightly');
+ assert.equal(r.pressure.hrvBaseline.days, 4);
+ assert.equal(r.pressure.heartBaseline.days, 4);
 });
 test('awake scoring takes priority and never compares its trend with a nightly score', () => {
  const { s, now } = nightlyFixture();
@@ -286,12 +312,12 @@ test('compact signature retains pressure, sleep and available measurements', () 
 });
 
 test('the signature uses the latest result; a daily aggregate is a dashboard-only choice', () => {
- const s = fixture(); s.workout.push({ start: T - 60000, end: T });
- const history = { days: [{ date: '2026-09-28', status: 'available', ruleVersion: 'health-indices-v3-nightly',
+ const s = fixture(); s.heart = s.heart.filter(r => r.start !== T);
+ const history = { days: [{ date: '2026-09-28', status: 'available', ruleVersion: 'health-indices-v4-nightly',
    median: 45, count: 5, spanMinutes: 240 }] };
  const r = evaluateHealthIndices(s, T + 60000, null, { pressureHistory: history });
  assert.equal(r.pressure.score, null);
- // The workout excludes the only recent sample, so the signature does not manufacture a state.
+ // Missing aligned heart evidence must not manufacture a current state.
  assert.match(r.title, /^压力暂无 /);
  // The dashboard can still present the day's aggregate.
  assert.equal(pressureHeadline(r, T + 60000, history).basis, 'today_median');
@@ -325,7 +351,7 @@ test('wrong-rule or insufficient daily history cannot conceal a missing scoring 
  const s = fixture(); s.heart = [];
  for (const day of [
   { date: '2026-09-28', status: 'available', ruleVersion: 'old', median: 45 },
-  { date: '2026-09-28', status: 'insufficient_samples', ruleVersion: 'health-indices-v3-nightly', median: null },
+  { date: '2026-09-28', status: 'insufficient_samples', ruleVersion: 'health-indices-v4-nightly', median: null },
  ]) {
   const r = evaluateHealthIndices(s, T + 60000, null, { pressureHistory: { days: [day] } });
   assert.equal(r.pressure.reason, 'missing_or_conflicting_aligned_hr');
@@ -353,7 +379,7 @@ function rmssdFixture() {
 }
 test('RMSSD pressure uses a trailing median and its own baseline, not SDNN or one outlier', () => {
  const s = rmssdFixture(), r = evaluateHealthIndices(s, T + 60000);
- assert.equal(r.ruleVersion, 'health-indices-v7-rmssd-30d');
+ assert.equal(r.ruleVersion, 'health-indices-v8-rmssd-30d');
  assert.deepEqual(r.pressure.baselineRequirement, { hrv: 7, heart: 3 });
  assert.equal(r.features.hrv.method, 'RMSSD');
  assert.equal(r.features.hrv.current, 120);
@@ -444,7 +470,7 @@ test('short-baseline RMSSD daily summaries keep confidence metadata and compact 
  assert.doesNotMatch(renderHealthSignature(r, T + 60000, history), /初估/);
  assert.equal(history.days[0].confidence, 'short_baseline');
 });
-test('RMSSD requires distributed recent evidence; repeats and exercise cannot supply coverage', () => {
+test('RMSSD requires distributed recent evidence; repeated observations cannot supply coverage', () => {
  for (const mutate of [
   s => { s.hrv = s.hrv.filter(r => r.method !== 'RMSSD' || r.start !== T - 10 * 60000); },
   s => { s.hrv.filter(r => r.method === 'RMSSD' && r.start >= T - 10 * 60000).forEach((r, i) => { r.start = T - i * 60000; r.end = r.start + 60000; }); },
@@ -456,8 +482,20 @@ test('RMSSD requires distributed recent evidence; repeats and exercise cannot su
  const s = rmssdFixture(), before = evaluateHealthIndices(s, T + 60000);
  s.hrv.push(...s.hrv.map(r => ({ ...r }))); s.heart.push(...s.heart.map(r => ({ ...r })));
  assert.deepEqual(evaluateHealthIndices(s, T + 60000).pressure, before.pressure);
- s.workout.push({ start: T - 60000, end: T + 60000 });
- assert.equal(evaluateHealthIndices(s, T + 60000).pressure.reason, 'sleep_or_workout');
+});
+test('workout and recovery observations contribute to RMSSD windows and historical coverage', () => {
+ for (const [start, end] of [[T - 20 * 60000, T + 60000], [T - H, T - 2 * 60000]]) {
+  const s = rmssdFixture();
+  for (let d = 0; d <= 8; d++) s.workout.push({ start: start - d * D, end: end - d * D });
+  const r = evaluateHealthIndices(s, T + 60000);
+  assert.equal(r.pressure.score, 50);
+  assert.equal(r.pressure.reason, null);
+  assert.equal(r.pressure.context, 'awake_sample');
+  assert.equal(r.pressure.evidence.hrvSamples, 3);
+  assert.equal(r.pressure.evidence.heartWindows, 20);
+  assert.equal(r.pressure.hrvBaseline.days, 8);
+  assert.equal(r.pressure.heartBaseline.days, 8);
+ }
 });
 test('stale, unknown or conflicting RMSSD never falls back to a valid SDNN score', () => {
  const s = rmssdFixture();
@@ -598,7 +636,7 @@ test('legacy SDNN nightly scores retain their versioned seven-day baseline', () 
   s[kind].push(...oldest.map(r => ({ ...r, start: r.start - 6 * D, ...(r.end ? { end: r.end - 6 * D } : {}) })));
  }
  const r = evaluateHealthIndices(s, now);
- assert.equal(r.ruleVersion, 'health-indices-v3-nightly');
+ assert.equal(r.ruleVersion, 'health-indices-v4-nightly');
  assert.equal(r.pressure.context, 'nightly');
  assert.equal(r.pressure.hrvBaseline.days, 4);
  assert.equal(r.pressure.heartBaseline.days, 4);
