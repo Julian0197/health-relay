@@ -50,7 +50,7 @@ test('maps native HealthKit units and sleep stages into the existing scorer with
   assert.equal(series.daily.find(r => r.metric === 'step_count').value, 150);
   assert.equal(series.daily.find(r => r.metric === 'resting_heart_rate').value, 56);
   const state = store.status(now);
-  assert.equal(state.title, '⌚ 状态数据积累中｜睡眠暂无｜心率76次/分｜今日150步｜今日锻炼暂无｜同步时间: 10/20 16:00｜详情 ↗');
+  assert.equal(state.title, '⌚ 状态数据积累中｜🌙 睡眠暂无｜❤️ 心率76｜🪑 今日150步｜同步时间: 10/20 16:00｜详情 ↗');
   assert.doesNotMatch(state.title, /HRV|69/);
 });
 test('corrections replace derived facts and deletions survive restart', t => {
@@ -67,7 +67,7 @@ test('only marks publication committed after success and persists content dedupl
   const f = fixture(t); let store = f.open();
   store.ingest(batch('b', [sample('HeartRate', 'h', 76)]), 'b', now);
   let tries = 0;
-  const publish = async title => { tries++; assert.equal(title, '⚪ 状态暂无｜睡眠暂无｜心率76次/分｜今日步数暂无｜今日锻炼暂无｜同步时间: 10/20 16:00｜详情 ↗'); if (tries === 1) throw Error('offline'); };
+  const publish = async title => { tries++; assert.equal(title, '⚪ 状态暂无｜🌙 睡眠暂无｜❤️ 心率76｜👣 今日步数暂无｜同步时间: 10/20 16:00｜详情 ↗'); if (tries === 1) throw Error('offline'); };
   await assert.rejects(store.publish(publish, now), /offline/);
   assert.equal(await store.publish(publish, now), true);
   store.close(); store = f.open(); t.after(() => store.close());
@@ -96,13 +96,13 @@ test('publishes each pressure category with its scoring HRV and preserves it for
   ]);
   store.ingest(batch('history', history), 'history', now);
   for (const [id, hrv, heart, expected] of [
-    ['relaxed', 70, 50, '🟢 状态优秀'], ['normal', 50, 60, '🔵 状态正常'],
-    ['elevated', 42, 65, '🟡 注意压力'], ['high', 20, 85, '🔴 压力过载'],
+    ['relaxed', 70, 50, '😌 状态优秀'], ['normal', 50, 60, '🙂 状态正常'],
+    ['elevated', 42, 65, '😮‍💨 注意压力'], ['high', 20, 85, '😵‍💫 压力过载'],
   ]) {
     store.ingest(batch(id, [sample('HeartRateVariabilitySDNN', 'v-current', hrv, 'ms', evidence),
       sample('HeartRate', 'h-current', heart, 'count/min', evidence), sample('HeartRate', 'h-latest', 76)]), id, now);
     const status = store.status(now);
-    assert.equal(status.title, `${expected}(HRV ${hrv})｜睡眠暂无｜心率76次/分｜今日步数暂无｜今日锻炼暂无｜同步时间: 10/20 16:00｜详情 ↗`);
+    assert.equal(status.title, `${expected}(HRV ${hrv})｜🌙 睡眠暂无｜❤️ 心率76｜👣 今日步数暂无｜同步时间: 10/20 16:00｜详情 ↗`);
     assert.equal(status.indices.title, status.title);
     assert.equal(status.indices.features.hrv.current, hrv);
     let sent;
@@ -111,11 +111,11 @@ test('publishes each pressure category with its scoring HRV and preserves it for
     assert.match(sent, new RegExp(`\\(HRV ${hrv}\\)`));
   }
   const retained = store.status(now + 6 * 3600000);
-  assert.match(retained.title, /^🔴 上次压力过载\(HRV 20\)｜睡眠暂无｜上次心率76次\/分/);
+  assert.match(retained.title, /^😵‍💫 上次压力过载\(HRV 20\)｜🌙 睡眠暂无｜❤️ 上次心率76/);
   assert.match(retained.title, /同步时间: 10\/20 16:00｜详情 ↗$/);
   await store.publish(async () => {}, now + 6 * 3600000);
   const restarted = f.open(); t.after(() => restarted.close());
-  assert.match(restarted.status(now + 6 * 3600000 + 60000).title, /^🔴 上次压力过载\(HRV 20\)｜/);
+  assert.match(restarted.status(now + 6 * 3600000 + 60000).title, /^😵‍💫 上次压力过载\(HRV 20\)｜/);
   assert.match(store.status(now + 8 * 86400000).title, /^⚪ 状态暂无｜/);
 });
 
@@ -126,7 +126,7 @@ test('publishes requested activity without inventing missing HRV', async t => {
   store.ingest(batch('activity', [sample('HeartRate', 'h', 76), sample('StepCount', 's', 150, 'count'), w]), 'activity', now);
   let sent;
   await store.publish(async title => { sent = title; }, now);
-  assert.equal(sent, '⚪ 状态暂无｜睡眠暂无｜心率76次/分｜今日150步｜今日锻炼20分｜同步时间: 10/20 16:00｜详情 ↗');
+  assert.equal(sent, '⚪ 状态暂无｜🌙 睡眠暂无｜❤️ 心率76｜🪑 今日150步｜💪 今日锻炼20分｜同步时间: 10/20 16:00｜详情 ↗');
   assert.doesNotMatch(sent, /HRV/);
   assert.equal(store.status(now).activity.steps.value, 150);
 });
@@ -138,10 +138,10 @@ test('workout live summaries expose actual heart evidence and are replaced witho
     heartRate: { value: 110, unit: 'count/min', measuredAt: new Date(now-90000).toISOString() } } };
   store.ingest(batch('live', [live]), 'live', now);
   const current = store.status(now);
-  assert.match(current.title, /心率110次\/分/);
+  assert.match(current.title, /💓 心率110/);
   assert.equal(current.activity.workouts.minutes, 10);
   store.ingest(batch('native-heart', [sample('HeartRate', 'native-h', 112, 'count/min', now-90000)]), 'native-heart', now);
-  assert.match(store.status(now).title, /心率112次\/分/, 'Native heart samples take precedence over derived workout summaries');
+  assert.match(store.status(now).title, /💓 心率112/, 'Native heart samples take precedence over derived workout summaries');
   const complete = { ...live, recordId: 'native-workout', payload: { durationSeconds: 660, activityType: 50 } };
   store.ingest(batch('final', [{ op: 'delete', typeIdentifier: 'HKWorkoutType', recordId: 'live-workout' }, complete]), 'final', now);
   assert.equal(store.status(now).activity.workouts.minutes, 11);
@@ -160,6 +160,6 @@ test('publishes the computed sleep category only on the sleep ending day', async
   assert.equal(state.indices.sleep.score, 100); // Eight hours, regular bedtime, no recorded awake time.
   let sent;
   await store.publish(async title => { sent = title; }, now);
-  assert.match(sent, /｜睡眠优秀\(100分\)｜/);
-  assert.match(store.status(now + 8 * 3600000).title, /｜睡眠暂无｜/); // Beijing midnight.
+  assert.match(sent, /｜😴 睡眠优秀\(100分\)｜/);
+  assert.match(store.status(now + 8 * 3600000).title, /｜🌙 睡眠暂无｜/); // Beijing midnight.
 });
