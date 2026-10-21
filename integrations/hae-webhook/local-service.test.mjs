@@ -22,7 +22,7 @@ test('local ingress authenticates, commits real SQLite data, and protects status
   assert.equal(response.status, 200); assert.equal((await response.json()).committed, true);
   const state = await (await fetch(url+'/status', { headers })).json();
   assert.equal(state.recordCount, 1); assert.equal(state.indices.displayedHeart.value, 72);
-  assert.match(state.title, /^⚪ 状态暂无｜🌙 睡眠暂无｜❤️ 心率72｜👣 今日步数暂无｜同步时间: \d{2}\/\d{2} \d{2}:\d{2}｜详情 ↗$/);
+  assert.match(state.title, /^❔ 状态暂无｜🛏️ 睡眠暂无｜❤️ 心率72｜👣 今日步数暂无｜同步时间: \d{2}\/\d{2} \d{2}:\d{2}｜详情 ↗$/);
   assert.equal((await fetch(url+'/ingest', { method: 'POST', headers, body: 'x'.repeat(5000) })).status, 413);
   assert.equal((await fetch(url+'/other', { headers })).status, 404);
 });

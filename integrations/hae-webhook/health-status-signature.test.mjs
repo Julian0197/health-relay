@@ -6,10 +6,10 @@ test('shows every today sleep category with its computed score including zero', 
   const now = Date.parse('2026-10-20T08:00:00Z');
   const indices = { features: { hrv: { current: 69 } }, pressure: { score: null, reason: 'missing_hrv' },
     sleep: { date: '2026-10-20', score: 88 } };
-  for (const [score, emoji, label] of [[0, '🛌', '待改善'], [39, '🛌', '待改善'], [40, '🥱', '一般'], [59, '🥱', '一般'],
-    [60, '🙂', '良好'], [79, '🙂', '良好'], [80, '😴', '优秀'], [100, '😴', '优秀']]) {
+  for (const [score, emoji, label] of [[0, '🌑', '待改善'], [39, '🌑', '待改善'], [40, '🌓', '一般'], [59, '🌓', '一般'],
+    [60, '🌜', '良好'], [79, '🌜', '良好'], [80, '💤', '优秀'], [100, '💤', '优秀']]) {
     indices.sleep.score = score;
-    assert.equal(presentation.renderStatusSignature(indices, now), `⚪ 状态暂无｜${emoji} 睡眠${label}(${score}分)｜同步时间: 暂无｜详情 ↗`);
+    assert.equal(presentation.renderStatusSignature(indices, now), `❔ 状态暂无｜${emoji} 睡眠${label}(${score}分)｜同步时间: 暂无｜详情 ↗`);
   }
 });
 
@@ -18,11 +18,11 @@ test('shows the scoring HRV beside every pressure category rather than an unrela
   const indices = { features: { hrv: { current: 99 } }, pressure: {
     score: 50, evidenceAt: now - 60000, evidence: { hrv: 45.56 },
   }, sleep: { date: '2026-10-21', score: 88 } };
-  for (const [score, heading] of [[0, '😌 状态优秀'], [25, '😌 状态优秀'], [26, '🙂 状态正常'],
-    [60, '🙂 状态正常'], [61, '😮‍💨 注意压力'], [80, '😮‍💨 注意压力'], [81, '😵‍💫 压力过载'], [100, '😵‍💫 压力过载']]) {
+  for (const [score, heading] of [[0, '🌟 状态优秀'], [25, '🌟 状态优秀'], [26, '🌿 状态正常'],
+    [60, '🌿 状态正常'], [61, '⚡ 注意压力'], [80, '⚡ 注意压力'], [81, '🚨 压力过载'], [100, '🚨 压力过载']]) {
     indices.pressure.score = score;
     assert.equal(presentation.renderStatusSignature(indices, now),
-      `${heading}(HRV 45.6)｜😴 睡眠优秀(88分)｜同步时间: 暂无｜详情 ↗`);
+      `${heading}(HRV 45.6)｜💤 睡眠优秀(88分)｜同步时间: 暂无｜详情 ↗`);
   }
 });
 
@@ -32,11 +32,11 @@ test('missing or invalid scoring HRV stays unavailable instead of borrowing a di
   for (const hrv of [undefined, null, NaN, Infinity, 0, -1]) {
     indices.pressure.evidence.hrv = hrv;
     assert.equal(presentation.renderStatusSignature(indices, now),
-      '🙂 状态正常(HRV 暂无)｜🌙 睡眠暂无｜同步时间: 暂无｜详情 ↗');
+      '🌿 状态正常(HRV 暂无)｜🛏️ 睡眠暂无｜同步时间: 暂无｜详情 ↗');
   }
   indices.pressure = { score: null, reason: 'short_baseline', hrvBaseline: { days: 0 }, heartBaseline: { days: 0 } };
   assert.equal(presentation.renderStatusSignature(indices, now),
-    '⌚ 状态数据积累中｜🌙 睡眠暂无｜同步时间: 暂无｜详情 ↗');
+    '⏳ 状态数据积累中｜🛏️ 睡眠暂无｜同步时间: 暂无｜详情 ↗');
 });
 
 test('shows daily step icons and the actual received time instead of pressure measurement time or current time', () => {
@@ -45,7 +45,7 @@ test('shows daily step icons and the actual received time instead of pressure me
     sleep: { date: '2026-10-21', score: 84 }, displayedHeart: { value: 65, measuredAt: now - 8 * 60000 } };
   const activity = { steps: { value: 1093, label: '手表今日' }, workouts: { minutes: null, reason: 'no_records' } };
   assert.equal(presentation.renderStatusSignature(indices, now, activity, syncedAt),
-    '🙂 状态正常(HRV 45)｜😴 睡眠优秀(84分)｜❤️ 心率65｜🪑 今日1093步｜同步时间: 10/21 09:23｜详情 ↗');
+    '🌿 状态正常(HRV 45)｜💤 睡眠优秀(84分)｜❤️ 心率65｜🪑 今日1093步｜同步时间: 10/21 09:23｜详情 ↗');
   activity.steps.label = '手机今日';
   assert.match(presentation.renderStatusSignature(indices, now, activity, syncedAt), /｜🪑 今日1093步｜/);
   assert.match(presentation.renderStatusSignature(indices, now + 60000, activity, syncedAt), /同步时间: 10\/21 09:23｜/);
@@ -58,7 +58,7 @@ test('does not present missing, invalid or another day sleep score as today', ()
     { date: '2026-10-20', score: 88 }, { date: '2026-10-22', score: 88 },
     { date: '2026-10-21', score: 101 }, { date: '2026-10-21', score: -1 }]) {
     indices.sleep = sleep;
-    assert.equal(presentation.renderStatusSignature(indices, now), '⚪ 状态暂无｜🌙 睡眠暂无｜同步时间: 暂无｜详情 ↗');
+    assert.equal(presentation.renderStatusSignature(indices, now), '❔ 状态暂无｜🛏️ 睡眠暂无｜同步时间: 暂无｜详情 ↗');
   }
 });
 
@@ -69,12 +69,12 @@ test('labels night and retained evidence without presenting them as a current me
     score: 50, context: 'nightly', evidenceAt, source: 'watch', hrvBaseline: { days: 3 }, heartBaseline: { days: 3 },
     evidence: { hrv: 60 },
   } };
-  assert.equal(presentation.renderStatusSignature(indices, now), '🙂 夜间状态正常(HRV 60)｜🌙 睡眠暂无｜同步时间: 暂无｜详情 ↗');
+  assert.equal(presentation.renderStatusSignature(indices, now), '🌿 夜间状态正常(HRV 60)｜🛏️ 睡眠暂无｜同步时间: 暂无｜详情 ↗');
   indices.lastValidPressure = { ruleVersion: 'rule', source: 'watch', evidenceAt, score: 50, context: 'nightly', hrv: 58.2 };
   indices.pressure.score = null; indices.pressure.reason = 'expired_hrv';
-  assert.equal(presentation.renderStatusSignature(indices, now), '🙂 上次状态正常(HRV 58.2)｜🌙 睡眠暂无｜同步时间: 暂无｜详情 ↗');
+  assert.equal(presentation.renderStatusSignature(indices, now), '🌿 上次状态正常(HRV 58.2)｜🛏️ 睡眠暂无｜同步时间: 暂无｜详情 ↗');
   delete indices.lastValidPressure.hrv;
-  assert.equal(presentation.renderStatusSignature(indices, now), '🙂 上次状态正常(HRV 暂无)｜🌙 睡眠暂无｜同步时间: 暂无｜详情 ↗');
+  assert.equal(presentation.renderStatusSignature(indices, now), '🌿 上次状态正常(HRV 暂无)｜🛏️ 睡眠暂无｜同步时间: 暂无｜详情 ↗');
 });
 
 test('separates stale heart measurement time from pressure time and does not invent missing daily data', () => {
@@ -84,11 +84,11 @@ test('separates stale heart measurement time from pressure time and does not inv
   }, displayedHeart: { value: 55, measuredAt: now-2*3600000 } };
   const activity = { steps: { value: null }, workouts: { minutes: null, reason: 'no_records' } };
   assert.equal(presentation.renderStatusSignature(indices, now, activity),
-    '⚪ 状态暂无｜🌙 睡眠暂无｜💙 上次心率55｜👣 今日步数暂无｜同步时间: 暂无｜详情 ↗');
+    '❔ 状态暂无｜🛏️ 睡眠暂无｜💙 上次心率55｜👣 今日步数暂无｜同步时间: 暂无｜详情 ↗');
   indices.displayedHeart = null;
   activity.steps = { value: 0, label: '手机今日' }; activity.workouts = { minutes: 0, durationSeconds: 30 };
   assert.equal(presentation.renderStatusSignature(indices, now, activity),
-    '⚪ 状态暂无｜🌙 睡眠暂无｜🤍 心率暂无｜🪑 今日0步｜同步时间: 暂无｜详情 ↗');
+    '❔ 状态暂无｜🛏️ 睡眠暂无｜🤍 心率暂无｜🪑 今日0步｜同步时间: 暂无｜详情 ↗');
 });
 
 test('heart icons follow displayed numeric intervals and omit the rate unit', () => {

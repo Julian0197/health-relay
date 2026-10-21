@@ -2,10 +2,12 @@
 const MINUTE = 60000, HOUR = 60 * MINUTE;
 // The signature names only the state; whether it is today's, current or historical is shown on the dashboard.
 export const SIGNATURE_TEXT_VERSION = 'health-signature-text-v1';
-export const STATUS_SIGNATURE_TEXT_VERSION = 'health-status-signature-text-v3';
+export const STATUS_SIGNATURE_TEXT_VERSION = 'health-status-signature-text-v4';
 export const RETAINED_PRESSURE_MS = 7 * 24 * HOUR;
 export const PRESSURE_LABELS = { relaxed: '状态优秀', balanced: '状态正常', elevated: '注意压力', high: '压力过载' };
 const labels = PRESSURE_LABELS;
+const statusEmojis = { relaxed: '🌟', balanced: '🌿', elevated: '⚡', high: '🚨',
+  excellent: '💤', good: '🌜', fair: '🌓', rest_needed: '🌑' };
 const dateKey = time => new Date(time + 8 * HOUR).toISOString().slice(0, 10);
 const stamp = time => Number.isFinite(time)
   ? new Date(time + 8 * HOUR).toISOString().slice(5, 16).replace('-', '/').replace('T', ' ') : '—';
@@ -63,13 +65,13 @@ export function renderStatusSignature(indices, now, activity = null, syncedAt = 
   const prefix = { nightly: '夜间', retained: '上次' }[headline.basis] ?? '';
   const hrv = headline.basis === 'retained' ? indices.lastValidPressure?.hrv : indices.pressure.evidence?.hrv;
   const hrvText = Number.isFinite(hrv) && hrv > 0 ? Math.round(hrv * 10) / 10 : '暂无';
-  const heading = headline.basis === 'building_baseline' ? '⌚ 状态数据积累中'
-    : headline.basis === 'missing' ? '⚪ 状态暂无' : `${scorePresentation('pressure', headline.score).emoji} ${prefix}${headline.label}(HRV ${hrvText})`;
+  const heading = headline.basis === 'building_baseline' ? '⏳ 状态数据积累中'
+    : headline.basis === 'missing' ? '❔ 状态暂无' : `${statusEmojis[headline.state]} ${prefix}${headline.label}(HRV ${hrvText})`;
   const sleep = indices.sleep;
   const todaySleep = sleep?.date === dateKey(now) && Number.isFinite(sleep.score) && sleep.score >= 0 && sleep.score <= 100;
   const sleepLabels = { excellent: '优秀', good: '良好', fair: '一般', rest_needed: '待改善' };
   const sleepPresentation = scorePresentation('sleep', sleep?.score);
-  const parts = [heading, todaySleep ? `${sleepPresentation.emoji} 睡眠${sleepLabels[sleepPresentation.state]}(${Math.round(sleep.score)}分)` : '🌙 睡眠暂无'];
+  const parts = [heading, todaySleep ? `${statusEmojis[sleepPresentation.state]} 睡眠${sleepLabels[sleepPresentation.state]}(${Math.round(sleep.score)}分)` : '🛏️ 睡眠暂无'];
   if (activity) {
     const h = indices.displayedHeart;
     if (h && Number.isFinite(h.value) && Number.isFinite(h.measuredAt) && h.measuredAt <= now) {
