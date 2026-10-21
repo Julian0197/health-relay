@@ -31,6 +31,7 @@ final class AutomationStore {
 
     private(set) var backfills: [BackfillJob] = []
     let journal: SyncJournal
+    let history: SyncHistoryStore
     private(set) var outcomes: [UUID: RunLog] = [:]
     private(set) var active: Set<UUID> = []
     private var observers: [HKObserverQuery] = []
@@ -58,7 +59,8 @@ final class AutomationStore {
         }
         repository = ConfigurationRepository(fileURL: file)
         backfillRepository = BackfillRepository(file: directory.appendingPathComponent("backfills.json"))
-        journal = SyncJournal(directory: directory.appendingPathComponent("sync", isDirectory: true))
+        history = SyncHistoryStore(file: directory.appendingPathComponent("history/history.sqlite"))
+        journal = SyncJournal(directory: directory.appendingPathComponent("sync", isDirectory: true), history: history)
         loadConfiguration()
         #if DEBUG
         if configurationReady && tasks.isEmpty {
@@ -89,6 +91,9 @@ final class AutomationStore {
             } catch { loadError = "验收配置创建失败" }
         }
         #endif
+        #if DEBUG && targetEnvironment(simulator)
+        SyncHistoryUITestFixture.install(history, device: .iPhone)
+        #endif
         for task in tasks { outcomes[task.id] = try? journal.load(task.id).logs.first }
     }
 
@@ -100,6 +105,11 @@ final class AutomationStore {
             tasks = loadedTasks; backfills = loadedBackfills
             waitingForProtectedData = false
             for task in tasks { outcomes[task.id] = try? journal.load(task.id).logs.first }
+            journal.recoverHistory()
+            for task in loadedTasks where task.device == .iPhone { try? journal.migrateHistory(task: task) }
+            for job in loadedBackfills {
+                try? journal.migrateHistory(task: job.task, journalID: job.id, context: SyncHistoryContext(task: job.task, journalID: job.id, kind: .backfill))
+            }
         } catch {
             // A lock can occur between the availability check and the file read.
             if !protectedDataAvailable() { waitingForProtectedData = true }
@@ -154,6 +164,29 @@ final class AutomationStore {
         try repository.save(updated)
         tasks = updated
         Task { await configureObservers() }
+    }
+
+    func installHealthSignature(endpoint: String, key: String) throws {
+        guard configurationReady, protectedDataAvailable() else { throw ConfigurationError("设备解锁后再创建同步任务") }
+        guard !key.isEmpty, !AutomationConfig.containsHeaderLineBreak(key) else { throw ConfigurationError("请填写有效的服务认证值") }
+        var incoming = try HealthSignaturePreset.configurations(endpoint: endpoint)
+        guard !tasks.contains(where: { old in incoming.contains { $0.name == old.name && $0.destination.url == old.destination.url } }) else {
+            throw ConfigurationError("此服务的健康签名任务已存在，请在任务列表检查")
+        }
+        var references: [String] = []
+        do {
+            for index in incoming.indices {
+                let reference = try credentials.save(key); references.append(reference)
+                incoming[index].destination.secretHeaders = ["X-Acceptance-Key": reference]
+                incoming[index].destination.requiredSecretHeaders = nil
+            }
+            let updated = tasks + incoming
+            try repository.save(updated)
+            tasks = updated
+        } catch {
+            for reference in references { credentials.delete(reference) }
+            throw error
+        }
     }
 
     func importConfigurations(_ inspection: ConfigurationInspection) throws {
@@ -266,6 +299,7 @@ final class AutomationStore {
             }
         } catch {
             outcomes[task.id] = RunLog(state: .failed, message: (error as? ConfigurationError)?.message ?? "健康数据暂不可读，请解锁并检查健康读取权限")
+            journal.recordRunFailure(context: SyncHistoryContext(task: task), message: outcomes[task.id]!.message)
             markDirty(task.id)
         }
     }
@@ -277,13 +311,10 @@ final class AutomationStore {
 
     func cancelPending(_ task: AutomationConfig) throws {
         guard !active.contains(task.id) else { throw ConfigurationError("任务正在运行") }
-        var state = try journal.load(task.id)
-        guard state.pending != nil else { return }
-        state.pending = nil
-        let log = RunLog(state: .queued, message: "已取消待上传批次，未推进游标；下次从上次确认的位置重新读取")
-        state.logs.insert(log, at: 0); state.logs = Array(state.logs.prefix(30))
-        try journal.save(state, for: task.id)
-        outcomes[task.id] = log; markDirty(task.id); scheduleRefresh()
+        guard let pending = try journal.load(task.id).pending else { return }
+        let identity = BatchIdentity(taskID: task.id, batchID: pending.batchID, fingerprint: pending.configurationFingerprint)
+        _ = try journal.discard(identity)
+        outcomes[task.id] = try journal.load(task.id).logs.first; markDirty(task.id); scheduleRefresh()
     }
 
     private func ensureEditable(_ task: AutomationConfig) throws {
@@ -452,6 +483,7 @@ final class AutomationStore {
         guard foregroundActive != active else { return }
         foregroundActive = active
         if active && reloadProtectedConfiguration() { startBackgroundServices() }
+        if active { journal.recoverHistory() }
         scheduleRefresh()
         if active { Task { await runDue() } }
     }

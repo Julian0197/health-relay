@@ -4,9 +4,10 @@ import { pressureHeadline, renderHealthSignature, scorePresentation, SIGNATURE_T
 import { scopeHealthSeries, scopePressureSleep } from './health-profile.mjs';
 export { scorePresentation } from './health-signature.mjs';
 const HOUR = 3600000, DAY = 24 * HOUR;
-const RULE_VERSION = 'health-indices-v3-nightly';
+const RULE_VERSION = 'health-indices-v4-nightly';
 // v6 retires the v5 one-day warmup: a provisional score from a single prior day moved with that day's noise.
-const RMSSD_RULE_VERSION = 'health-indices-v7-rmssd-30d';
+// v4 / v8 include workout and recovery observations in current and baseline scoring.
+const RMSSD_RULE_VERSION = 'health-indices-v8-rmssd-30d';
 // Qualified prior days each baseline needs before a score is produced.
 export const BASELINE_REQUIREMENT = { RMSSD: { hrv: 7, heart: 3 }, SDNN: { hrv: 3, heart: 3 } };
 const RMSSD_WINDOW = 20 * 60000;
@@ -55,12 +56,11 @@ function pressureFromBaselines(hrv, heart, hrvBaseline, heartBaseline) {
 const usableSleep = s => !s.conflict && s.sources.length === 1 && known(s.sources[0]) && s.asleepMinutes >= 180 &&
   (s.end - s.start) / 60000 - s.asleepMinutes - s.awakeMinutes <= 5;
 const inSleep = (t, session) => session.intervals.some(([start, end]) => start <= t && t < end);
-function nightlyPressure(sessions, hrv, heart, workouts, now, source, method) {
+function nightlyPressure(sessions, hrv, heart, now, source, method) {
   const rmssd = method === 'RMSSD';
   const latest = sessions.filter(s => s.main && s.end <= now).at(-1);
   if (!latest || !usableSleep(latest) || now - latest.end < HOUR || now - latest.end >= 36 * HOUR ||
     !known(source) || latest.sources[0] !== source) return null;
-  const exercise = t => workouts.some(w => w.start <= t && t <= w.end + HOUR);
   const observations = rows => {
     const groups = new Map();
     for (const r of rows) {
@@ -72,8 +72,8 @@ function nightlyPressure(sessions, hrv, heart, workouts, now, source, method) {
   };
   const hv = observations(hrv), hr = observations(heart);
   const summarize = session => {
-    const values = hv.filter(r => inSleep(r.start, session) && !exercise(r.start));
-    const windows = hr.filter(r => inSleep(r.start, session) && inSleep(r.end - 1, session) && !exercise(r.start));
+    const values = hv.filter(r => inSleep(r.start, session));
+    const windows = hr.filter(r => inSleep(r.start, session) && inSleep(r.end - 1, session));
     const hrvReady = rmssd ? values.length >= 12 && values.at(-1).start - values[0].start >= 2 * HOUR &&
       new Set(values.map(r => Math.floor(r.start / HOUR))).size >= 3 : values.length > 0;
     const heartReady = rmssd ? windows.length >= 60 && windows.length >= session.asleepMinutes / 2 : windows.length >= 3;
@@ -93,7 +93,7 @@ function nightlyPressure(sessions, hrv, heart, workouts, now, source, method) {
   const heartBaseline = summarizeBaseline(heartNights.map(s => s.heart), rmssd ? 30 : 7, false, 'equal_night');
   return { ...pressureFromBaselines(current.hrv, current.heart, hrvBaseline, heartBaseline),
     reason: null, context: 'nightly', hrvMethod: method,
-    confidence: rmssd && hrvNights.length >= 14 ? 'personal_baseline' : 'short_baseline', activityCoverage: 'workouts_only',
+    confidence: rmssd && hrvNights.length >= 14 ? 'personal_baseline' : 'short_baseline', activityCoverage: 'not_filtered',
     hrvBaseline, heartBaseline, evidenceAt: latest.end, source, validUntil: latest.end + 36 * HOUR,
     evidence: { ...current, startAt: latest.start, endAt: latest.end, method: 'nightly_medians', completeness: 'received_records_only' } };
 }
@@ -141,8 +141,7 @@ export function evaluateHealthIndices(series, now, previous = null, options = {}
     .map(r => options.awakeOnly && r.end > now ? { ...r, end: now } : r);
   const sessions = sleepSessions(sleepRows);
   const pressureSessions = scopePressureSleep(sessions, options.profile);
-  const workouts = (series.workout ?? []).filter(r => r.start <= now);
-  const excluded = t => sessions.some(s => s.start <= t && t < s.end) || workouts.some(w => w.start <= t && t <= w.end + HOUR);
+  const excluded = t => sessions.some(s => s.start <= t && t < s.end);
   const valid = rows => unique(rows ?? []).filter(r => Number.isFinite(r.value) && r.value > 0 && r.start <= now);
   const allHrv = valid(series.hrv);
   // Once RMSSD is in use, missing/stale data must not silently select the old SDNN baseline.
@@ -151,7 +150,7 @@ export function evaluateHealthIndices(series, now, previous = null, options = {}
   const freshness = rmssd ? 90 * 60000 : 6 * HOUR, requirement = BASELINE_REQUIREMENT[method];
   const hrv = allHrv.filter(r => r.method === method);
   const heart = valid(series.heart).filter(r => r.end <= now);
-  // Do not fall back to an older sample when the latest one is sleeping, exercising or ambiguous.
+  // Do not fall back to an older sample when the latest one is sleeping or ambiguous.
   const current = [...hrv].sort((a, b) => b.start - a.start)[0];
   const alignedWindow = current ? heart.filter(r => r.source === current.source && (rmssd
     ? r.start > current.start - RMSSD_WINDOW && r.start <= current.start
@@ -181,13 +180,13 @@ export function evaluateHealthIndices(series, now, previous = null, options = {}
     evidence: { hrv: hrvValue, heart: heartValue, method: rmssd ? 'trailing_20min_medians' : 'aligned_30min_median',
       ...(rmssd ? { hrvSamples: windowHrv.length, hrvSpanMinutes, heartWindows: alignedHeart.length,
         aggregation: current?.aggregation ?? 'raw' } : {}) },
-    activityCoverage: 'workouts_only', components: null, excludedHeartWindows: alignedWindow.length - aligned.length,
+    activityCoverage: 'not_filtered', components: null, excludedHeartWindows: alignedWindow.length - aligned.length,
     hrvBaseline, heartBaseline, baselineRequirement: requirement, confidence: hrvBaseline.days >= 14 && (!rmssd || heartBaseline.days >= 3)
       ? 'personal_baseline' : 'short_baseline' };
   if (!current) pressure.reason = 'missing_hrv';
   else if (!known(current.source) || conflicting(hrv.filter(r => r.start === current.start)) || (rmssd && conflicting(recentHrv))) pressure.reason = 'source_or_sample_conflict';
   else if (now - current.start >= freshness) pressure.reason = 'expired_hrv';
-  else if (excluded(current.start)) pressure.reason = 'sleep_or_workout';
+  else if (excluded(current.start)) pressure.reason = 'sleeping';
   else if (rmssd && (windowHrv.length < 3 || hrvSpanMinutes < 10)) pressure.reason = 'insufficient_samples';
   else if (heartValue === null) pressure.reason = 'missing_or_conflicting_aligned_hr';
   else if (rmssd && alignedHeart.length < 10) pressure.reason = 'missing_or_conflicting_aligned_hr';
@@ -199,7 +198,7 @@ export function evaluateHealthIndices(series, now, previous = null, options = {}
   const latestNight = pressureSessions.filter(s => s.main && s.end <= now).at(-1);
   // Validate the completed night's own evidence independently of the latest daytime device.
   const verifiedNight = options.awakeOnly ? null
-    : nightlyPressure(pressureSessions, hrv, heart, workouts, now, latestNight?.sources[0], method);
+    : nightlyPressure(pressureSessions, hrv, heart, now, latestNight?.sources[0], method);
   const night = pressure.reason !== 'source_or_sample_conflict' && verifiedNight?.source === current?.source ? verifiedNight : null;
   const nightlyEvidence = latestNight && !options.awakeOnly ? { evidenceAt: latestNight.end, status: now - latestNight.end >= 36 * HOUR
     ? 'expired' : now - latestNight.end < HOUR ? 'settling' : verifiedNight ? 'available' : 'unavailable' } : null;

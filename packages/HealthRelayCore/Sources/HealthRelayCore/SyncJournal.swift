@@ -17,6 +17,7 @@ public struct PendingUpload: Codable, Sendable {
     public var checkpoint: TypeCheckpoint
     public var configurationFingerprint: String
     public var headers: [String: String]?
+    public var history: SyncHistoryMetadata?
     public var attempts = 0
     public var nextAttempt: Date?
     public var automaticRetry = true
@@ -34,6 +35,7 @@ public struct RunLog: Codable, Identifiable, Sendable {
     public var metricCounts: [String: Int]?
     public var omittedDeletions: Int?
     public var httpStatus: Int?
+    public var historyRecorded: Bool?
     public init(state: State, message: String, records: Int = 0, batches: Int = 0, httpStatus: Int? = nil) {
         self.state = state; self.message = message; self.records = records; self.batches = batches; self.httpStatus = httpStatus
     }
@@ -48,26 +50,44 @@ public struct SyncState: Codable, Sendable {
     public var lastAttempt: Date?
     public var lastConfirmedAt: Date?
     public var logs: [RunLog] = []
+    public var historyEvents: [SyncHistoryEvent]?
     public init() {}
 }
 /// One bounded outbox and its proposed checkpoint share one atomic file.
 /// The committed checkpoint advances only after the batch acknowledgement.
 @MainActor public final class SyncJournal {
     public let directory: URL
-    public init(directory: URL) { self.directory = directory }
+    public let history: SyncHistoryStore?
+    public private(set) var historyError: String?
+    public init(directory: URL, history: SyncHistoryStore? = nil) { self.directory = directory; self.history = history }
     public func load(_ id: UUID) throws -> SyncState {
         let url = file(id)
         guard FileManager.default.fileExists(atPath: url.path) else { return SyncState() }
-        let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .custom { decoder in
+            let text = try decoder.singleValueContainer().decode(String.self)
+            guard let date = AutomationConfig.parseDate(text) else { throw ConfigurationError("同步状态时间无效") }
+            return date
+        }
         var state = try decoder.decode(SyncState.self, from: Data(contentsOf: url))
         guard state.schemaVersion == 1 else { throw ConfigurationError("不支持的同步状态版本") }
         if state.lastConfirmedAt == nil {
             state.lastConfirmedAt = state.logs.first { $0.state == .succeeded && $0.records > 0 }?.date
         }
+        projectHistory(&state, id: id)
         return state
     }
     public func save(_ state: SyncState, for id: UUID) throws {
-        let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .iso8601; encoder.outputFormatting = [.sortedKeys]
+        var state = state
+        state.logs = Array(state.logs.filter { $0.date >= Date().addingTimeInterval(-SyncHistoryStore.retention) }.prefix(30))
+        try write(state, id: id)
+        projectHistory(&state, id: id)
+    }
+    private func write(_ state: SyncState, id: UUID) throws {
+        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
+        encoder.dateEncodingStrategy = .custom { date, encoder in
+            var value = encoder.singleValueContainer(); try value.encode(HealthTimestamp.string(date))
+        }
         let data = try encoder.encode(state)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         #if os(iOS) || os(watchOS)
@@ -77,10 +97,98 @@ public struct SyncState: Codable, Sendable {
         #endif
     }
     public func remove(_ id: UUID) throws {
+        // Project durable events before removing operational state; history outlives its task.
+        let state = try load(id)
+        guard state.historyEvents?.isEmpty != false else { throw ConfigurationError("历史记录尚未保存，请恢复本地存储后再删除任务") }
         let url = file(id)
         if FileManager.default.fileExists(atPath: url.path) { try FileManager.default.removeItem(at: url) }
     }
     private func file(_ id: UUID) -> URL { directory.appendingPathComponent(id.uuidString + ".json") }
+
+    private func projectHistory(_ state: inout SyncState, id: UUID) {
+        guard let history, let events = state.historyEvents, !events.isEmpty else { return }
+        do {
+            try history.apply(events)
+            state.historyEvents = nil
+            try write(state, id: id)
+            historyError = nil
+        } catch { historyError = "同步历史暂未保存，事件已保留，恢复后会重试" }
+    }
+    func appendHistory(_ status: SyncHistoryState, pending: PendingUpload, to state: inout SyncState,
+                       at date: Date, eventID: String? = nil, attemptID: String? = nil, message: String? = nil, httpStatus: Int? = nil, confirmationTimeKnown: Bool = true) {
+        guard history != nil, let metadata = pending.history else { return }
+        let entryID = metadata.context.journalID.uuidString + ":" + pending.batchID
+        let event = SyncHistoryEvent(id: eventID ?? UUID().uuidString, entryID: entryID, context: metadata.context,
+            batchID: pending.batchID, date: date, state: status, summary: metadata.summary, queuedAt: metadata.queuedAt,
+            attemptID: attemptID ?? metadata.attemptID, message: message, httpStatus: httpStatus, legacy: metadata.legacy == true, confirmationTimeKnown: confirmationTimeKnown)
+        state.historyEvents = (state.historyEvents ?? []) + [event]
+    }
+    @discardableResult public func markSending(_ identity: BatchIdentity, attemptID: String, at date: Date = Date()) throws -> Bool {
+        var state = try load(identity.taskID)
+        guard var pending = state.pending, identity.matches(pending) else { return false }
+        pending.history?.attemptID = attemptID; pending.history?.attemptStartedAt = date
+        state.pending = pending
+        appendHistory(.sending, pending: pending, to: &state, at: date, eventID: attemptID + ":sending", attemptID: attemptID)
+        try save(state, for: identity.taskID); return true
+    }
+    public func migrateHistory(task: AutomationConfig, journalID: UUID? = nil, context suppliedContext: SyncHistoryContext? = nil, now: Date = Date()) throws {
+        guard history != nil else { return }
+        let id = journalID ?? task.id
+        var state = try load(id)
+        let context = suppliedContext ?? SyncHistoryContext(task: task, journalID: id, kind: .legacy)
+        if var pending = state.pending, pending.history == nil {
+            pending.history = SyncHistoryMetadata(context: context, summary: SyncHistorySummary(recordCount: pending.recordCount), queuedAt: now)
+            pending.history?.legacy = true; state.pending = pending
+            appendHistory(.queued, pending: pending, to: &state, at: now, eventID: pending.batchID + ":legacy-queued")
+        }
+        for index in state.logs.indices where state.logs[index].historyRecorded != true {
+            let log = state.logs[index]; state.logs[index].historyRecorded = true
+            guard log.date >= now.addingTimeInterval(-SyncHistoryStore.retention), log.state != .noData, log.state != .running else { continue }
+            let status: SyncHistoryState = log.state == .succeeded ? .succeeded : log.state == .failed ? .failed : .queued
+            let event = SyncHistoryEvent(id: "legacy:" + log.id.uuidString, entryID: "legacy:" + id.uuidString + ":" + log.id.uuidString,
+                context: context, date: log.date, state: status, summary: SyncHistorySummary(recordCount: log.records),
+                message: log.message, httpStatus: log.httpStatus, legacy: true)
+            state.historyEvents = (state.historyEvents ?? []) + [event]
+        }
+        try save(state, for: id)
+    }
+    /// Failures before a readable operational state get their own durable event file.
+    public func recordRunFailure(context: SyncHistoryContext, message: String, at date: Date = Date()) {
+        guard let history else { return }
+        let event = SyncHistoryEvent(entryID: "run:" + UUID().uuidString, context: context, date: date, state: .failed, message: message)
+        let url = directory.appendingPathComponent("history-errors", isDirectory: true).appendingPathComponent(event.id + ".json")
+        do {
+            let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .millisecondsSince1970
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            #if os(iOS) || os(watchOS)
+            try encoder.encode(event).write(to: url, options: [.atomic, .completeFileProtection])
+            #else
+            try encoder.encode(event).write(to: url, options: .atomic)
+            #endif
+            try history.apply([event]); try FileManager.default.removeItem(at: url)
+        } catch { historyError = "异常记录尚未写入历史，请解锁设备或检查本地存储" }
+    }
+    public func recoverHistory(now: Date = Date()) {
+        guard let history else { return }
+        do {
+            if FileManager.default.fileExists(atPath: directory.path) {
+                for url in try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) {
+                    if let id = UUID(uuidString: url.deletingPathExtension().lastPathComponent), url.pathExtension == "json" {
+                        let state = try load(id); try save(state, for: id)
+                    }
+                }
+            }
+            let failures = directory.appendingPathComponent("history-errors", isDirectory: true)
+            if FileManager.default.fileExists(atPath: failures.path) {
+                let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .millisecondsSince1970
+                for url in try FileManager.default.contentsOfDirectory(at: failures, includingPropertiesForKeys: nil) where url.pathExtension == "json" {
+                    let event = try decoder.decode(SyncHistoryEvent.self, from: Data(contentsOf: url))
+                    try history.apply([event], now: now); try FileManager.default.removeItem(at: url)
+                }
+            }
+            try history.prune(now: now)
+        } catch { historyError = "同步历史恢复未完成，原文件已保留" }
+    }
 }
 public enum SyncIdentity {
     private struct QueryIdentity: Encodable { var data: DataSelection; var range: DateRange; var export: ExportSettings }

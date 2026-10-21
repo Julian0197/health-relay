@@ -2,9 +2,12 @@
 const MINUTE = 60000, HOUR = 60 * MINUTE;
 // The signature names only the state; whether it is today's, current or historical is shown on the dashboard.
 export const SIGNATURE_TEXT_VERSION = 'health-signature-text-v1';
+export const STATUS_SIGNATURE_TEXT_VERSION = 'health-status-signature-text-v4';
 export const RETAINED_PRESSURE_MS = 7 * 24 * HOUR;
 export const PRESSURE_LABELS = { relaxed: '状态优秀', balanced: '状态正常', elevated: '注意压力', high: '压力过载' };
 const labels = PRESSURE_LABELS;
+const statusEmojis = { relaxed: '🌟', balanced: '🌿', elevated: '⚡', high: '🚨',
+  excellent: '💤', good: '🌜', fair: '🌓', rest_needed: '🌑' };
 const dateKey = time => new Date(time + 8 * HOUR).toISOString().slice(0, 10);
 const stamp = time => Number.isFinite(time)
   ? new Date(time + 8 * HOUR).toISOString().slice(5, 16).replace('-', '/').replace('T', ' ') : '—';
@@ -54,6 +57,36 @@ export function pressureHeadline(indices, now, history = null, { today = true } 
   const buildingBaseline = p.reason === 'short_baseline' || (['expired_hrv', 'insufficient_samples'].includes(p.reason) &&
     (p.hrvBaseline.days < (p.baselineRequirement?.hrv ?? 3) || p.heartBaseline.days < (p.baselineRequirement?.heart ?? 3)));
   return { ...result(buildingBaseline ? 'building_baseline' : 'missing', null, { reason: p.reason }), label: null };
+}
+
+// Public LAN signature: state words with their scoring HRV, sleep score, activity and committed-sync time.
+export function renderStatusSignature(indices, now, activity = null, syncedAt = null) {
+  const headline = pressureHeadline(indices, now, null, { today: false });
+  const prefix = { nightly: '夜间', retained: '上次' }[headline.basis] ?? '';
+  const hrv = headline.basis === 'retained' ? indices.lastValidPressure?.hrv : indices.pressure.evidence?.hrv;
+  const hrvText = Number.isFinite(hrv) && hrv > 0 ? Math.round(hrv * 10) / 10 : '暂无';
+  const heading = headline.basis === 'building_baseline' ? '⏳ 状态数据积累中'
+    : headline.basis === 'missing' ? '❔ 状态暂无' : `${statusEmojis[headline.state]} ${prefix}${headline.label}(HRV ${hrvText})`;
+  const sleep = indices.sleep;
+  const todaySleep = sleep?.date === dateKey(now) && Number.isFinite(sleep.score) && sleep.score >= 0 && sleep.score <= 100;
+  const sleepLabels = { excellent: '优秀', good: '良好', fair: '一般', rest_needed: '待改善' };
+  const sleepPresentation = scorePresentation('sleep', sleep?.score);
+  const parts = [heading, todaySleep ? `${statusEmojis[sleepPresentation.state]} 睡眠${sleepLabels[sleepPresentation.state]}(${Math.round(sleep.score)}分)` : '🛏️ 睡眠暂无'];
+  if (activity) {
+    const h = indices.displayedHeart;
+    if (h && Number.isFinite(h.value) && Number.isFinite(h.measuredAt) && h.measuredAt <= now) {
+      const heart = Math.round(h.value), emoji = heart < 60 ? '💙' : heart < 100 ? '❤️' : heart < 140 ? '💓' : '🔥';
+      parts.push(`${emoji} ${now-h.measuredAt >= 90*MINUTE ? '上次' : ''}心率${heart}`);
+    } else parts.push('🤍 心率暂无');
+    if (Number.isFinite(activity.steps?.value)) {
+      const steps = Math.round(activity.steps.value), emoji = steps < 3000 ? '🪑' : steps < 8000 ? '🚶' : steps < 12000 ? '🏃' : '🏅';
+      parts.push(`${emoji} 今日${steps}步`);
+    } else parts.push('👣 今日步数暂无');
+    const workout = activity.workouts;
+    if (Number.isFinite(workout?.minutes) && workout.minutes >= 10) parts.push(`💪 今日锻炼${workout.minutes}分`);
+  }
+  parts.push(Number.isFinite(syncedAt) && syncedAt <= now ? `同步时间: ${stamp(syncedAt)}` : '同步时间: 暂无');
+  return [...parts, '详情 ↗'].join('｜');
 }
 
 export function renderHealthSignature(indices, now, history = null) {

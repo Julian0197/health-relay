@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
+<key>NSLocalNetworkUsageDescription</key><string>通过同一 Wi-Fi 连接你在 Mac 上的 HealthRelay 接收服务。</string>
 <key>UIBackgroundModes</key><array><string>fetch</string></array>
 <key>BGTaskSchedulerPermittedIdentifiers</key><array><string>org.healthrelay.app.refresh</string></array>
 </dict></plist>

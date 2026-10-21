@@ -68,6 +68,10 @@ struct TaskExecutionView: View {
                         Text(outcome.date.formatted()).font(.caption).foregroundStyle(.secondary)
                     }
                 }
+                Section {
+                    NavigationLink("同步历史") { SyncHistoryView(history: store.history, taskID: task.id, notice: { store.journal.historyError }) }
+                        .accessibilityIdentifier("task-sync-history")
+                }
                 if let state = try? store.journal.load(task.id) {
                     if let pending = state.pending {
                         Section("待上传") {

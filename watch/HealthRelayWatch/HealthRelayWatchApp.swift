@@ -9,10 +9,30 @@ import HealthRelayCore
     var body: some Scene {
         WindowGroup {
             NavigationStack {
+                #if DEBUG && targetEnvironment(simulator)
+                if let preview = SyncHistoryUITestFixture.initialScreen(store.history) { preview } else { home }
+                #else
+                home
+                #endif
+            }.task { await store.start() }
+                .onChange(of: phase) { _, value in if value == .active { Task { await store.start() } } }
+        }
+    }
+    private var home: some View {
                 List {
                     Section {
                         Text("\(store.tasks.count) 个任务").font(.headline)
                         Text(store.loadError ?? (store.waitingForProtectedData ? "设备锁定，本地配置暂不可读，恢复访问后继续" : store.status)).font(.footnote)
+                    }
+                    Section("健康动态签名") {
+                        NavigationLink("同步历史") { SyncHistoryView(history: store.history, notice: { store.journal.historyError }) }
+                            .accessibilityIdentifier("sync-history")
+                        NavigationLink("配置健康签名同步") { WatchHealthSignatureSetupView(store: store) }
+                            .accessibilityIdentifier("watch-signature-setup")
+                        if let workout = store.workout {
+                            NavigationLink("运动与每分钟同步") { WatchWorkoutView(store: store, model: workout) }
+                                .accessibilityIdentifier("watch-workout")
+                        }
                     }
                     ForEach(store.tasks) { task in
                         NavigationLink { WatchTaskView(store: store, id: task.id) } label: {
@@ -22,11 +42,8 @@ import HealthRelayCore
                             }
                         }
                     }
-                    if store.tasks.isEmpty { Text("在 iPhone 编辑任务，选择 Apple Watch 后点击同步 Watch 配置。").font(.footnote) }
+                    if store.tasks.isEmpty { Text("通过上方入口配置健康签名，或从 iPhone 同步其他 Watch 任务。").font(.footnote) }
                 }.navigationTitle("HealthRelay")
-            }.task { await store.start() }
-                .onChange(of: phase) { _, value in if value == .active { Task { await store.start() } } }
-        }
     }
 }
 
@@ -71,6 +88,8 @@ private struct WatchTaskView: View {
                             } }
                         }
                 }
+                NavigationLink("同步历史") { SyncHistoryView(history: store.history, taskID: id, notice: { store.journal.historyError }) }
+                    .accessibilityIdentifier("task-sync-history")
                 if let log = store.outcomes[id] {
                     Section("最近结果") { Text(log.message).font(.footnote); Text(log.date, style: .relative).font(.caption) }
                 }
@@ -83,11 +102,16 @@ private struct WatchTaskView: View {
 
 @MainActor final class WatchAppDelegate: NSObject, WKApplicationDelegate {
     var store = WatchStore.shared
-    func applicationDidFinishLaunching() { store.startBackgroundServices() }
+    func applicationDidFinishLaunching() { store.startBackgroundServices(); store.workout?.recover() }
+    func handleActiveWorkoutRecovery() { store.workout?.recover() }
     func handle(_ backgroundTasks: Set<WKRefreshBackgroundTask>) {
         for task in backgroundTasks {
             let completion = BackgroundTaskCompletion(task)
-            if let upload = task as? WKURLSessionRefreshBackgroundTask, upload.sessionIdentifier == BackgroundUploader.identifier {
+            if let upload = task as? WKURLSessionRefreshBackgroundTask, upload.sessionIdentifier == WatchWorkoutController.uploadIdentifier,
+               let workout = store.workout {
+                task.expirationHandler = { Task { @MainActor in completion.finish() } }
+                workout.uploader.handleEvents { completion.finish() }
+            } else if let upload = task as? WKURLSessionRefreshBackgroundTask, upload.sessionIdentifier == BackgroundUploader.identifier {
                 task.expirationHandler = { Task { @MainActor in completion.finish() } }
                 store.uploader.handleEvents { completion.finish() }
             } else if task is WKApplicationRefreshBackgroundTask {

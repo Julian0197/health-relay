@@ -9,6 +9,7 @@
 | [服务部署与飞书接入](services.md) | Cloudflare Secrets、群机器人、Base 签名和展示副本 |
 | [算法与发布规则](signature-algorithm.md) | 压力、睡眠、文案选择与 webhook HMAC |
 | [iPhone Use 调试](debugging-iphone-use.md) | PUA setup / READY、UI 测试和后台证据 |
+| [本机同步历史](sync-history.md) | iOS / Watch 最近 20 天、批次摘要、尝试时间线与离线分页 |
 | [迁移来源与验收](service-migration.md) | 本次代码迁移范围、验证和未迁移部分 |
 | [HTML 看板](../integrations/hae-webhook/dashboard-app/README.md) | 本地合成预览、构建、授权 HTML 发布 |
 | [能力表](capabilities.md) | 类型、格式和验证边界 |

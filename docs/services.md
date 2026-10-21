@@ -127,3 +127,58 @@ cp bench-runtime.mjs /tmp/baseline/integrations/hae-webhook/
 - **权限边界**：卡片把已渲染数据发送至原 webhook 绑定的群，不携带 API key、webhook、Magic 会话或 Base 读写凭证。按钮沿用文档的既有权限，不自动放宽权限；群卡正文展示无需访问妙笔会话。上传的运动名称与来源标签先转义，不能注入 Markdown 链接或群提醒。
 
 验证包括卡片跨日、缺测、重叠、筛选、单位换算、文本转义、详情入口及重复抑制测试；`npm run test:runtime` 验证真实 workerd / SQLite / Alarm 发出的原生卡片。发布时使用既有 Worker 的私有配置，保留 worker 名称、DO 绑定和 Secrets，先验证 `GET /card`，再核对 `/status` 的投递结果与群内实际消息。不要把测试健康数据上传到生产库以触发验收。
+
+
+## Mac 同 Wi-Fi 的原生 HealthRelay 服务
+
+`integrations/hae-webhook/local-service.mjs` 是独立的 Node HTTPS 接收器，接收原生 `healthrelay.v1`，无需群机器人。它复用上述健康算法，通过已登录的 `lark-cli` 用户身份，只更新指定 Base 记录的 `title` 并读回验证。未配置 `signature` 时只接收数据。
+
+本地服务使用 `renderStatusSignature` 生成个人签名，展示四档文字状态、当天睡眠等级、最新心率、今日步数、今日已记录锻炼累计时长、同步时间与详情入口。睡眠复用现有算法，分为“优秀”（≥80）、“良好”（60–79）、“一般”（40–59）、“待改善”（<40），各档都附上实际分数，例如“睡眠优秀(90分)”，有效零分也保留。仅展示北京时间当天的有效结果，缺测、未完成评分或非当天数据显示“睡眠暂无”；不沿用昨天的结果。四档状态均附参与对应评分的 HRV，例如“压力过载(HRV 28.6)”；HRV 单位为毫秒，最多一位小数，内部压力分不进入标题，Base 不负责计分。夜间和历史结果使用各自评分依据的 HRV；历史值缺失时显示“HRV 暂无”，不套用新采样。缺测和基线积累中的状态不生成虚构数值。本地文案版本为 `health-status-signature-text-v4`。夜间结果注明“夜间”，已发布的同来源、同规则历史结果最多保留 7 天并注明“上次”；缺测显示“状态暂无”，基线不足显示“状态数据积累中”。末尾“同步时间”取服务最近一次新批次成功提交的接收时间，按北京时间显示；不会用状态测量、心率采样、签名生成或发布时间代替。旧批次重放不推进同步时间。状态测量依据仍保留在状态接口中。
+
+`native-activity.mjs` 按北京时间当天汇总活动。步数只取一个来源：优先有当日记录的手表，其次手机，其次其他来源；同类选择最近测量的来源，签名统一显示“今日XX步”，来源仍保留在状态接口中，不把手机与手表原始计数直接相加。这是已收到的单来源步数，不等同于 Apple 健康跨设备融合总量。锻炼使用原生记录的 `durationSeconds` 累计实际时长，排除完全重复的导入；锻炼累计不足 10 分钟或没有可靠累计值时，签名隐藏该片段；满 10 分钟后显示“💪 今日锻炼XX分”。没有当日记录不造出零分钟；重叠、跨午夜或无效时长的待核对原因仍保留在状态接口。心率超过 90 分钟注明“上次”，各指标更新时间互相独立。
+
+状态、睡眠各档均附对应表情；心率不附“次/分”，按 <60 / 60–99 / 100–139 / ≥140 显示 💙 / ❤️ / 💓 / 🔥。今日步数按 <3000 / 3000–7999 / 8000–11999 / ≥12000 显示 🪑 / 🚶 / 🏃 / 🏅。区间按已四舍五入的展示值匹配，仅影响图标；详细映射见 [签名算法说明](signature-algorithm.md)。
+
+在 Git 忽略目录准备配置（下列路径和标识均需替换为自己的真实值）：
+
+```json
+{
+  "bind": "0.0.0.0",
+  "port": 18443,
+  "database": "/absolute/private-data/health.sqlite",
+  "cert": "/absolute/private-data/server.crt",
+  "key": "/absolute/private-data/server.key",
+  "authFile": "/absolute/private-data/auth.key",
+  "signature": {
+    "cli": "/absolute/path/to/lark-cli",
+    "baseToken": "YOUR_BASE_TOKEN",
+    "tableId": "YOUR_TABLE_ID",
+    "recordId": "YOUR_RECORD_ID"
+  }
+}
+```
+
+```sh
+node integrations/hae-webhook/local-service.mjs /absolute/private-data/service-config.json
+```
+
+手机使用受信任且覆盖 Mac 局域网地址的 HTTPS 证书。在 App 的“配置健康签名同步”中填写 `/ingest` 完整地址及认证值；创建后分别运行指标、锻炼任务并授权，再启用自动化。首次读取 30 天，之后增量同步，最小期望间隔 5 分钟。系统控制后台时机；Mac 服务须可达，换 Wi-Fi/IP 后需更新证书或地址。
+
+5 分钟是任务再次具备执行资格的最短间隔，不是后台定时保证。退到桌面后可由 HealthKit 通知和 BGAppRefresh 唤醒；锁屏时 HealthKit 可能不可读，本项目的配置与同步日志也有文件保护，解锁后会尝试继续。用户从多任务界面强制划掉 App 通常会阻止后台重新启动，需手动打开；关机期间不能同步。依据：[Apple 后台执行限制](https://developer.apple.com/forums/thread/685525)、[HealthKit 数据保护](https://developer.apple.com/documentation/healthkit/protecting-user-privacy)。
+
+- `POST /ingest` 使用 `X-Acceptance-Key` 和 `Idempotency-Key`，最大 10 MiB、5000 条。原始数值、删除标记、批次哈希与回执在同一个 SQLite 事务中落盘，提交后才回执；相同批次重放返回原回执，正文变化返回 409。
+- SQLite 使用 WAL 与 FULL 同步，数据库文件权限为 0600。原始记录、删除标记及回执持久保留；评分只使用最近 35 天。请按本地健康数据管理数据库及备份。
+- `GET /status` 使用同一认证，返回接收统计、评分、生成标题及最后成功发布记录；`GET /healthz` 仅返回就绪标记。日志不输出认证值、原始样本或完整标题。
+- 发布每 30 秒合并检查，内容相同不重复写；失败指数退避，成功状态保存在 SQLite。Base 只存动态标题，`url`、`image_key` 由使用者单独配置；须另外验证妙笔实际预览和点击落点。
+- 可用用户 LaunchAgent 托管以上命令，在登录后运行并自动重启。LaunchAgent、私有配置、证书/密钥、数据库和绑定 ID 均不提交 Git。
+
+原生接收器配套的 `magic-preview.cjs` 提供动态预览工厂。发布前在 Git 忽略目录生成副本，将末尾 `module.exports = createHealthPreview;` 改为传入真实 `baseToken/tableId/viewId/recordId/targetUrl` 的 `createHealthPreview({...})` 调用，然后用 `magic-builder faas publish` 发布 CommonJS 文件。只注入资源 ID 和目标地址，不注入访问凭据。
+
+妙笔运行应用需要该签名 Base 的阅读权限（通过运行时确认应用 ID，再为此表添加 `view` 协作者；不要开放公开分享）。`91403` 表示当前身份无文档权限。SDK 的 `base_records_search` 返回 `data.items`，文本字段可能是富文本数组；预览会提取文字，只展示绑定记录的标题。
+
+最终个人签名使用短链接 `https://magic.solutionsuite.cn/r?fid=YOUR_FUNCTION_ID&u=ENCODED_TARGET_URL`。`u` 明确控制浏览器跳转；只配置 Base 的 `url` 不能作为已验证的浏览器跳转依据。先确认函数 HTTP 200 的 `inline.i18n_title.zh_cn` 与 Base 一致，再验证 `/r` 重定向目标，最后在个人名片验证签名渲染与刷新。不要把聊天中的链接展开等同于已保存的个人签名。
+
+
+## Apple Watch 日常与运动同步
+
+Watch App 可直接创建两个健康签名任务；用户开始真实运动后，每 60 秒尝试上传实际心率和累计运动时长。临时摘要、最终 HealthKit 记录与后台回执均持久化，结束时原子替换避免重复累计。日常后台执行仍由 watchOS 安排。安装、认证、局域网 CA 信任、数据目录和真机验收见 [Watch 运行说明](watch-health-signature.md)。

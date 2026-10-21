@@ -5,6 +5,10 @@ import WatchKit
 import WatchConnectivity
 import HealthRelayCore
 
+@MainActor enum WatchHistoryStorage {
+    static let shared = SyncHistoryStore(file: URL.applicationSupportDirectory.appendingPathComponent("HealthRelayWatch/history/history.sqlite"))
+}
+
 @MainActor @Observable final class WatchStore: NSObject, WCSessionDelegate {
     static let shared = WatchStore()
     private(set) var tasks: [AutomationConfig] = []
@@ -15,7 +19,9 @@ import HealthRelayCore
     private(set) var waitingForProtectedData = false
     private var configurationReady: Bool { loadError == nil && !waitingForProtectedData }
     let journal: SyncJournal
+    let history: SyncHistoryStore
     let uploader: BackgroundUploader
+    let workout: WatchWorkoutController?
     private var snapshotReceipt: WatchSnapshotReceipt?
     private let repository: ConfigurationRepository
     private let refreshScheduler: ((Date) -> Void)?
@@ -42,8 +48,10 @@ import HealthRelayCore
     init(directory suppliedDirectory: URL?, connectServices: Bool = true, refreshScheduler: ((Date) -> Void)? = nil) {
         self.refreshScheduler = refreshScheduler
         let directory = suppliedDirectory ?? URL.applicationSupportDirectory.appendingPathComponent("HealthRelayWatch", isDirectory: true)
+        history = suppliedDirectory == nil ? WatchHistoryStorage.shared : SyncHistoryStore(file: directory.appendingPathComponent("history/history.sqlite"))
+        workout = connectServices ? .shared : nil
         repository = ConfigurationRepository(fileURL: directory.appendingPathComponent("tasks.json"))
-        journal = SyncJournal(directory: directory.appendingPathComponent("sync", isDirectory: true))
+        journal = SyncJournal(directory: directory.appendingPathComponent("sync", isDirectory: true), history: history)
         uploader = BackgroundUploader(directory: directory.appendingPathComponent("uploads", isDirectory: true), credentials: CredentialStore())
         super.init()
         loadConfiguration()
@@ -58,8 +66,15 @@ import HealthRelayCore
             catch { loadError = error.localizedDescription }
         }
         #endif
-        status = UserDefaults.standard.string(forKey: "Watch.snapshotStatus") ?? status
+        #if DEBUG && targetEnvironment(simulator)
+        SyncHistoryUITestFixture.install(history, device: .watch)
+        #endif
+        status = UserDefaults.standard.string(forKey: "Watch.snapshotStatus") ?? (tasks.isEmpty ? "配置健康签名同步，或从 iPhone 接收其他任务" : "已加载 \(tasks.count) 个任务；后台时机由系统安排")
         uploader.onCompletion = { [weak self] in Task { await self?.applyCompletions() } }
+        let journal = journal
+        uploader.onStart = { identity, attempt, date in
+            guard try journal.markSending(identity, attemptID: attempt, at: date) else { throw ConfigurationError("待上传批次已变更") }
+        }
         if connectServices { uploader.connect() }
         if connectServices && WCSession.isSupported() {
             let session = WCSession.default
@@ -78,6 +93,8 @@ import HealthRelayCore
             for task in loaded { logs[task.id] = try journal.load(task.id).logs.first }
             tasks = loaded; snapshotReceipt = receipt; outcomes = logs
             waitingForProtectedData = false
+            journal.recoverHistory()
+            for task in loaded { try? journal.migrateHistory(task: task) }
         } catch {
             if (error as? CocoaError)?.code == .fileReadNoPermission {
                 waitingForProtectedData = true
@@ -95,7 +112,28 @@ import HealthRelayCore
     func start() async {
         resumeConfiguration()
         guard configurationReady else { return }
+        journal.recoverHistory()
         await applyCompletions(); await configureObservers(); await runDue(trigger: "foreground")
+    }
+
+    func installHealthSignature(endpoint: String, key: String) async throws {
+        await coordinator.acquire(); defer { coordinator.release() }
+        guard configurationReady, !key.isEmpty, !AutomationConfig.containsHeaderLineBreak(key) else { throw ConfigurationError("请填写有效的服务地址与认证值") }
+        var incoming = try HealthSignaturePreset.watchConfigurations(endpoint: endpoint)
+        guard !tasks.contains(where: { old in incoming.contains { $0.name == old.name && $0.destination.url == old.destination.url } }) else {
+            throw ConfigurationError("此服务的签名任务已存在")
+        }
+        var references: [String] = []
+        do {
+            for index in incoming.indices {
+                let reference = try credentials.save(key); references.append(reference)
+                incoming[index].destination.secretHeaders = ["X-Acceptance-Key": reference]
+                incoming[index].destination.requiredSecretHeaders = nil
+            }
+            let all = tasks + incoming
+            try repository.save(all, watchReceipt: snapshotReceipt); tasks = all
+            status = "签名任务已创建，请分别授权并启用"
+        } catch { for reference in references { credentials.delete(reference) }; throw error }
     }
 
     private func drainCompletions() throws {
@@ -104,11 +142,13 @@ import HealthRelayCore
                 do {
                     if let failure = result.failure { throw UploadFailure(failure, retryable: result.retryable, status: result.status) }
                     guard let status = result.status else { throw UploadFailure("接口响应无效", retryable: true) }
-                    _ = try journal.confirm(result.identity, task: task, status: status, data: result.body)
+                    _ = try journal.confirm(result.identity, task: task, status: status, data: result.body,
+                        now: result.completedAt ?? Date(), completionID: result.completionID, attemptID: result.attemptID,
+                        confirmationTimeKnown: result.completedAt != nil)
                 } catch let failure as UploadFailure {
                     var failure = failure
                     failure.retryAfter = HTTPAcknowledgement.retryDelay(result.retryAfter)
-                    _ = try journal.recordFailure(result.identity, failure: failure)
+                    _ = try journal.recordFailure(result.identity, failure: failure, now: result.completedAt ?? Date(), completionID: result.completionID, attemptID: result.attemptID)
                 }
                 outcomes[task.id] = try journal.load(task.id).logs.first
             }
@@ -167,9 +207,14 @@ import HealthRelayCore
                 dirty.insert(id.uuidString)
                 UserDefaults.standard.set(Array(dirty), forKey: dirtyKey)
             }
-        } catch { outcomes[id] = RunLog(state: .failed, message: error is CancellationError ? "系统执行时间结束，未确认批次保留" : error.localizedDescription) }
+        } catch {
+            let message = error is CancellationError ? "系统执行时间结束，未确认批次保留" : error.localizedDescription
+            outcomes[id] = RunLog(state: .failed, message: message)
+            if let task = tasks.first(where: { $0.id == id }) { journal.recordRunFailure(context: SyncHistoryContext(task: task), message: message) }
+        }
     }
     func runDue(trigger: String) async {
+        await workout?.retryUploads()
         resumeConfiguration()
         guard configurationReady, !Task.isCancelled, !runningDue else { return }
         runningDue = true; defer { runningDue = false; scheduleRefresh() }
@@ -227,6 +272,7 @@ import HealthRelayCore
     func saveCredentials(_ id: UUID, values: [String: String]) async throws {
         await coordinator.acquire(); defer { coordinator.release() }
         guard configurationReady, let index = tasks.firstIndex(where: { $0.id == id }) else { throw ConfigurationError("任务不可用") }
+        guard workout?.configurationLocked != true else { throw ConfigurationError("请先结束运动并确认待传记录，再修改认证") }
         guard try journal.load(id).pending == nil else { throw ConfigurationError("有未确认批次，请先完成后再修改认证") }
         let old = tasks[index]; var updated = old; var created: [String] = []
         do {
@@ -313,7 +359,7 @@ import HealthRelayCore
     private func scheduleRefresh() {
         guard configurationReady else { return }
         let dirty = Set(UserDefaults.standard.stringArray(forKey: dirtyKey) ?? [])
-        let dates = tasks.filter(\.enabled).compactMap { task -> Date? in
+        var dates = tasks.filter(\.enabled).compactMap { task -> Date? in
             if active.contains(task.id) { return Date().addingTimeInterval(60) }
             guard let state = try? journal.load(task.id) else { return Date().addingTimeInterval(300) }
             if let pending = state.pending { return pending.automaticRetry ? pending.nextAttempt ?? Date().addingTimeInterval(300) : nil }
@@ -321,6 +367,7 @@ import HealthRelayCore
             guard task.execution.periodicPolling == true || (task.execution.onDataChange && dirty.contains(task.id.uuidString)) else { return nil }
             return (state.lastAttempt ?? Date()).addingTimeInterval(Double(task.execution.minimumIntervalSeconds))
         }
+        if let date = workout?.nextUploadDate { dates.append(date) }
         guard let date = dates.min() else { return }
         requestRefresh(at: max(Date().addingTimeInterval(60), date))
     }
@@ -360,6 +407,7 @@ import HealthRelayCore
             generation = snapshot.generation
             try snapshot.validate(systemMajorVersion: ProcessInfo.processInfo.operatingSystemVersion.majorVersion)
             try drainCompletions()
+            guard workout?.configurationLocked != true else { throw ConfigurationError("运动或待传记录仍在使用本机配置，请结束并上传后再同步配置") }
             let incoming = snapshot.localTasks(current: tasks)
             try WatchConfigurationSnapshot.validateReplacement(current: tasks, incoming: incoming, journal: journal)
             let old = tasks

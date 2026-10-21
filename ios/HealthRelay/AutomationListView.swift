@@ -22,6 +22,7 @@ struct AutomationListView: View {
     @Bindable var store: AutomationStore
     @State private var viewing: AutomationConfig?
     @State private var editing: AutomationConfig?
+    @State private var signatureSetup = false
     @State private var importing = false
     @State private var importInput: ConfigurationInput?
     @State private var exporting = false
@@ -83,6 +84,17 @@ struct AutomationListView: View {
                         }
                     }
                 }
+                Section("健康动态签名") {
+                    NavigationLink {
+                        SyncHistoryView(history: store.history, notice: { store.journal.historyError })
+                    } label: { Label("同步历史", systemImage: "clock.arrow.circlepath") }
+                        .accessibilityIdentifier("sync-history")
+                    Button("配置健康签名同步", systemImage: "heart.text.clipboard") { signatureSetup = true }
+                        .accessibilityIdentifier("setup-health-signature")
+                        .disabled(!store.configurationReady)
+                    Text("将 HRV、心率、睡眠和运动记录同步到你的服务，用于更新飞书动态签名。")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
                 Section("Apple Watch") {
                     Button("同步 Watch 配置（不含认证）", systemImage: "applewatch") {
                         do { try store.syncWatch() } catch { self.error = error.localizedDescription }
@@ -116,6 +128,9 @@ struct AutomationListView: View {
                         .accessibilityIdentifier("new-task")
                         .disabled(!store.configurationReady)
                 }
+            }
+            .sheet(isPresented: $signatureSetup) {
+                NavigationStack { HealthSignatureSetupView(store: store) }
             }
             .sheet(item: $viewing) { task in
                 NavigationStack { TaskExecutionView(store: store, taskID: task.id) }
@@ -197,5 +212,39 @@ struct AutomationListView: View {
             exportName = "healthrelay-\(task.id.uuidString.lowercased())"
             exporting = true
         } catch { self.error = error.localizedDescription }
+    }
+}
+
+private struct HealthSignatureSetupView: View {
+    let store: AutomationStore
+    @Environment(\.dismiss) private var dismiss
+    @State private var endpoint = ""
+    @State private var key = ""
+    @State private var error: String?
+    var body: some View {
+        Form {
+            Section("本地服务") {
+                TextField("HTTPS 接口地址", text: $endpoint)
+                    .keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
+                    .accessibilityIdentifier("signature-endpoint")
+                SecureField("服务认证值", text: $key)
+                    .textInputAutocapitalization(.never).autocorrectionDisabled()
+                    .accessibilityIdentifier("signature-service-key")
+            }
+            Section {
+                Text("创建两个独立任务：健康指标与锻炼。首次同步读取最近 30 天，之后增量同步；认证保存在本机钥匙串。")
+                Text("创建后，在每个任务的“运行与日志”中授权健康读取、执行首次上传并启用自动化。手机需能访问服务；iOS 决定后台运行时机。")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
+            Button("创建同步任务") {
+                do { try store.installHealthSignature(endpoint: endpoint, key: key); dismiss() }
+                catch { self.error = error.localizedDescription }
+            }.disabled(endpoint.isEmpty || key.isEmpty).accessibilityIdentifier("create-signature-tasks")
+        }
+        .navigationTitle("健康签名同步").navigationBarTitleDisplayMode(.inline)
+        .toolbar { ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } } }
+        .alert("创建失败", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) {
+            Button("知道了") { error = nil }
+        } message: { Text(error ?? "") }
     }
 }

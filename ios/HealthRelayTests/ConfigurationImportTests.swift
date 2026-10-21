@@ -117,4 +117,25 @@ import HealthRelayCore
         XCTAssertEqual(store.tasks, [existing])
         XCTAssertEqual(try Data(contentsOf: file), before)
     }
+    func testHealthSignatureSetupPreservesExistingTaskAndStoresIndependentCredentials() throws {
+        let dir = try directory(), file = dir.appendingPathComponent("tasks.json")
+        let existing = task("Existing")
+        try ConfigurationRepository(fileURL: file).save([existing])
+        let store = AutomationStore(directory: dir, protectedDataAvailable: { true })
+        try store.installHealthSignature(endpoint: "https://192.168.1.2:18443/ingest", key: "synthetic-test-key")
+        XCTAssertEqual(store.tasks.first, existing)
+        XCTAssertEqual(store.tasks.count, 3)
+        let installed = Array(store.tasks.dropFirst())
+        let references = installed.compactMap { $0.destination.secretHeaders?["X-Acceptance-Key"] }
+        defer { for ref in references { store.credentials.delete(ref) } }
+        XCTAssertEqual(Set(references).count, 2)
+        for task in installed {
+            XCTAssertFalse(task.enabled)
+            XCTAssertTrue(task.executionIssues.isEmpty)
+            XCTAssertNil(task.destination.requiredSecretHeaders)
+        }
+        XCTAssertEqual(try ConfigurationRepository(fileURL: file).load(), store.tasks)
+        XCTAssertFalse(String(decoding: try Data(contentsOf: file), as: UTF8.self).contains("synthetic-test-key"))
+    }
+
 }

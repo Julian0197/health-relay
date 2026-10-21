@@ -55,6 +55,7 @@ export const pressureReason = (reason) =>
     expired_hrv: "HRV 已过期",
     missing_or_conflicting_aligned_hr: "配对心率缺失或冲突",
     short_baseline: "个人基线不足",
+    sleeping: "睡眠时段",
     sleep_or_workout: "睡眠或锻炼时段",
     source_or_sample_conflict: "来源或采样冲突",
     expired_sleep: "睡眠评分已过期",
