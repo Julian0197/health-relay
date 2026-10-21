@@ -1,0 +1,2 @@
+# Unified patch context uses a single space for unchanged blank lines.
+integrations/ai-passport-health/firmware.patch whitespace=-blank-at-eol

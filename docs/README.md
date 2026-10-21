@@ -11,6 +11,7 @@
 | [iPhone Use 调试](debugging-iphone-use.md) | PUA setup / READY、UI 测试和后台证据 |
 | [本机同步历史](sync-history.md) | iOS / Watch 最近 20 天、批次摘要、尝试时间线与离线分页 |
 | [迁移来源与验收](service-migration.md) | 本次代码迁移范围、验证和未迁移部分 |
+| [Wi-Fi 健康工卡](ai-passport-health.md) | 完整固件、私有缓存与妙笔读取、每 30 分钟更新、息屏、本地合成调试 |
 | [HTML 看板](../integrations/hae-webhook/dashboard-app/README.md) | 本地合成预览、构建、授权 HTML 发布 |
 | [能力表](capabilities.md) | 类型、格式和验证边界 |
 | [配置与上传协议](contracts.md) | AutomationConfig、批次与回执 |

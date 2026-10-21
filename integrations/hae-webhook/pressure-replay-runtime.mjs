@@ -9,7 +9,7 @@ const { Miniflare, convertV4MiniflareOptions } = await import(pathToFileURL(proc
 const storagePath = await mkdtemp(join(tmpdir(), 'hae-pressure-replay-'));
 const modules = ['worker', 'health-card', 'overview-card', 'health-state', 'health-store', 'sql-usage', 'workouts', 'delivery', 'series', 'analysis',
   'signature', 'physiology', 'health-indices', 'health-profile', 'health-signature', 'dashboard',
-  'pressure-history', 'dashboard-auth', 'dashboard-cache', 'signature-phrases', 'signature-holidays', 'miaobi'];
+  'pressure-history', 'dashboard-auth', 'dashboard-cache', 'signature-phrases', 'signature-holidays', 'miaobi', 'badge', 'badge-cache-publisher'];
 const options = { cf: false, resourcePersistencePath: storagePath, workers: [{
   name: 'hae-replay-test', modules: modules.map(name => ({ type: 'ESModule',
     path: fileURLToPath(new URL(`./${name}.mjs`, import.meta.url)) })), compatibilityDate: '2026-09-01',

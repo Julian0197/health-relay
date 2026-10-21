@@ -15,8 +15,11 @@ import { evaluatePhysiology, neutralPhysiology, withLatestHeartOverview } from '
 import { deliverCard } from './delivery.mjs';
 import { MiaobiPublisher, planSignature, planPhysiologySignature, signatureEnabled, PHYSIOLOGY_WRITE_INTERVAL_MS, SIGNATURE_COALESCE_MS } from './miaobi.mjs';
 import { DashboardCachePublisher, dashboardCacheEnabled, CACHE_HEART_BUCKET_MS } from './dashboard-cache.mjs';
+import { createBadgeCache, readBadgeCache } from './badge.mjs';
+import { BadgeCachePublisher, badgeCacheEnabled } from './badge-cache-publisher.mjs';
 
 const HOUR = 3600000;
+const cachePublishingEnabled = env => dashboardCacheEnabled(env) || badgeCacheEnabled(env);
 const CARD_WRITE_INTERVAL_MS = 5 * 60000;
 const DASHBOARD_CACHE_THROTTLE_MS = 2 * 60000;
 // With no changed data, retain the published snapshot until its actual expiry or midnight.
@@ -36,6 +39,7 @@ export class HealthStore {
     this.clock = clock;
     this.signaturePublisher = new MiaobiPublisher(env, send, clock);
     this.dashboardCachePublisher = new DashboardCachePublisher(env, send, clock);
+    this.badgeCachePublisher = new BadgeCachePublisher(env, send, clock);
     this.sqlUsage = new SqlUsage(this.storage.sql);
     this.series = new SeriesStore(this.sqlUsage.sql);
     this.pressureHistory = new PressureHistory(this.sqlUsage.sql);
@@ -160,7 +164,7 @@ export class HealthStore {
       if (signatureEnabled(this.env) && this.env.SIGNATURE_MODE === 'health-indices-v1') {
         state.signatureDelivery = this.planSignature(state, now, false, { trigger: 'replay' });
       }
-      if (dashboardCacheEnabled(this.env)) {
+      if (cachePublishingEnabled(this.env)) {
         state.dashboardCache ??= { lastPublishedAt: null, dueAt: null, error: null };
         state.dashboardCache.dueAt = Math.min(state.dashboardCache.dueAt ?? Infinity, now + 60000);
         state.dashboardCache.revision = (state.dashboardCache.revision ?? 0) + 1;
@@ -334,13 +338,43 @@ export class HealthStore {
     // Keep the personal summary below Durable Object KV's per-value limit.
     if (new TextEncoder().encode(JSON.stringify(state)).length > 100 * 1024) throw new Error('summary_capacity_exceeded');
     await this.storage.put('state', state);
-    await this.storage.setAlarm(state.nextAlarmAt);
+    await this.storage.setAlarm(Math.min(state.nextAlarmAt,
+      badgeCacheEnabled(this.env) ? state.badgeCacheDelivery?.dueAt ?? Infinity : Infinity));
     return reviewAt;
+  }
+
+  async bootstrapBadgeCache(now) {
+    // First access after an upgrade prepares only the device snapshot. Keep the
+    // ordinary polling path on KV; do not publish, schedule or record scores here.
+    if (!this.badgeBootstrap) {
+      this.badgeBootstrap = this.transaction(async () => {
+        const state = await this.storage.get('state');
+        const cached = readBadgeCache(state?.badgeCache, now);
+        if (cached) return cached;
+        if (!(state?.dataRevision > 0)) return null;
+        // listBetween is SELECT-only, unlike list(), which fills SQL day caches.
+        const scorerSeries = Object.fromEntries(['hrv', 'heart', 'sleep', 'daily', 'workout'].map(kind =>
+          [kind, this.series.listBetween(kind, now - (kind === 'heart' ? 30 : 35) * 86400000, now)]));
+        if (!Object.values(scorerSeries).some(rows => rows.length)) return null;
+        const indices = this.cachedHealthIndices(state, now) ?? this.refreshSignaturePresentation(
+          this.evaluateIndices(scorerSeries, now, state.signatureDelivery?.publishedDecision), now);
+        const series = { ...scorerSeries, heart: scorerSeries.heart.filter(row => row.start >= now - 7 * 86400000) };
+        const dashboard = buildDashboard(series, now, { range: '7d', indices, heartBucketMs: CACHE_HEART_BUCKET_MS,
+          pressureHistory: this.pressureHistory.view(now, '7d'), workoutHeart: scorerSeries.heart });
+        state.badgeCache = createBadgeCache(dashboard, now, { workouts: series.workout });
+        await this.storage.put('state', state);
+        return readBadgeCache(state.badgeCache, now);
+      }).finally(() => { this.badgeBootstrap = null; });
+    }
+    return this.badgeBootstrap;
   }
 
   async fetch(request) {
     try { return await this.handleFetch(request); }
-    finally { this.sqlUsage.flush(this.clock()); }
+    finally {
+      // Frequent device polls read one KV snapshot and never touch the SQL meter.
+      if (new URL(request.url).pathname !== '/badge') this.sqlUsage.flush(this.clock());
+    }
   }
 
   async handleFetch(request) {
@@ -348,6 +382,12 @@ export class HealthStore {
     const now = this.clock();
     if (request.method === 'GET') {
       const state = await this.storage.get('state') ?? { ...emptyState(), delivery: initialDelivery() };
+      if (path === '/badge') {
+        const payload = readBadgeCache(state.badgeCache, now) ??
+          (state.dataRevision > 0 ? await this.bootstrapBadgeCache(now) : null);
+        return payload ? reply(payload) : Response.json({ error: 'badge_cache_not_ready' },
+          { status: 503, headers: { 'Cache-Control': 'no-store' } });
+      }
       if (path === '/analysis') return reply({ ...this.analysis(now), lastReceivedAt: state.lastReceivedAt, evaluatedAt: now });
       if (path === '/snapshot') {
         const series = this.seriesForView(now);
@@ -412,7 +452,7 @@ export class HealthStore {
       });
     }
     if (path === '/dashboard-cache/refresh') {
-      if (!dashboardCacheEnabled(this.env)) return Response.json({ error: 'dashboard_cache_disabled' }, { status: 503 });
+      if (!cachePublishingEnabled(this.env)) return Response.json({ error: 'dashboard_cache_disabled' }, { status: 503 });
       await this.transaction(async () => {
         const state = await this.storage.get('state') ?? { ...emptyState(), delivery: initialDelivery() };
         state.dashboardCache ??= { lastPublishedAt: null, dueAt: null, error: null };
@@ -508,7 +548,7 @@ export class HealthStore {
             { trigger: 'ingest', receivedAt: now });
         }
         // Base-relayed dashboard: refresh the cache record shortly after live data lands.
-        if (dashboardCacheEnabled(this.env) && mode !== 'backfill' &&
+        if (cachePublishingEnabled(this.env) && mode !== 'backfill' &&
             accepted.stats.inserted + accepted.stats.updated > 0) {
           state.dashboardCache ??= { lastPublishedAt: null, dueAt: null, error: null };
           state.dashboardCache.dueAt = Math.min(state.dashboardCache.dueAt ?? Infinity, this.dashboardDueAt(state, now + 60000));
@@ -585,7 +625,7 @@ export class HealthStore {
         if (!signature.pending) signature.urgent = false;
         signature.attempts = 0;
         signature.error = null;
-        const cache = dashboardCacheEnabled(this.env) ? state.dashboardCache : null;
+        const cache = cachePublishingEnabled(this.env) ? state.dashboardCache : null;
         if (cache?.lastPublishedAt && cache.publishedSignature !== signature.sentTitle) {
           cache.dueAt = Math.min(cache.dueAt ?? Infinity, now);
           cache.revision = (cache.revision ?? 0) + 1;
@@ -601,7 +641,7 @@ export class HealthStore {
   }
 
   async publishDashboardCache({ force = false } = {}) {
-    if (!dashboardCacheEnabled(this.env) || this.dashboardPublishInFlight) return;
+    if (!cachePublishingEnabled(this.env) || this.dashboardPublishInFlight) return;
     // One external writer per object. A persisted retry survives a crash during I/O.
     this.dashboardPublishInFlight = true;
     try {
@@ -640,12 +680,16 @@ export class HealthStore {
         };
         const result = { revision: cache.revision ?? 0, payload24h: payload('24h'), payload7d: payload('7d'), generatedAt: now,
           signatureTitle: publication.sentTitle };
+        state.badgeCache = createBadgeCache(JSON.parse(result.payload7d), now, { workouts: series.workout });
+        if (badgeCacheEnabled(this.env)) {
+          state.badgeCacheDelivery = { ...state.badgeCacheDelivery, pending: true, dueAt: now };
+        }
         const reviewAt = await this.save(state, now);
         return { ...result, refreshAt: Math.min(reviewAt, indices.validUntil ?? Infinity) };
       });
       if (!snapshot) return;
       let result;
-      try { result = await this.dashboardCachePublisher.publish(snapshot); }
+      try { result = dashboardCacheEnabled(this.env) ? await this.dashboardCachePublisher.publish(snapshot) : { ok: true }; }
       catch { result = { ok: false, error: { reason: 'network_error' } }; }
       await this.transaction(async () => {
         const latest = await this.storage.get('state');
@@ -680,18 +724,68 @@ export class HealthStore {
         await this.save(state, now);
       });
     } finally { this.dashboardPublishInFlight = false; }
+    await this.publishBadgeCache();
+  }
+
+  async publishBadgeCache() {
+    if (!badgeCacheEnabled(this.env) || this.badgePublishInFlight) return;
+    this.badgePublishInFlight = true;
+    try {
+      const snapshot = await this.transaction(async () => {
+        const state = await this.storage.get('state'), now = this.clock();
+        const delivery = state?.badgeCacheDelivery;
+        if (!delivery?.pending || delivery.dueAt > now || !state.badgeCache) return null;
+        delivery.dueAt = now + 60000; // Durable retry before network I/O.
+        await this.storage.put('state', state);
+        await this.storage.setAlarm(Math.min(state.nextAlarmAt ?? Infinity, delivery.dueAt));
+        return state.badgeCache;
+      });
+      if (!snapshot) return;
+      let result;
+      try { result = await this.badgeCachePublisher.publish(snapshot); }
+      catch { result = { ok: false, error: { reason: 'network_error' } }; }
+      await this.transaction(async () => {
+        const state = await this.storage.get('state'), now = this.clock();
+        const delivery = state.badgeCacheDelivery;
+        if (result.ok) {
+          delivery.lastPublishedAt = now;
+          delivery.error = null;
+          delivery.attempts = 0;
+          delivery.pending = JSON.stringify(state.badgeCache) !== JSON.stringify(snapshot);
+          delivery.dueAt = delivery.pending ? Math.min(delivery.dueAt ?? now, now) : null;
+        } else {
+          delivery.pending = true;
+          delivery.attempts = (delivery.attempts ?? 0) + 1;
+          delivery.error = result.error;
+          delivery.dueAt = now + Math.max(result.retryAfterMs ?? 0,
+            Math.min(60000 * 2 ** Math.min(delivery.attempts - 1, 6), HOUR));
+        }
+        await this.storage.put('state', state);
+        const alarmAt = Math.min(state.nextAlarmAt ?? Infinity, delivery.dueAt ?? Infinity);
+        if (Number.isFinite(alarmAt)) await this.storage.setAlarm(alarmAt);
+      });
+    } finally { this.badgePublishInFlight = false; }
   }
 
   async alarm() {
-    try { return await this.handleAlarm(); }
+    const state = badgeCacheEnabled(this.env) ? await this.storage.get('state') : undefined;
+    const modeChanged = signatureEnabled(this.env) &&
+      (state?.signatureDelivery?.mode ?? 'sync-status-v1') !== (this.env.SIGNATURE_MODE ?? 'sync-status-v1');
+    if ((state?.badgeCacheDelivery?.dueAt ?? Infinity) <= this.clock() && state.nextAlarmAt > this.clock() && !modeChanged) {
+      // A private retry is KV-only, including after a cold start: skip the SQL meter too.
+      return this.publishBadgeCache();
+    }
+    try { return await this.handleAlarm(state); }
     finally { this.sqlUsage.flush(this.clock()); }
   }
 
-  async handleAlarm() {
-    const state = await this.storage.get('state'), scheduled = state?.nextAlarmAt;
+  async handleAlarm(previousState) {
+    const state = previousState ?? await this.storage.get('state');
+    const badgeDue = badgeCacheEnabled(this.env) ? state?.badgeCacheDelivery?.dueAt ?? Infinity : Infinity;
+    const scheduled = Math.min(state?.nextAlarmAt ?? Infinity, badgeDue);
     const modeChanged = signatureEnabled(this.env) &&
       (state?.signatureDelivery?.mode ?? 'sync-status-v1') !== (this.env.SIGNATURE_MODE ?? 'sync-status-v1');
-    if (scheduled > this.clock() && !modeChanged) {
+    if (Number.isFinite(scheduled) && scheduled > this.clock() && !modeChanged) {
       // A stale/duplicate alarm after eviction must not load the unchanged history.
       await this.storage.setAlarm(scheduled);
       return;
@@ -699,6 +793,7 @@ export class HealthStore {
     await this.replayPressure();
     await this.publishSignature();
     await this.publishDashboardCache();
+    await this.publishBadgeCache();
     const now = this.clock();
     // Storage and scheduling commit before network I/O. New uploads can arrive during delivery.
     const snapshot = await this.transaction(async () => {

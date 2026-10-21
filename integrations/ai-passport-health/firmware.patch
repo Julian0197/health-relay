@@ -1,0 +1,3867 @@
+diff --git a/docs/apps/health-dashboard.md b/docs/apps/health-dashboard.md
+new file mode 100644
+index 0000000..9a2c50b
+--- /dev/null
++++ b/docs/apps/health-dashboard.md
+@@ -0,0 +1,27 @@
++# Wi-Fi health dashboard
++
++A dedicated 240×320 LVGL application for the ESP32-C3 / 8 MB FoloToy AI Passport.
++
++- Five pages: overview, latest valid pressure with its original measurement time, seven nights of staged sleep with today's score, workout types and totals, and daily activity.
++- An SNTP-calibrated UTC+8 clock updates locally. A clock tick does not make an HTTP request.
++- Two 2.4 GHz Wi-Fi profiles and a dedicated read-only HTTPS credential are stored in NVS; health snapshots stay in RAM.
++- Poll every 30 minutes. Short OK refreshes with a 15-second minimum interval; UP/DOWN change pages.
++- Hold OK for about half a second to configure Wi-Fi. Join the displayed Health-XXXX network and open http://192.168.4.1.
++- Configure home Wi-Fi and an iPhone hotspot; enable Maximum Compatibility on the hotspot. Failed candidate profiles roll back after 45 seconds.
++- After 60 idle seconds, turn the backlight off and stop LVGL timers. Any function key only wakes; a subsequent gesture acts normally. Setup stays awake.
++- Network updates continue with the screen off and never wake it. CPU deep sleep is not enabled. Battery runtime has not been measured.
++- API OFFLINE / LAST DATA retains the original snapshot date. Missing values are not zero; retained pressure keeps its original time.
++
++Data path: Apple Health → HealthRelay service → dedicated private Base cache → authenticated read-only Magic FaaS → badge.
++See [HealthRelay badge documentation](https://github.com/Julian0197/health-relay/blob/master/docs/ai-passport-health.md) for the complete deployment, permissions, local synthetic debug mode and bootstrap instructions.
++
++```sh
++# Activate ESP-IDF 5.5.3 first.
++./tools/validate.sh --all
++python3 tools/configure_wifi.py --config /absolute/private-data/badge.json --port /dev/cu.usbmodemXXXX
++```
++
++The owner-only JSON contains only url and token. Never put credentials in arguments, source or firmware images. Ordinary NVS has no flash encryption.
++HTTPS uses certificate validation after clock synchronization, rejects redirects, and caps responses at 4093 bytes.
++Flash a verified merged image for first installation. Before an application-only update, verify identical partition tables; never write an application image at 0x0. Do not erase the whole chip.
++Report build, host tests and device observations separately. Verify extended reconnect, unplugged polling and battery discharge on your own hardware.
+diff --git a/docs/apps/health-dashboard.zh_CN.md b/docs/apps/health-dashboard.zh_CN.md
+new file mode 100644
+index 0000000..dbafe81
+--- /dev/null
++++ b/docs/apps/health-dashboard.zh_CN.md
+@@ -0,0 +1,27 @@
++# Wi-Fi 健康看板
++
++以专用的 240×320 本地 LVGL 看板替代头像和名牌，适用于 ESP32-C3、8MB Flash 的 FoloToy AI Passport。
++
++- 五页：概览、最近有效压力与原测量时间、最近七晚睡眠分期与当天得分、健身类型与汇总、当天活动。
++- 时钟经 SNTP 校准后按 UTC+8 本地更新；当前日期只显示一次，不因更新时钟而请求云端。
++- NVS 保存两个 2.4GHz Wi-Fi 网络和独立只读 HTTPS 地址／凭据；健康快照只保留在 RAM。
++- 每 30 分钟取数，确定键短按手动刷新，最少间隔 15 秒。上／下短按切页。
++- 确定键长按约半秒进入配网。手机连接屏幕显示的临时 Health-XXXX 网络，然后打开 http://192.168.4.1。
++- 可填家里 Wi-Fi 和 iPhone 热点；热点需开启“最大兼容性”。候选网络 45 秒内都不能取得 IP 时回滚原设置。
++- 无按键操作 60 秒关闭背光并暂停 LVGL 定时器，任意功能键只唤醒，下一次按键恢复正常操作。配网页保持亮屏。
++- 息屏期间后台联网与取数继续，来数据不会自动亮屏；没有启用 CPU 深睡，也没有实测续航小时数。
++- API OFFLINE／LAST DATA 保留旧快照及其原日期。压力缺测不补零，历史压力始终保留原时间。
++
++数据链路为 Apple Health → HealthRelay 服务 → 专用私有 Base 缓存 → 妙笔鉴权只读函数 → 工卡。
++服务部署、私有缓存字段与权限、FaaS 模板、本地合成调试和固件初始化见 [HealthRelay 工卡文档](https://github.com/Julian0197/health-relay/blob/master/docs/ai-passport-health.md)。
++
++```sh
++# 先激活 ESP-IDF 5.5.3
++./tools/validate.sh --all
++python3 tools/configure_wifi.py --config /absolute/private-data/badge.json --port /dev/cu.usbmodemXXXX
++```
++
++配置文件只含 url 和 token，需设置 owner-only 权限。凭据不放命令行、源码或镜像。普通 NVS 未启用 Flash 加密。
++校时后使用系统证书验证 HTTPS，拒绝重定向，响应限制为 4093 字节。
++首次刷入使用验证过的完整镜像；保留设置的应用分区更新必须先验证新旧分区表一致，应用镜像不能写到 0x0。不要整片擦除。
++编译、宿主机测试和实机观察分别报告。长时间离线重连、拔线自动更新与完整放电仍应在自己的设备验证。
+diff --git a/main/CMakeLists.txt b/main/CMakeLists.txt
+index d39c848..3ad0720 100644
+--- a/main/CMakeLists.txt
++++ b/main/CMakeLists.txt
+@@ -1,16 +1,27 @@
++if(CONFIG_HEALTH_BADGE)
++    set(application_sources "health_main.c" "health_model.c" "health_network.c" "health_network_model.c" "health_idle.c")
++else()
++    set(application_sources
++        "main.c"
++        "demo_navigation.c"
++        "ui_pixel.c"
++        "ui_pixel_math.c"
++        "demo_display.c"
++        "demo_button.c"
++        "demo_audio.c"
++        "demo_battery.c"
++        "demo_radio.c"
++        "demo_wifi.c"
++        "demo_ble.c"
++        "demo_low_power.c"
++    )
++endif()
++
++# IDF scans dependencies before application Kconfig values are available.
++# Keep dependencies stable across that scan and the later source selection.
+ idf_component_register(
+-    SRCS "main.c"
+-         "demo_navigation.c"
+-         "ui_pixel.c"
+-         "ui_pixel_math.c"
+-         "demo_display.c"
+-         "demo_button.c"
+-         "demo_audio.c"
+-         "demo_battery.c"
+-         "demo_radio.c"
+-         "demo_wifi.c"
+-         "demo_ble.c"
+-         "demo_low_power.c"
++    SRCS ${application_sources}
+     INCLUDE_DIRS "."
+-    REQUIRES bsp bt esp_event esp_hw_support esp_netif esp_timer esp_wifi nvs_flash
++    REQUIRES bsp bt esp_driver_usb_serial_jtag esp_event esp_hw_support esp_netif esp_lvgl_port
++             esp_timer esp_wifi json nvs_flash esp_http_client esp_http_server mbedtls
+ )
+diff --git a/main/Kconfig.projbuild b/main/Kconfig.projbuild
+new file mode 100644
+index 0000000..be3480f
+--- /dev/null
++++ b/main/Kconfig.projbuild
+@@ -0,0 +1,14 @@
++menu "AI Passport application"
++
++config HEALTH_BADGE
++    bool "Wi-Fi health dashboard"
++    default y
++    help
++        Build the dedicated health dashboard instead of the reference hardware
++        demo. Wi-Fi HTTPS polling works without a computer after provisioning.
++        A dedicated read token and two WPA2 network profiles are stored in NVS;
++        health measurements remain in RAM. USB supports endpoint bootstrap and
++        a fallback dashboard feed before endpoint setup. Bluetooth and audio
++        remain disabled.
++
++endmenu
+diff --git a/main/health_idle.c b/main/health_idle.c
+new file mode 100644
+index 0000000..edecce7
+--- /dev/null
++++ b/main/health_idle.c
+@@ -0,0 +1,43 @@
++#include "health_idle.h"
++
++void health_idle_init(health_idle_t *idle, uint64_t now_ms) {
++    *idle = (health_idle_t){.last_activity_ms = now_ms};
++}
++
++bool health_idle_button(health_idle_t *idle, bsp_btn_t button, bsp_btn_ev_t event, uint64_t now_ms) {
++    if (button < BSP_BTN_UP || button > BSP_BTN_OK || event < BSP_BTN_PRESS || event > BSP_BTN_RELEASE) return false;
++    unsigned bit = 1u << (unsigned)button;
++    if (event == BSP_BTN_PRESS) {
++        idle->last_activity_ms = now_ms;
++        idle->held_buttons |= bit;
++        if (idle->asleep) {
++            idle->asleep = false;
++            idle->suppressed_buttons |= bit;
++        } else {
++            /* A new PRESS begins a new gesture, even if the preceding wake
++             * produced LONG or a delayed CLICK after its RELEASE. */
++            idle->suppressed_buttons &= ~bit;
++        }
++        return false;
++    }
++    if (idle->asleep) return false;
++    idle->last_activity_ms = now_ms;
++    if (event == BSP_BTN_RELEASE) {
++        idle->held_buttons &= ~bit;
++        /* Keep suppression until the next PRESS: CLICK arrives 180 ms later. */
++        return false;
++    }
++    return !(idle->suppressed_buttons & bit) &&
++        (event == BSP_BTN_CLICK || (event == BSP_BTN_LONG && (idle->held_buttons & bit)));
++}
++
++bool health_idle_update(health_idle_t *idle, uint64_t now_ms, bool setup_active) {
++    if (setup_active) {
++        idle->last_activity_ms = now_ms;
++        idle->asleep = false;
++    } else if (!idle->held_buttons && now_ms >= idle->last_activity_ms &&
++        now_ms - idle->last_activity_ms >= HEALTH_IDLE_TIMEOUT_MS) {
++        idle->asleep = true;
++    }
++    return idle->asleep;
++}
+diff --git a/main/health_idle.h b/main/health_idle.h
+new file mode 100644
+index 0000000..9a0e5a3
+--- /dev/null
++++ b/main/health_idle.h
+@@ -0,0 +1,22 @@
++#pragma once
++
++#include "bsp_button.h"
++
++#include <stdbool.h>
++#include <stdint.h>
++
++#define HEALTH_IDLE_TIMEOUT_MS 60000
++
++typedef struct {
++    uint64_t last_activity_ms;
++    unsigned held_buttons;
++    unsigned suppressed_buttons;
++    bool asleep;
++} health_idle_t;
++
++void health_idle_init(health_idle_t *idle, uint64_t now_ms);
++/* Only CLICK/LONG for an ordinary gesture may reach application actions.
++ * The entire gesture that wakes the screen is consumed, including late CLICK. */
++bool health_idle_button(health_idle_t *idle, bsp_btn_t button, bsp_btn_ev_t event, uint64_t now_ms);
++/* SETUP keeps the display awake; background data never resets inactivity. */
++bool health_idle_update(health_idle_t *idle, uint64_t now_ms, bool setup_active);
+diff --git a/main/health_main.c b/main/health_main.c
+new file mode 100644
+index 0000000..4c057d6
+--- /dev/null
++++ b/main/health_main.c
+@@ -0,0 +1,499 @@
++/* Health values exist only in RAM; dedicated network credentials are stored in NVS. */
++#include "health_model.h"
++#include "health_network.h"
++#include "health_idle.h"
++#include "bsp_battery.h"
++#include "bsp_button.h"
++#include "bsp_display.h"
++#include "driver/usb_serial_jtag.h"
++#include "esp_log.h"
++#include "esp_lvgl_port.h"
++#include "esp_timer.h"
++#include "freertos/FreeRTOS.h"
++#include "freertos/queue.h"
++#include "freertos/task.h"
++#include "lvgl.h"
++
++#include <stdio.h>
++#include <string.h>
++#include <time.h>
++
++#define COLOR_BG 0x101820
++#define COLOR_PANEL 0x1C2934
++#define COLOR_TEXT 0xF0F5F7
++#define COLOR_MUTED 0x9AABB8
++#define COLOR_ACCENT 0x65D5BB
++#define COLOR_WARNING 0xF5BB69
++#define COLOR_ERROR 0xF18D90
++#define COLOR_SLEEP_DEEP 0x8173DE
++#define COLOR_SLEEP_CORE 0x669EDB
++#define COLOR_SLEEP_REM 0x65D5BB
++#define COLOR_SLEEP_AWAKE 0xF5BB69
++#define COLOR_SLEEP_UNKNOWN 0x75838F
++#define INPUT_QUEUE_DEPTH 8
++
++static QueueHandle_t s_buttons;
++static lv_obj_t *s_screen;
++static lv_obj_t *s_clock_label, *s_date_label;
++static health_model_t s_model;
++static health_clock_t s_clock, s_last_sync;
++static health_line_t s_line;
++static bool s_usb_ready;
++static health_network_event_t s_network;
++static bool s_network_ready;
++static health_idle_t s_idle;
++typedef struct { bsp_btn_t button; bsp_btn_ev_t event; } health_button_event_t;
++
++static lv_obj_t *label(lv_obj_t *parent, int x, int y, int width,
++                       const char *text, const lv_font_t *font, unsigned color) {
++    lv_obj_t *obj = lv_label_create(parent);
++    lv_obj_set_pos(obj, x, y);
++    lv_obj_set_width(obj, width);
++    lv_label_set_long_mode(obj, LV_LABEL_LONG_CLIP);
++    lv_obj_set_style_text_font(obj, font, 0);
++    lv_obj_set_style_text_color(obj, lv_color_hex(color), 0);
++    lv_label_set_text(obj, text);
++    return obj;
++}
++
++static lv_obj_t *panel(int x, int y, int width, int height) {
++    lv_obj_t *obj = lv_obj_create(s_screen);
++    lv_obj_set_pos(obj, x, y);
++    lv_obj_set_size(obj, width, height);
++    lv_obj_remove_flag(obj, LV_OBJ_FLAG_SCROLLABLE);
++    lv_obj_set_style_pad_all(obj, 0, 0);
++    lv_obj_set_style_border_width(obj, 0, 0);
++    lv_obj_set_style_radius(obj, 10, 0);
++    lv_obj_set_style_bg_color(obj, lv_color_hex(COLOR_PANEL), 0);
++    return obj;
++}
++
++static const char *metric_text(int value, char *buffer, size_t size) {
++    if (value == HEALTH_MISSING) return "--";
++    snprintf(buffer, size, "%d", value);
++    return buffer;
++}
++
++static const char *time_text(const char *time) {
++    return time[0] ? time : "--";
++}
++
++static int today_sleep_score(const health_snapshot_t *data) {
++    return s_clock.valid && !strcmp(data->sleep_date, s_clock.date) ?
++        data->sleep_score : HEALTH_MISSING;
++}
++
++static void overview(const health_snapshot_t *data) {
++    char value[16], text[40];
++    lv_obj_t *card = panel(16, 99, 101, 84);
++    label(card, 8, 8, 88, "PRESSURE", &lv_font_montserrat_14, COLOR_MUTED);
++    label(card, 8, 30, 88, metric_text(data->pressure, value, sizeof(value)), &lv_font_montserrat_20, COLOR_ACCENT);
++    label(card, 8, 60, 88, time_text(data->pressure_at), &lv_font_montserrat_14,
++          data->retained ? COLOR_WARNING : COLOR_MUTED);
++
++    card = panel(123, 99, 101, 84);
++    label(card, 8, 8, 88, "SLEEP", &lv_font_montserrat_14, COLOR_MUTED);
++    if (data->sleep_minutes == HEALTH_MISSING) snprintf(text, sizeof(text), "--");
++    else snprintf(text, sizeof(text), "%dh%02dm", data->sleep_minutes / 60, data->sleep_minutes % 60);
++    label(card, 8, 30, 88, text, &lv_font_montserrat_20, COLOR_TEXT);
++    snprintf(text, sizeof(text), "Score %s", metric_text(today_sleep_score(data), value, sizeof(value)));
++    label(card, 8, 60, 88, text, &lv_font_montserrat_14, COLOR_MUTED);
++
++    card = panel(16, 191, 101, 84);
++    label(card, 8, 8, 88, "WORKOUT", &lv_font_montserrat_14, COLOR_MUTED);
++    if (data->workout_minutes == HEALTH_MISSING) snprintf(text, sizeof(text), "--");
++    else snprintf(text, sizeof(text), "%dh%02dm", data->workout_minutes / 60, data->workout_minutes % 60);
++    label(card, 8, 30, 88, text, &lv_font_montserrat_20, COLOR_TEXT);
++    snprintf(text, sizeof(text), "Count %s", metric_text(data->workout_count, value, sizeof(value)));
++    label(card, 8, 60, 88, text, &lv_font_montserrat_14, COLOR_MUTED);
++
++    card = panel(123, 191, 101, 84);
++    label(card, 8, 8, 88, "ACTIVITY", &lv_font_montserrat_14, COLOR_MUTED);
++    label(card, 8, 30, 88, metric_text(data->steps, value, sizeof(value)), &lv_font_montserrat_20, COLOR_TEXT);
++    label(card, 8, 60, 88, "steps", &lv_font_montserrat_14, COLOR_MUTED);
++}
++
++static void pressure_page(const health_snapshot_t *data) {
++    char value[16], text[64];
++    label(s_screen, 18, 97, 207, data->retained ? "LAST PRESSURE" : "PRESSURE", &lv_font_montserrat_20, COLOR_TEXT);
++    label(s_screen, 16, 121, 119, metric_text(data->pressure, value, sizeof(value)), &lv_font_montserrat_48, COLOR_ACCENT);
++    label(s_screen, 137, 149, 70, "/ 100", &lv_font_montserrat_14, COLOR_MUTED);
++    snprintf(text, sizeof(text), "Measured %s", time_text(data->pressure_at));
++    label(s_screen, 18, 176, 207, text, &lv_font_montserrat_14, COLOR_MUTED);
++    lv_obj_t *card = panel(16, 203, 101, 72);
++    label(card, 8, 5, 88, "HEART bpm", &lv_font_montserrat_14, COLOR_MUTED);
++    label(card, 8, 26, 88, metric_text(data->heart, value, sizeof(value)), &lv_font_montserrat_20, COLOR_TEXT);
++    label(card, 8, 52, 90, time_text(data->heart_at), &lv_font_montserrat_14, COLOR_MUTED);
++    card = panel(123, 203, 101, 72);
++    snprintf(text, sizeof(text), "%s ms", data->hrv_method[0] ? data->hrv_method : "HRV");
++    label(card, 8, 5, 88, text, &lv_font_montserrat_14, COLOR_MUTED);
++    label(card, 8, 26, 88, metric_text(data->hrv, value, sizeof(value)), &lv_font_montserrat_20, COLOR_TEXT);
++    label(card, 8, 52, 90, time_text(data->hrv_at), &lv_font_montserrat_14, COLOR_MUTED);
++}
++
++static void color_block(int x, int y, int width, int height, unsigned color) {
++    if (width <= 0) return;
++    lv_obj_t *obj = lv_obj_create(s_screen);
++    lv_obj_set_pos(obj, x, y);
++    lv_obj_set_size(obj, width, height);
++    lv_obj_remove_flag(obj, LV_OBJ_FLAG_SCROLLABLE);
++    lv_obj_set_style_border_width(obj, 0, 0);
++    lv_obj_set_style_radius(obj, 0, 0);
++    lv_obj_set_style_bg_color(obj, lv_color_hex(color), 0);
++    lv_obj_set_style_bg_opa(obj, LV_OPA_COVER, 0);
++}
++
++static void scrolling_text(int x, int y, int width, int height, const char *text, unsigned color) {
++    lv_obj_t *obj = label(s_screen, x, y, width, text, &lv_font_montserrat_14, color);
++    lv_obj_set_height(obj, height);
++    lv_label_set_long_mode(obj, LV_LABEL_LONG_SCROLL_CIRCULAR);
++    lv_obj_set_style_anim_duration(obj, 6000, 0);
++}
++
++static void sleep_page(const health_snapshot_t *data) {
++    char text[96], a[16], b[16], c[16];
++    label(s_screen, 18, 97, 110, "SLEEP 7D", &lv_font_montserrat_20, COLOR_TEXT);
++    snprintf(text, sizeof(text), "Today %s", metric_text(today_sleep_score(data), a, sizeof(a)));
++    label(s_screen, 128, 101, 98, text, &lv_font_montserrat_14, COLOR_ACCENT);
++    if (!data->has_sleep_week) {
++        if (data->sleep_minutes == HEALTH_MISSING) snprintf(text, sizeof(text), "-- duration");
++        else snprintf(text, sizeof(text), "%dh %02dm duration", data->sleep_minutes / 60, data->sleep_minutes % 60);
++        label(s_screen, 18, 154, 208, text, &lv_font_montserrat_20, COLOR_TEXT);
++        label(s_screen, 18, 192, 208, "Weekly data unavailable", &lv_font_montserrat_14, COLOR_MUTED);
++        label(s_screen, 18, 223, 208, time_text(data->sleep_date), &lv_font_montserrat_14, COLOR_MUTED);
++        return;
++    }
++    const unsigned colors[] = {COLOR_SLEEP_DEEP, COLOR_SLEEP_CORE, COLOR_SLEEP_REM,
++        COLOR_SLEEP_AWAKE, COLOR_SLEEP_UNKNOWN};
++    const char *names[] = {"Deep", "Core", "REM", "Awk", "Unk"};
++    const int legend_x[] = {18, 64, 106, 146, 186};
++    for (int i = 0; i < 5; ++i) {
++        int x = legend_x[i];
++        color_block(x, 126, 3, 7, colors[i]);
++        label(s_screen, x + 5, 122, i == 0 ? 40 : 34, names[i], &lv_font_montserrat_14, COLOR_MUTED);
++    }
++    int maximum = 600; /* Same scale for all seven nights, at least ten hours. */
++    for (int i = 0; i < HEALTH_TREND_DAYS; ++i) {
++        const health_sleep_day_t *night = &data->sleep_week[i];
++        int stages[] = {night->deep, night->core, night->rem, night->awake, night->unknown};
++        int sum = 0;
++        for (int stage = 0; stage < 5; ++stage) if (stages[stage] > 0) sum += stages[stage];
++        if (sum > maximum) maximum = sum;
++    }
++    for (int i = 0; i < HEALTH_TREND_DAYS; ++i) {
++        const health_sleep_day_t *night = &data->sleep_week[i];
++        int y = 142 + i * 15;
++        snprintf(text, sizeof(text), "%.2s/%.2s", night->date + 5, night->date + 8);
++        label(s_screen, 18, y - 2, 42, text, &lv_font_montserrat_14,
++              s_clock.valid && !strcmp(night->date, s_clock.date) ? COLOR_ACCENT : COLOR_MUTED);
++        color_block(64, y + 2, 112, 8, COLOR_PANEL);
++        if (night->total != HEALTH_MISSING) {
++            const int stages[] = {night->deep, night->core, night->rem, night->awake, night->unknown};
++            int sum = 0, previous = 0;
++            for (int stage = 0; stage < 5; ++stage) {
++                if (stages[stage] > 0) sum += stages[stage];
++                int edge = sum * 112 / maximum;
++                color_block(64 + previous, y + 2, edge - previous, 8, colors[stage]);
++                previous = edge;
++            }
++            snprintf(text, sizeof(text), "%dh%02d", night->total / 60, night->total % 60);
++        } else snprintf(text, sizeof(text), "--");
++        label(s_screen, 181, y - 2, 45, text, &lv_font_montserrat_14, COLOR_TEXT);
++    }
++    const health_sleep_day_t *last = &data->sleep_week[HEALTH_TREND_DAYS - 1];
++    snprintf(text, sizeof(text), "Deep %sm  Core %sm",
++        metric_text(last->deep, a, sizeof(a)), metric_text(last->core, b, sizeof(b)));
++    scrolling_text(18, 250, 208, 16, text, COLOR_TEXT);
++    snprintf(text, sizeof(text), "REM %sm  Awake %sm  Unk %sm",
++        metric_text(last->rem, a, sizeof(a)), metric_text(last->awake, b, sizeof(b)),
++        metric_text(last->unknown, c, sizeof(c)));
++    scrolling_text(18, 266, 208, 16, text, COLOR_TEXT);
++}
++
++static void metric_row(int y, const char *name, int value, const char *unit) {
++    char number[16], text[40];
++    label(s_screen, 18, y, 207, name, &lv_font_montserrat_14, COLOR_MUTED);
++    snprintf(text, sizeof(text), "%s %s", metric_text(value, number, sizeof(number)), unit);
++    label(s_screen, 18, y + 17, 207, text, &lv_font_montserrat_20, COLOR_TEXT);
++}
++
++static void workout_page(const health_snapshot_t *data) {
++    char text[512], count[16], minutes[16], energy[16];
++    label(s_screen, 18, 97, 207, "WORKOUT", &lv_font_montserrat_20, COLOR_TEXT);
++    snprintf(text, sizeof(text), "%s sessions   %s min", metric_text(data->workout_count, count, sizeof(count)),
++        metric_text(data->workout_minutes, minutes, sizeof(minutes)));
++    label(s_screen, 18, 126, 207, text, &lv_font_montserrat_14, COLOR_TEXT);
++    snprintf(text, sizeof(text), "Energy %s kcal", metric_text(data->workout_kcal, energy, sizeof(energy)));
++    label(s_screen, 18, 146, 207, text, &lv_font_montserrat_14, COLOR_MUTED);
++    label(s_screen, 18, 170, 207, "TYPES", &lv_font_montserrat_14, COLOR_MUTED);
++    size_t used = 0;
++    for (unsigned i = 0; i < data->workout_type_count; ++i) {
++        if (i) text[used++] = '\n';
++        int width = 0;
++        const char *type = data->workout_types[i];
++        for (size_t j = 0; type[j]; ++j) {
++            int advance = lv_font_get_glyph_width(&lv_font_montserrat_14,
++                (unsigned char)type[j], (unsigned char)type[j + 1]);
++            if (width + advance > 204) { text[used++] = '\n'; width = 0; }
++            text[used++] = type[j];
++            width += advance;
++        }
++    }
++    text[used] = '\0';
++    if (!used) snprintf(text, sizeof(text), "%s", data->workout_count == 0 ? "No workouts today" : "Type unavailable");
++    /* Overflow scrolls vertically through every type; names are never dropped. */
++    scrolling_text(18, 190, 207, 88, text, COLOR_ACCENT);
++}
++
++static void activity_page(const health_snapshot_t *data) {
++    char text[40];
++    label(s_screen, 18, 97, 207, "ACTIVITY", &lv_font_montserrat_20, COLOR_TEXT);
++    metric_row(124, "STEPS", data->steps, "steps");
++    metric_row(163, "ACTIVE ENERGY", data->active_kcal, "kcal");
++    metric_row(202, "EXERCISE", data->exercise_minutes, "min");
++    label(s_screen, 18, 241, 207, "DISTANCE", &lv_font_montserrat_14, COLOR_MUTED);
++    if (data->distance_meters == HEALTH_MISSING) snprintf(text, sizeof(text), "-- km");
++    else snprintf(text, sizeof(text), "%d.%02d km", data->distance_meters / 1000, data->distance_meters % 1000 / 10);
++    label(s_screen, 18, 260, 207, text, &lv_font_montserrat_20, COLOR_TEXT);
++}
++
++static const char *network_status(void) {
++    if (!s_network_ready) return "NETWORK UNAVAILABLE";
++    switch (s_network.status) {
++        case HEALTH_NET_STARTING: return "STARTING WI-FI";
++        case HEALTH_NET_NEEDS_ENDPOINT: return "USB SETUP REQUIRED";
++        case HEALTH_NET_NEEDS_WIFI: return "HOLD OK: WI-FI SETUP";
++        case HEALTH_NET_CONNECTING: return "CONNECTING WI-FI";
++        case HEALTH_NET_TIME_SYNC: return "SYNCING CLOCK";
++        case HEALTH_NET_FETCHING: return "UPDATING...";
++        case HEALTH_NET_ONLINE: return "WI-FI ONLINE";
++        case HEALTH_NET_WIFI_OFFLINE: return "WI-FI OFFLINE";
++        case HEALTH_NET_API_OFFLINE: return "API OFFLINE / LAST DATA";
++        case HEALTH_NET_SETUP: return "WI-FI SETUP / 5 MIN";
++        default: return "NETWORK ERROR";
++    }
++}
++
++static void setup_page(void) {
++    label(s_screen, 18, 92, 207, "1. Join this Wi-Fi", &lv_font_montserrat_14, COLOR_MUTED);
++    label(s_screen, 18, 115, 207, s_network.setup_ssid, &lv_font_montserrat_20, COLOR_ACCENT);
++    label(s_screen, 18, 151, 207, "Password", &lv_font_montserrat_14, COLOR_MUTED);
++    label(s_screen, 18, 173, 207, s_network.setup_password, &lv_font_montserrat_20, COLOR_TEXT);
++    label(s_screen, 18, 214, 207, "2. Open in browser", &lv_font_montserrat_14, COLOR_MUTED);
++    label(s_screen, 18, 237, 207, "http://192.168.4.1", &lv_font_montserrat_20, COLOR_ACCENT);
++    label(s_screen, 18, 272, 207, s_network.setup_failed ? "Failed; old Wi-Fi kept" : "3. Save home + hotspot",
++          &lv_font_montserrat_14, s_network.setup_failed ? COLOR_WARNING : COLOR_MUTED);
++}
++
++/* A clock tick changes only these two labels, never rebuilds health widgets. */
++static bool update_clock(void) {
++    if (!s_clock_label || !s_date_label || !bsp_lvgl_lock(100)) return false;
++    lv_label_set_text(s_clock_label, s_clock.time);
++    lv_label_set_text(s_date_label, s_clock.valid ? s_clock.date : "Clock not synced");
++    bsp_lvgl_unlock();
++    return true;
++}
++
++/* Only the worker calls render, and every LVGL operation is inside this lock. */
++static bool render(uint64_t now_ms, int battery) {
++    if (!bsp_lvgl_lock(500)) return false;
++    if (!s_screen) {
++        s_screen = lv_obj_create(NULL);
++        lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
++        lv_obj_set_style_bg_color(s_screen, lv_color_hex(COLOR_BG), 0);
++        lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
++        lv_obj_set_style_border_width(s_screen, 0, 0);
++        lv_obj_set_style_pad_all(s_screen, 0, 0);
++        lv_screen_load(s_screen);
++    }
++    lv_obj_clean(s_screen);
++    char text[64];
++    s_clock_label = label(s_screen, 18, 8, 142, s_clock.time, &lv_font_montserrat_20, COLOR_TEXT);
++    s_date_label = label(s_screen, 18, 33, 140, s_clock.valid ? s_clock.date : "Clock not synced", &lv_font_montserrat_14, COLOR_MUTED);
++    if (s_model.snapshot.demo) label(s_screen, 167, 33, 55, "DEMO", &lv_font_montserrat_14, COLOR_WARNING);
++    if (battery < 0) snprintf(text, sizeof(text), "BAT --");
++    else snprintf(text, sizeof(text), "%d%%", battery);
++    lv_obj_t *battery_label = label(s_screen, 167, 12, 55, text, &lv_font_montserrat_14, COLOR_MUTED);
++    lv_obj_set_style_text_align(battery_label, LV_TEXT_ALIGN_RIGHT, 0);
++    bool connected = health_model_connected(&s_model, now_ms);
++    const char *status = network_status();
++    if (!s_network.endpoint_configured && connected) status = s_model.snapshot.online ? "USB CONNECTED" : "API OFFLINE";
++    label(s_screen, 18, 53, 207, status, &lv_font_montserrat_14,
++          s_network.status == HEALTH_NET_ONLINE ? COLOR_ACCENT : COLOR_WARNING);
++    const bool today = health_snapshot_is_today(&s_model.snapshot, &s_clock);
++    const char *day_label = !s_model.snapshot.day[0] ? "DATA DATE UNKNOWN" :
++        today ? "TODAY" : s_clock.valid ? "LAST DATA" : "DATA";
++    if (!s_model.snapshot.day[0]) snprintf(text, sizeof(text), "%s", day_label);
++    else if (today) snprintf(text, sizeof(text), "%s", day_label);
++    else snprintf(text, sizeof(text), "%s %s", day_label, s_model.snapshot.day);
++    label(s_screen, 18, 73, 207, text, &lv_font_montserrat_14, today ? COLOR_MUTED : COLOR_WARNING);
++    if (s_network.status == HEALTH_NET_SETUP) setup_page();
++    else switch (s_model.page) {
++        case HEALTH_PAGE_OVERVIEW: overview(&s_model.snapshot); break;
++        case HEALTH_PAGE_PRESSURE: pressure_page(&s_model.snapshot); break;
++        case HEALTH_PAGE_SLEEP: sleep_page(&s_model.snapshot); break;
++        case HEALTH_PAGE_WORKOUT: workout_page(&s_model.snapshot); break;
++        case HEALTH_PAGE_ACTIVITY: activity_page(&s_model.snapshot); break;
++        default: break;
++    }
++    if (s_network.status == HEALTH_NET_SETUP) snprintf(text, sizeof(text), "Setup closes in 5 minutes");
++    else {
++        snprintf(text, sizeof(text), "SYNC %.5s / 30m", s_last_sync.valid ? s_last_sync.time : "--:--");
++        label(s_screen, 18, 283, 207, text, &lv_font_montserrat_14, COLOR_MUTED);
++        snprintf(text, sizeof(text), "%d/5 UP/DOWN  OK: refresh", s_model.page + 1);
++    }
++    label(s_screen, 18, 301, 207, text, &lv_font_montserrat_14, COLOR_MUTED);
++    bsp_lvgl_unlock();
++    return true;
++}
++
++static bool display_refresh_paused(bool paused) {
++    if (!bsp_lvgl_lock(100)) return false;
++    esp_err_t result = paused ? lvgl_port_stop() : lvgl_port_resume();
++    bsp_lvgl_unlock();
++    /* BSP initialized this timer and the app never deinitializes it. These
++     * APIs set lv_timer_enable before operating on esp_timer; INVALID_STATE
++     * therefore means that timer is already stopped/running as requested. */
++    return result == ESP_OK || result == ESP_ERR_INVALID_STATE;
++}
++
++static void on_button(bsp_btn_t button, bsp_btn_ev_t event, void *user) {
++    (void)user;
++    health_button_event_t input = {.button = button, .event = event};
++    (void)xQueueSend(s_buttons, &input, 0);
++}
++
++static void health_worker(void *arg) {
++    (void)arg;
++    unsigned char bytes[128];
++    int battery = -1;
++    uint64_t next_battery_ms = 0;
++    bool dirty = true;
++    bool was_connected = false;
++    bool display_paused = false;
++    bool backlight_off = false;
++    for (;;) {
++        uint64_t now_ms = (uint64_t)(esp_timer_get_time() / 1000);
++        if (now_ms >= next_battery_ms) {
++            int reading = bsp_battery_soc();
++            if (reading != battery) dirty = true;
++            battery = reading;
++            next_battery_ms = now_ms + 10000;
++        }
++        health_network_event_t network;
++        while (health_network_poll(&network)) {
++            s_network = network;
++            if (network.configuration_ack && s_usb_ready) {
++                const char *ack = network.configuration_ok ? "{\"event\":\"configured\",\"ok\":true}\n" : "{\"event\":\"configured\",\"ok\":false}\n";
++                (void)usb_serial_jtag_write_bytes(ack, strlen(ack), pdMS_TO_TICKS(20));
++            }
++            if (network.has_snapshot) {
++                health_model_accept(&s_model, &network.snapshot, now_ms);
++                health_clock_format((int64_t)time(NULL), &s_last_sync);
++            }
++            dirty = true;
++        }
++        health_button_event_t input;
++        while (xQueueReceive(s_buttons, &input, 0) == pdTRUE) {
++            bool asleep_before = s_idle.asleep;
++            bool dispatch = health_idle_button(&s_idle, input.button, input.event, now_ms);
++            if (asleep_before && !s_idle.asleep) dirty = true;
++            if (!dispatch) continue;
++            if (input.event == BSP_BTN_LONG) {
++                if (input.button == BSP_BTN_OK) health_network_setup();
++                else if (input.button == BSP_BTN_UP) health_network_clear_wifi();
++            } else if (input.button == BSP_BTN_UP || input.button == BSP_BTN_DOWN) {
++                health_model_turn_page(&s_model, input.button == BSP_BTN_UP ? -1 : 1);
++                dirty = true;
++            } else if (input.button == BSP_BTN_OK && s_network.endpoint_configured) health_network_refresh();
++            else if (input.button == BSP_BTN_OK && s_usb_ready) {
++                static const char request[] = "{\"event\":\"refresh\"}\n";
++                (void)usb_serial_jtag_write_bytes(request, sizeof(request) - 1, pdMS_TO_TICKS(20));
++            }
++        }
++        int count = 0;
++        if (s_usb_ready) count = usb_serial_jtag_read_bytes(bytes, sizeof(bytes), pdMS_TO_TICKS(100));
++        else vTaskDelay(pdMS_TO_TICKS(100));
++        for (int i = 0; i < count; ++i) {
++            if (!health_line_push(&s_line, bytes[i])) continue;
++            health_snapshot_t snapshot;
++            health_endpoint_t endpoint;
++            if (health_endpoint_parse(s_line.data, &endpoint)) {
++                if (!health_network_configure(&endpoint)) {
++                    static const char fail[] = "{\"event\":\"configured\",\"ok\":false}\n";
++                    (void)usb_serial_jtag_write_bytes(fail, sizeof(fail) - 1, pdMS_TO_TICKS(20));
++                }
++                memset(&endpoint, 0, sizeof(endpoint));
++                memset(s_line.data, 0, sizeof(s_line.data));
++            } else if (!s_network.endpoint_configured && health_snapshot_parse(s_line.data, &snapshot)) {
++                now_ms = (uint64_t)(esp_timer_get_time() / 1000);
++                health_model_accept(&s_model, &snapshot, now_ms);
++                dirty = true;
++            }
++            memset(s_line.data, 0, sizeof(s_line.data));
++        }
++        now_ms = (uint64_t)(esp_timer_get_time() / 1000);
++        bool connected = health_model_connected(&s_model, now_ms);
++        if (connected != was_connected) dirty = true;
++        was_connected = connected;
++        health_clock_t clock;
++        health_clock_format((int64_t)time(NULL), &clock);
++        bool date_changed = clock.valid != s_clock.valid || strcmp(clock.date, s_clock.date) != 0;
++        bool clock_changed = strcmp(clock.time, s_clock.time) != 0 || date_changed;
++        s_clock = clock;
++        if (date_changed) dirty = true; /* Re-label retained data immediately at midnight. */
++        if (health_idle_update(&s_idle, now_ms, s_network.status == HEALTH_NET_SETUP)) {
++            if (!display_paused && display_refresh_paused(true)) {
++                display_paused = true;
++                bsp_display_backlight(0);
++                backlight_off = true;
++            }
++        } else {
++            if (display_paused && display_refresh_paused(false)) {
++                display_paused = false;
++                dirty = true;
++            }
++            if (!display_paused) {
++                if ((dirty || backlight_off) && render(now_ms, battery)) {
++                    dirty = false;
++                    /* Rebuild using the latest clock/model before lighting up. */
++                    if (backlight_off) {
++                        bsp_display_backlight(65);
++                        backlight_off = false;
++                    }
++                } else if (!backlight_off && clock_changed) (void)update_clock();
++            }
++        }
++        /* Allow idle/watchdog work even if a host continuously floods RX. */
++        vTaskDelay(pdMS_TO_TICKS(1));
++    }
++}
++
++void app_main(void) {
++    health_model_init(&s_model);
++    health_idle_init(&s_idle, (uint64_t)(esp_timer_get_time() / 1000));
++    health_clock_format((int64_t)time(NULL), &s_clock);
++    if (bsp_display_init() != ESP_OK || !bsp_lvgl_init()) return;
++    bsp_display_backlight(65);
++    (void)bsp_battery_init();
++    s_buttons = xQueueCreate(INPUT_QUEUE_DEPTH, sizeof(health_button_event_t));
++    if (!s_buttons) return;
++    usb_serial_jtag_driver_config_t usb = {
++        .rx_buffer_size = HEALTH_LINE_CAPACITY,
++        .tx_buffer_size = 256,
++    };
++    s_usb_ready = usb_serial_jtag_driver_install(&usb) == ESP_OK;
++    /* No protocol payload, credentials, or health content is ever logged. */
++    esp_log_level_set("*", ESP_LOG_WARN);
++    /* HTTP debug/error output may include URLs. The UI reports only safe states. */
++    esp_log_level_set("HTTP_CLIENT", ESP_LOG_NONE);
++    esp_log_level_set("esp-tls", ESP_LOG_NONE);
++    esp_log_level_set("mbedtls", ESP_LOG_NONE);
++    s_network_ready = health_network_start();
++    if (xTaskCreate(health_worker, "health_usb", 8192, NULL, 4, NULL) != pdPASS) {
++        ESP_LOGE("health", "USB worker allocation failed");
++        (void)render(0, -1);
++        return;
++    }
++    (void)bsp_button_init(on_button, NULL);
++}
+diff --git a/main/health_model.c b/main/health_model.c
+new file mode 100644
+index 0000000..557646b
+--- /dev/null
++++ b/main/health_model.c
+@@ -0,0 +1,299 @@
++#define _POSIX_C_SOURCE 200809L
++#include "health_model.h"
++
++#include "cJSON.h"
++
++#include <string.h>
++#include <time.h>
++
++static void snapshot_init(health_snapshot_t *data) {
++    memset(data, 0, sizeof(*data));
++    data->pressure = data->heart = data->hrv = HEALTH_MISSING;
++    data->sleep_score = data->sleep_minutes = HEALTH_MISSING;
++    data->workout_count = data->workout_minutes = data->workout_kcal = HEALTH_MISSING;
++    data->steps = data->active_kcal = data->exercise_minutes = data->distance_meters = HEALTH_MISSING;
++    for (size_t i = 0; i < HEALTH_TREND_DAYS; ++i) data->trend[i] = HEALTH_MISSING;
++    for (size_t i = 0; i < HEALTH_TREND_DAYS; ++i) {
++        health_sleep_day_t *sleep = &data->sleep_week[i];
++        sleep->total = sleep->deep = sleep->core = sleep->rem = sleep->awake = sleep->unknown = HEALTH_MISSING;
++    }
++}
++
++void health_model_init(health_model_t *model) {
++    memset(model, 0, sizeof(*model));
++    snapshot_init(&model->snapshot);
++}
++
++void health_model_accept(health_model_t *model, const health_snapshot_t *snapshot,
++                         uint64_t now_ms) {
++    model->snapshot = *snapshot;
++    model->last_packet_ms = now_ms;
++    model->has_packet = true;
++}
++
++bool health_model_connected(const health_model_t *model, uint64_t now_ms) {
++    return model->has_packet && now_ms >= model->last_packet_ms &&
++           now_ms - model->last_packet_ms < HEALTH_DISCONNECT_MS;
++}
++
++void health_model_turn_page(health_model_t *model, int direction) {
++    if (direction > 0) model->page = (model->page + 1) % HEALTH_PAGE_COUNT;
++    if (direction < 0) model->page = (model->page + HEALTH_PAGE_COUNT - 1) % HEALTH_PAGE_COUNT;
++}
++
++bool health_line_push(health_line_t *line, unsigned char byte) {
++    if (byte == '\n') {
++        bool complete = !line->discarding && line->length > 0;
++        line->data[line->length] = '\0';
++        line->length = 0;
++        line->discarding = false;
++        line->carriage_return = false;
++        return complete;
++    }
++    if (line->discarding) return false;
++    if (byte == '\r' && !line->carriage_return && line->length < HEALTH_LINE_CAPACITY - 2) {
++        line->carriage_return = true;
++        return false;
++    }
++    /* Include the terminating newline in the protocol's <4096 byte limit. */
++    if (line->carriage_return || byte < 0x20 || byte > 0x7e ||
++        line->length >= HEALTH_LINE_CAPACITY - 2) {
++        line->discarding = true;
++        line->length = 0;
++        return false;
++    }
++    line->data[line->length++] = (char)byte;
++    return false;
++}
++
++/* Bound allocation and recursion before cJSON runs. V3 adds only seven sleep
++ * objects and eight workout names; protocol strings are ASCII without escapes. */
++static bool bounded_json(const char *json, size_t *length) {
++    if (!json) return false;
++    bool in_string = false;
++    unsigned depth = 0, commas = 0, colons = 0;
++    size_t i = 0;
++    for (; i <= HEALTH_LINE_CAPACITY - 2; ++i) {
++        unsigned char c = (unsigned char)json[i];
++        if (!c) break;
++        if (c < 0x20 || c > 0x7e || c == '\\') return false;
++        if (c == '"') { in_string = !in_string; continue; }
++        if (in_string) continue;
++        if (c == '{' || c == '[') {
++            if (++depth > 3) return false;
++        } else if (c == '}' || c == ']') {
++            if (!depth) return false;
++            --depth;
++        } else if (c == ',' && ++commas > 86) return false;
++        else if (c == ':' && ++colons > 75) return false;
++    }
++    if (i > HEALTH_LINE_CAPACITY - 2 || in_string || depth) return false;
++    *length = i;
++    return true;
++}
++
++static bool read_bool(const cJSON *root, const char *name, bool *output) {
++    const cJSON *value = cJSON_GetObjectItemCaseSensitive(root, name);
++    if (!cJSON_IsBool(value)) return false;
++    *output = cJSON_IsTrue(value);
++    return true;
++}
++
++static bool read_metric_value(const cJSON *value, int minimum, int maximum, int *output) {
++    if (cJSON_IsNull(value)) { *output = HEALTH_MISSING; return true; }
++    if (!cJSON_IsNumber(value) || !(value->valuedouble >= minimum && value->valuedouble <= maximum)) {
++        return false;
++    }
++    int number = (int)value->valuedouble;
++    if (value->valuedouble != number) return false;
++    *output = number;
++    return true;
++}
++
++static bool read_metric(const cJSON *root, const char *name, int minimum, int maximum, int *output) {
++    return read_metric_value(cJSON_GetObjectItemCaseSensitive(root, name), minimum, maximum, output);
++}
++
++static bool read_text(const cJSON *root, const char *name, char *output, size_t capacity) {
++    const cJSON *value = cJSON_GetObjectItemCaseSensitive(root, name);
++    if (!cJSON_IsString(value)) return false;
++    size_t length = strlen(value->valuestring);
++    if (length >= capacity) return false;
++    memcpy(output, value->valuestring, length + 1);
++    return true;
++}
++
++static bool digit(char c) { return c >= '0' && c <= '9'; }
++static int pair(const char *text) { return (text[0] - '0') * 10 + text[1] - '0'; }
++
++static bool timestamp_valid(const char *text) {
++    if (!text[0]) return true;
++    if (strlen(text) != 11 || text[2] != '/' || text[5] != ' ' || text[8] != ':') return false;
++    const int positions[] = {0, 1, 3, 4, 6, 7, 9, 10};
++    for (size_t i = 0; i < sizeof(positions) / sizeof(positions[0]); ++i) {
++        if (!digit(text[positions[i]])) return false;
++    }
++    return pair(text) >= 1 && pair(text) <= 12 && pair(text + 3) >= 1 &&
++           pair(text + 3) <= 31 && pair(text + 6) <= 23 && pair(text + 9) <= 59;
++}
++
++static bool date_valid(const char *text) {
++    if (!text[0]) return true;
++    if (strlen(text) != 10 || text[4] != '-' || text[7] != '-') return false;
++    for (int i = 0; i < 10; ++i) {
++        if (i != 4 && i != 7 && !digit(text[i])) return false;
++    }
++    int year = pair(text) * 100 + pair(text + 2);
++    int month = pair(text + 5), day = pair(text + 8);
++    if (year < 1 || month < 1 || month > 12) return false;
++    static const int days[] = {31,28,31,30,31,30,31,31,30,31,30,31};
++    int maximum = days[month - 1];
++    if (month == 2 && year % 4 == 0 && (year % 100 != 0 || year % 400 == 0)) ++maximum;
++    return day >= 1 && day <= maximum;
++}
++
++static bool unique_keys(const cJSON *object) {
++    if (!cJSON_IsObject(object)) return false;
++    for (const cJSON *item = object->child; item; item = item->next) {
++        if (!item->string) return false;
++        for (const cJSON *prior = object->child; prior != item; prior = prior->next) {
++            if (!strcmp(prior->string, item->string)) return false;
++        }
++    }
++    return true;
++}
++
++static bool previous_date(char *date) {
++    int year = pair(date) * 100 + pair(date + 2);
++    int month = pair(date + 5), day = pair(date + 8);
++    if (--day == 0) {
++        if (--month == 0) { month = 12; --year; }
++        if (year < 1) return false;
++        static const int days[] = {31,28,31,30,31,30,31,31,30,31,30,31};
++        day = days[month - 1];
++        if (month == 2 && year % 4 == 0 && (year % 100 != 0 || year % 400 == 0)) ++day;
++    }
++    /* Values originate in a validated 0001..9999 date and only decrease. */
++    date[0] = (char)('0' + year / 1000);
++    date[1] = (char)('0' + year / 100 % 10);
++    date[2] = (char)('0' + year / 10 % 10);
++    date[3] = (char)('0' + year % 10);
++    date[5] = (char)('0' + month / 10);
++    date[6] = (char)('0' + month % 10);
++    date[8] = (char)('0' + day / 10);
++    date[9] = (char)('0' + day % 10);
++    return true;
++}
++
++static bool read_sleep_week(const cJSON *root, health_snapshot_t *data) {
++    const cJSON *week = cJSON_GetObjectItemCaseSensitive(root, "sleepWeek");
++    if (!cJSON_IsArray(week) || cJSON_GetArraySize(week) != HEALTH_TREND_DAYS) return false;
++    char expected[HEALTH_DATE_CAPACITY];
++    memcpy(expected, data->day, sizeof(expected));
++    for (int i = HEALTH_TREND_DAYS - 1; i >= 0; --i) {
++        const cJSON *row = cJSON_GetArrayItem(week, i);
++        health_sleep_day_t *sleep = &data->sleep_week[i];
++        if (!unique_keys(row) || cJSON_GetArraySize(row) != 7 ||
++            !read_text(row, "date", sleep->date, sizeof(sleep->date)) || strcmp(sleep->date, expected) ||
++            !read_metric(row, "total", 0, 1440, &sleep->total) ||
++            !read_metric(row, "deep", 0, 1440, &sleep->deep) ||
++            !read_metric(row, "core", 0, 1440, &sleep->core) ||
++            !read_metric(row, "rem", 0, 1440, &sleep->rem) ||
++            !read_metric(row, "awake", 0, 1440, &sleep->awake) ||
++            !read_metric(row, "unknown", 0, 1440, &sleep->unknown)) return false;
++        if (sleep->total != HEALTH_MISSING && sleep->deep != HEALTH_MISSING &&
++            sleep->core != HEALTH_MISSING && sleep->rem != HEALTH_MISSING &&
++            sleep->unknown != HEALTH_MISSING &&
++            sleep->deep + sleep->core + sleep->rem + sleep->unknown != sleep->total) return false;
++        if (i && !previous_date(expected)) return false;
++    }
++    data->has_sleep_week = true;
++    return true;
++}
++
++static bool read_workout_types(const cJSON *root, health_snapshot_t *data) {
++    const cJSON *types = cJSON_GetObjectItemCaseSensitive(root, "workoutTypes");
++    if (!cJSON_IsArray(types) || cJSON_GetArraySize(types) > HEALTH_WORKOUT_TYPES) return false;
++    unsigned index = 0;
++    for (const cJSON *type = types->child; type; type = type->next) {
++        if (!cJSON_IsString(type)) return false;
++        size_t length = strlen(type->valuestring);
++        if (!length || length >= HEALTH_WORKOUT_TYPE_CAPACITY) return false;
++        for (size_t i = 0; i < length; ++i) {
++            unsigned char c = (unsigned char)type->valuestring[i];
++            if (!((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
++                (c >= '0' && c <= '9') || c == ' ' || c == '-')) return false;
++        }
++        for (unsigned prior = 0; prior < index; ++prior) {
++            if (!strcmp(data->workout_types[prior], type->valuestring)) return false;
++        }
++        memcpy(data->workout_types[index++], type->valuestring, length + 1);
++    }
++    data->workout_type_count = index;
++    return true;
++}
++
++void health_clock_format(int64_t utc_seconds, health_clock_t *output) {
++    *output = (health_clock_t){.time = "--:--:--"};
++    if (utc_seconds < 1704067200 || utc_seconds > 253402271999LL) return;
++    time_t local = (time_t)(utc_seconds + 8 * 60 * 60);
++    struct tm parts;
++    if (!gmtime_r(&local, &parts)) return;
++    if (strftime(output->time, sizeof(output->time), "%H:%M:%S", &parts) != 8 ||
++        strftime(output->date, sizeof(output->date), "%Y-%m-%d", &parts) != 10) {
++        *output = (health_clock_t){.time = "--:--:--"};
++        return;
++    }
++    output->valid = true;
++}
++
++bool health_snapshot_is_today(const health_snapshot_t *data, const health_clock_t *clock) {
++    return clock->valid && data->day[0] && !strcmp(data->day, clock->date);
++}
++
++bool health_snapshot_parse(const char *json, health_snapshot_t *output) {
++    size_t length;
++    if (!output || !bounded_json(json, &length)) return false;
++    cJSON *root = cJSON_ParseWithLengthOpts(json, length + 1, NULL, true);
++    if (!root) return false;
++    health_snapshot_t data;
++    snapshot_init(&data);
++    const cJSON *version = cJSON_GetObjectItemCaseSensitive(root, "v");
++    const cJSON *trend = cJSON_GetObjectItemCaseSensitive(root, "trend");
++    bool v2 = cJSON_IsNumber(version) && version->valuedouble == 2;
++    bool v3 = cJSON_IsNumber(version) && version->valuedouble == 3;
++    bool valid = unique_keys(root) && cJSON_GetArraySize(root) == (v3 ? 26 : v2 ? 24 : 16) &&
++        cJSON_IsNumber(version) && (version->valuedouble == 1 || v2 || v3) &&
++        read_bool(root, "online", &data.online) && read_bool(root, "demo", &data.demo) &&
++        read_bool(root, "retained", &data.retained) &&
++        read_metric(root, "pressure", 0, 100, &data.pressure) &&
++        read_metric(root, "heart", 1, 300, &data.heart) &&
++        read_metric(root, "hrv", 1, 1000, &data.hrv) &&
++        read_metric(root, "sleepScore", 0, 100, &data.sleep_score) &&
++        read_metric(root, "sleepMinutes", 0, 1440, &data.sleep_minutes) &&
++        read_text(root, "asOf", data.as_of, sizeof(data.as_of)) && timestamp_valid(data.as_of) &&
++        read_text(root, "pressureAt", data.pressure_at, sizeof(data.pressure_at)) && timestamp_valid(data.pressure_at) &&
++        read_text(root, "heartAt", data.heart_at, sizeof(data.heart_at)) && timestamp_valid(data.heart_at) &&
++        read_text(root, "hrvAt", data.hrv_at, sizeof(data.hrv_at)) && timestamp_valid(data.hrv_at) &&
++        read_text(root, "sleepDate", data.sleep_date, sizeof(data.sleep_date)) && date_valid(data.sleep_date) &&
++        read_text(root, "hrvMethod", data.hrv_method, sizeof(data.hrv_method)) &&
++        (strcmp(data.hrv_method, "RMSSD") == 0 || strcmp(data.hrv_method, "SDNN") == 0) &&
++        cJSON_IsArray(trend) && cJSON_GetArraySize(trend) == HEALTH_TREND_DAYS;
++    if (valid && (v2 || v3)) {
++        valid = read_text(root, "day", data.day, sizeof(data.day)) && data.day[0] && date_valid(data.day) &&
++            read_metric(root, "workoutCount", 0, 100, &data.workout_count) &&
++            read_metric(root, "workoutMinutes", 0, 1440, &data.workout_minutes) &&
++            read_metric(root, "workoutKcal", 0, 10000, &data.workout_kcal) &&
++            read_metric(root, "steps", 0, 200000, &data.steps) &&
++            read_metric(root, "activeKcal", 0, 20000, &data.active_kcal) &&
++            read_metric(root, "exerciseMinutes", 0, 1440, &data.exercise_minutes) &&
++            read_metric(root, "distanceMeters", 0, 2000000, &data.distance_meters);
++    }
++    for (int i = 0; valid && i < HEALTH_TREND_DAYS; ++i) {
++        valid = read_metric_value(cJSON_GetArrayItem(trend, i), 0, 100, &data.trend[i]);
++    }
++    if (valid && v3) valid = read_sleep_week(root, &data) && read_workout_types(root, &data);
++    cJSON_Delete(root);
++    if (valid) *output = data;
++    return valid;
++}
+diff --git a/main/health_model.h b/main/health_model.h
+new file mode 100644
+index 0000000..ecb8a70
+--- /dev/null
++++ b/main/health_model.h
+@@ -0,0 +1,91 @@
++#pragma once
++
++#include <stdbool.h>
++#include <stddef.h>
++#include <stdint.h>
++
++#define HEALTH_LINE_CAPACITY 4096
++#define HEALTH_TREND_DAYS 7
++#define HEALTH_TIMESTAMP_CAPACITY 12
++#define HEALTH_DATE_CAPACITY 11
++#define HEALTH_DISCONNECT_MS 45000
++#define HEALTH_MISSING (-1)
++#define HEALTH_WORKOUT_TYPES 8
++#define HEALTH_WORKOUT_TYPE_CAPACITY 25
++
++typedef struct {
++    char date[HEALTH_DATE_CAPACITY];
++    int total, deep, core, rem, awake, unknown;
++} health_sleep_day_t;
++
++typedef struct {
++    bool online;
++    bool demo;
++    bool retained;
++    char as_of[HEALTH_TIMESTAMP_CAPACITY];
++    int pressure;
++    char pressure_at[HEALTH_TIMESTAMP_CAPACITY];
++    int heart;
++    char heart_at[HEALTH_TIMESTAMP_CAPACITY];
++    int hrv;
++    char hrv_method[6];
++    char hrv_at[HEALTH_TIMESTAMP_CAPACITY];
++    int sleep_score;
++    int sleep_minutes;
++    char sleep_date[HEALTH_DATE_CAPACITY];
++    int trend[HEALTH_TREND_DAYS];
++    char day[HEALTH_DATE_CAPACITY];
++    int workout_count;
++    int workout_minutes;
++    int workout_kcal;
++    int steps;
++    int active_kcal;
++    int exercise_minutes;
++    int distance_meters;
++    bool has_sleep_week;
++    health_sleep_day_t sleep_week[HEALTH_TREND_DAYS];
++    unsigned workout_type_count;
++    char workout_types[HEALTH_WORKOUT_TYPES][HEALTH_WORKOUT_TYPE_CAPACITY];
++} health_snapshot_t;
++
++typedef struct {
++    char time[9];
++    char date[HEALTH_DATE_CAPACITY];
++    bool valid;
++} health_clock_t;
++
++typedef enum {
++    HEALTH_PAGE_OVERVIEW,
++    HEALTH_PAGE_PRESSURE,
++    HEALTH_PAGE_SLEEP,
++    HEALTH_PAGE_WORKOUT,
++    HEALTH_PAGE_ACTIVITY,
++    HEALTH_PAGE_COUNT,
++} health_page_t;
++
++typedef struct {
++    health_snapshot_t snapshot;
++    health_page_t page;
++    uint64_t last_packet_ms;
++    bool has_packet;
++} health_model_t;
++
++typedef struct {
++    char data[HEALTH_LINE_CAPACITY];
++    size_t length;
++    bool discarding;
++    bool carriage_return;
++} health_line_t;
++
++void health_model_init(health_model_t *model);
++void health_model_accept(health_model_t *model, const health_snapshot_t *snapshot,
++                         uint64_t now_ms);
++bool health_model_connected(const health_model_t *model, uint64_t now_ms);
++void health_model_turn_page(health_model_t *model, int direction);
++/* A complete line is valid until the next push; invalid/oversize lines are discarded. */
++bool health_line_push(health_line_t *line, unsigned char byte);
++/* Reject malformed packets atomically, leaving output unchanged on failure. */
++bool health_snapshot_parse(const char *json, health_snapshot_t *output);
++/* Fixed UTC+8 display, independent of the process/device timezone. */
++void health_clock_format(int64_t utc_seconds, health_clock_t *output);
++bool health_snapshot_is_today(const health_snapshot_t *data, const health_clock_t *clock);
+diff --git a/main/health_network.c b/main/health_network.c
+new file mode 100644
+index 0000000..6e6de7f
+--- /dev/null
++++ b/main/health_network.c
+@@ -0,0 +1,419 @@
++/* Network/storage work stays here; only the UI worker owns LVGL and its model. */
++#include "health_network.h"
++#include "esp_crt_bundle.h"
++#include "esp_event.h"
++#include "esp_http_client.h"
++#include "esp_http_server.h"
++#include "esp_netif.h"
++#include "esp_random.h"
++#include "esp_sntp.h"
++#include "esp_timer.h"
++#include "esp_wifi.h"
++#include "freertos/FreeRTOS.h"
++#include "freertos/queue.h"
++#include "freertos/task.h"
++#include "nvs.h"
++#include "nvs_flash.h"
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include <time.h>
++#include <sys/socket.h>
++
++typedef enum { COMMAND_REFRESH, COMMAND_SETUP, COMMAND_CLEAR, COMMAND_ENDPOINT, COMMAND_PROFILES } command_kind_t;
++typedef struct {
++    command_kind_t kind;
++    union { health_endpoint_t endpoint; health_profiles_t profiles; } value;
++} network_command_t;
++
++static QueueHandle_t s_commands, s_events, s_acks, s_wifi_events;
++static health_endpoint_t s_endpoint;
++static health_profiles_t s_profiles;
++static nvs_handle_t s_nvs;
++static bool s_has_endpoint, s_has_ip, s_sntp_started, s_setup;
++static bool s_attempt_active;
++static esp_netif_t *s_sta_netif;
++static httpd_handle_t s_server;
++static health_network_event_t s_state;
++static char s_nonce[25];
++
++static uint64_t now_ms(void) { return (uint64_t)(esp_timer_get_time() / 1000); }
++
++static void publish(health_network_status_t status) {
++    s_state.status = status;
++    s_state.endpoint_configured = s_has_endpoint;
++    s_state.has_snapshot = false;
++    s_state.configuration_ack = false;
++    /* A one-slot latest state queue cannot back up network work behind the UI. */
++    (void)xQueueOverwrite(s_events, &s_state);
++}
++
++static void wifi_event(void *arg, esp_event_base_t base, int32_t id, void *data) {
++    (void)arg; (void)data;
++    int event = base == IP_EVENT && id == IP_EVENT_STA_GOT_IP ? 1 : 0;
++    (void)xQueueSend(s_wifi_events, &event, 0);
++}
++
++static bool load_blob(const char *key, void *output, size_t expected) {
++    size_t size = expected;
++    return nvs_get_blob(s_nvs, key, output, &size) == ESP_OK && size == expected;
++}
++
++static bool persist(const char *key, const void *data, size_t size) {
++    return nvs_set_blob(s_nvs, key, data, size) == ESP_OK && nvs_commit(s_nvs) == ESP_OK;
++}
++
++static bool stack_init(void) {
++    if (nvs_flash_init() != ESP_OK || nvs_open("healthwifi", NVS_READWRITE, &s_nvs) != ESP_OK) return false;
++    if (load_blob("endpoint", &s_endpoint, sizeof(s_endpoint)) &&
++        s_endpoint.url[sizeof(s_endpoint.url) - 1] == 0 && s_endpoint.token[sizeof(s_endpoint.token) - 1] == 0) {
++        s_has_endpoint = health_endpoint_valid(&s_endpoint);
++    }
++    if (!s_has_endpoint) memset(&s_endpoint, 0, sizeof(s_endpoint));
++    bool profiles_terminated = load_blob("profiles", &s_profiles, sizeof(s_profiles));
++    for (unsigned i = 0; i < HEALTH_PROFILE_COUNT; ++i) {
++        profiles_terminated = profiles_terminated && s_profiles.profile[i].ssid[32] == 0 && s_profiles.profile[i].password[63] == 0;
++    }
++    if (!profiles_terminated || !health_profiles_valid(&s_profiles)) memset(&s_profiles, 0, sizeof(s_profiles));
++    if (esp_netif_init() != ESP_OK || esp_event_loop_create_default() != ESP_OK) return false;
++    s_sta_netif = esp_netif_create_default_wifi_sta();
++    if (!s_sta_netif || !esp_netif_create_default_wifi_ap()) return false;
++    wifi_init_config_t config = WIFI_INIT_CONFIG_DEFAULT();
++    if (esp_wifi_init(&config) != ESP_OK || esp_wifi_set_storage(WIFI_STORAGE_RAM) != ESP_OK ||
++        esp_wifi_set_mode(WIFI_MODE_STA) != ESP_OK) return false;
++    if (esp_event_handler_register(WIFI_EVENT, WIFI_EVENT_STA_DISCONNECTED, wifi_event, NULL) != ESP_OK ||
++        esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, wifi_event, NULL) != ESP_OK) return false;
++    return esp_wifi_start() == ESP_OK;
++}
++
++static esp_err_t form_page(httpd_req_t *request) {
++    const char *template = "<!doctype html><html><meta name=viewport content='width=device-width,initial-scale=1'>"
++        "<meta charset=utf-8><title>Health badge Wi-Fi</title><style>body{font:17px system-ui;max-width:420px;margin:24px auto;padding:12px}"
++        "input,button{box-sizing:border-box;width:100%%;font:inherit;padding:10px;margin:6px 0 18px}</style>"
++        "<h1>Health badge Wi-Fi</h1><p>Save up to two 2.4 GHz WPA2 networks. iPhone: enable Maximize Compatibility.</p>"
++        "<form method=post action=/save><input type=hidden name=nonce value='%s'>"
++        "<label>Home network<input name=ssid1 maxlength=32 required autocomplete=off></label>"
++        "<label>Password<input name=password1 type=password minlength=8 maxlength=63 required autocomplete=new-password></label>"
++        "<label>iPhone hotspot / second network (optional)<input name=ssid2 maxlength=32 autocomplete=off></label>"
++        "<label>Password<input name=password2 type=password minlength=8 maxlength=63 autocomplete=new-password></label>"
++        "<button>Save and connect</button></form><p>Existing passwords are never displayed. Hold UP on the badge to erase saved networks.</p></html>";
++    char *html = malloc(1800);
++    if (!html) return httpd_resp_send_err(request, HTTPD_500_INTERNAL_SERVER_ERROR, "Out of memory");
++    int length = snprintf(html, 1800, template, s_nonce);
++    httpd_resp_set_type(request, "text/html; charset=utf-8");
++    httpd_resp_set_hdr(request, "Cache-Control", "no-store");
++    httpd_resp_set_hdr(request, "Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'");
++    esp_err_t result = length > 0 && length < 1800 ? httpd_resp_send(request, html, length) : ESP_FAIL;
++    free(html);
++    return result;
++}
++
++static esp_err_t form_save(httpd_req_t *request) {
++    char body[HEALTH_FORM_CAPACITY + 40];
++    if (request->content_len == 0 || request->content_len >= sizeof(body))
++        return httpd_resp_send_err(request, HTTPD_400_BAD_REQUEST, "Invalid form");
++    size_t used = 0;
++    const uint64_t deadline = now_ms() + 8000;
++    while (used < request->content_len) {
++        if (now_ms() >= deadline) { memset(body, 0, sizeof(body)); return ESP_FAIL; }
++        int count = httpd_req_recv(request, body + used, request->content_len - used);
++        if (count <= 0) { memset(body, 0, sizeof(body)); return ESP_FAIL; }
++        used += (size_t)count;
++    }
++    body[used] = 0;
++    network_command_t command = {.kind = COMMAND_PROFILES};
++    bool valid = used > 31 && !strncmp(body, "nonce=", 6) && !memcmp(body + 6, s_nonce, 24) && body[30] == '&' &&
++        !memchr(body, 0, used) && health_profiles_parse(body + 31, &command.value.profiles);
++    memset(body, 0, sizeof(body));
++    if (!valid) return httpd_resp_send_err(request, HTTPD_400_BAD_REQUEST, "Enter distinct networks with passwords of 8-63 ASCII characters");
++    bool queued = xQueueSend(s_commands, &command, 0) == pdTRUE;
++    memset(&command, 0, sizeof(command));
++    if (!queued) {
++        httpd_resp_set_status(request, "503 Service Unavailable");
++        return httpd_resp_sendstr(request, "Try again");
++    }
++    httpd_resp_set_hdr(request, "Cache-Control", "no-store");
++    return httpd_resp_sendstr(request, "Wi-Fi details received. The badge will close this setup network and try both saved networks. Check its screen for the connection result.");
++}
++
++static void stop_setup(void) {
++    s_attempt_active = false;
++    if (s_server) { httpd_stop(s_server); s_server = NULL; }
++    (void)esp_wifi_stop();
++    (void)esp_wifi_set_mode(WIFI_MODE_STA);
++    (void)esp_wifi_start();
++    (void)xQueueReset(s_wifi_events);
++    s_setup = false;
++    s_has_ip = false;
++    memset(s_state.setup_ssid, 0, sizeof(s_state.setup_ssid));
++    memset(s_state.setup_password, 0, sizeof(s_state.setup_password));
++    memset(s_nonce, 0, sizeof(s_nonce));
++}
++
++static bool start_setup(void) {
++    if (s_setup) return true;
++    s_attempt_active = false;
++    (void)esp_wifi_disconnect();
++    (void)esp_wifi_stop();
++    s_has_ip = false;
++    wifi_config_t ap = {0};
++    uint32_t suffix = esp_random();
++    snprintf(s_state.setup_ssid, sizeof(s_state.setup_ssid), "Health-%04X", (unsigned)(suffix & 0xffff));
++    static const char alphabet[] = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
++    for (unsigned i = 0; i < 12; ++i) s_state.setup_password[i] = alphabet[esp_random() % (sizeof(alphabet) - 1)];
++    s_state.setup_password[12] = 0;
++    for (unsigned i = 0; i < 12; ++i) snprintf(s_nonce + i * 2, 3, "%02x", (unsigned)(esp_random() & 0xff));
++    memcpy(ap.ap.ssid, s_state.setup_ssid, strlen(s_state.setup_ssid));
++    memcpy(ap.ap.password, s_state.setup_password, 12);
++    ap.ap.ssid_len = strlen(s_state.setup_ssid);
++    ap.ap.channel = 1;
++    ap.ap.authmode = WIFI_AUTH_WPA2_PSK;
++    ap.ap.max_connection = 1;
++    if (esp_wifi_set_mode(WIFI_MODE_AP) != ESP_OK || esp_wifi_set_config(WIFI_IF_AP, &ap) != ESP_OK || esp_wifi_start() != ESP_OK) goto fail;
++    (void)xQueueReset(s_wifi_events);
++    httpd_config_t config = HTTPD_DEFAULT_CONFIG();
++    config.max_open_sockets = 2;
++    config.lru_purge_enable = true;
++    config.stack_size = 4096;
++    config.recv_wait_timeout = 5;
++    config.send_wait_timeout = 5;
++    if (httpd_start(&s_server, &config) != ESP_OK) goto fail;
++    const httpd_uri_t root = {.uri = "/", .method = HTTP_GET, .handler = form_page};
++    const httpd_uri_t save = {.uri = "/save", .method = HTTP_POST, .handler = form_save};
++    if (httpd_register_uri_handler(s_server, &root) != ESP_OK || httpd_register_uri_handler(s_server, &save) != ESP_OK) goto fail;
++    s_setup = true;
++    publish(HEALTH_NET_SETUP);
++    return true;
++fail:
++    stop_setup();
++    publish(HEALTH_NET_ERROR);
++    return false;
++}
++
++static bool clock_ready(void) {
++    if (!s_sntp_started) {
++        esp_sntp_setoperatingmode(SNTP_OPMODE_POLL);
++        esp_sntp_setservername(0, "time.cloudflare.com");
++        esp_sntp_setservername(1, "pool.ntp.org");
++        esp_sntp_init();
++        s_sntp_started = true;
++    }
++    /* Certificate validity is checked only after a plausible UTC time exists. */
++    return time(NULL) >= 1704067200;
++}
++
++static esp_err_t receive_http(esp_http_client_event_t *event) {
++    health_http_body_t *body = event->user_data;
++    bool within_budget = health_http_body_append(body, NULL, 0, now_ms());
++    if (within_budget && event->event_id == HTTP_EVENT_ON_DATA && event->data_len > 0)
++        within_budget = health_http_body_append(body, event->data, (size_t)event->data_len, now_ms());
++    if (!within_budget) {
++        /* Same worker/callback context: interrupt I/O without freeing client/TLS
++         * objects that the SDK's HTTP parser is still using. */
++        int socket = esp_http_client_get_socket(event->client);
++        if (socket >= 0) (void)shutdown(socket, SHUT_RDWR);
++    }
++    return ESP_OK;
++}
++
++static bool fetch_snapshot(health_snapshot_t *snapshot) {
++    health_http_body_t *body = malloc(sizeof(*body));
++    if (!body) return false;
++    health_http_body_init(body, now_ms());
++    esp_http_client_config_t config = {
++        .url = s_endpoint.url,
++        .crt_bundle_attach = esp_crt_bundle_attach,
++        .timeout_ms = 1000,
++        .is_async = true,
++        .event_handler = receive_http,
++        .user_data = body,
++        .disable_auto_redirect = true,
++        .buffer_size = 512,
++        .buffer_size_tx = 512,
++        .keep_alive_enable = false,
++    };
++    esp_http_client_handle_t client = esp_http_client_init(&config);
++    bool valid = false;
++    if (!client) goto done;
++    if (esp_http_client_set_header(client, "X-API-Key", s_endpoint.token) != ESP_OK ||
++        esp_http_client_set_header(client, "Accept", "application/json") != ESP_OK) goto done;
++    esp_err_t result = ESP_ERR_HTTP_EAGAIN;
++    while (!body->failed && now_ms() < body->deadline && result == ESP_ERR_HTTP_EAGAIN) {
++        result = esp_http_client_perform(client);
++        if (result == ESP_ERR_HTTP_EAGAIN) vTaskDelay(pdMS_TO_TICKS(10));
++    }
++    /* This budget is checked between SDK steps and data/header events. DNS and
++     * SDK-internal header work retain their own timeout semantics; it is not a
++     * hard wall-clock bound on every internal SDK operation. */
++    valid = result == ESP_OK && health_http_body_complete(body,
++        esp_http_client_is_complete_data_received(client), esp_http_client_get_status_code(client), now_ms()) &&
++        health_snapshot_parse(body->data, snapshot);
++done:
++    if (client) esp_http_client_cleanup(client);
++    memset(body, 0, sizeof(*body));
++    free(body);
++    return valid;
++}
++
++static bool connect_profile(unsigned index) {
++    wifi_config_t config = {0};
++    const health_profile_t *profile = &s_profiles.profile[index];
++    memcpy(config.sta.ssid, profile->ssid, strlen(profile->ssid));
++    memcpy(config.sta.password, profile->password, strlen(profile->password));
++    config.sta.threshold.authmode = WIFI_AUTH_WPA2_PSK;
++    config.sta.pmf_cfg.capable = true;
++    config.sta.pmf_cfg.required = false;
++    s_attempt_active = false;
++    (void)esp_wifi_disconnect();
++    bool started = esp_wifi_set_config(WIFI_IF_STA, &config) == ESP_OK && esp_wifi_connect() == ESP_OK;
++    s_attempt_active = started;
++    memset(&config, 0, sizeof(config));
++    return started;
++}
++
++static bool current_connection_verified(unsigned index) {
++    if (index >= s_profiles.count) return false;
++    wifi_ap_record_t ap = {0};
++    esp_netif_ip_info_t ip = {0};
++    bool associated = esp_wifi_sta_get_ap_info(&ap) == ESP_OK;
++    bool has_ip = esp_netif_is_netif_up(s_sta_netif) &&
++        esp_netif_get_ip_info(s_sta_netif, &ip) == ESP_OK && ip.ip.addr != 0;
++    return health_connection_matches(&s_profiles.profile[index], s_attempt_active, associated, has_ip,
++                                     (const char *)ap.ssid, strnlen((const char *)ap.ssid, sizeof(ap.ssid)));
++}
++
++static void network_worker(void *arg) {
++    (void)arg;
++    if (!stack_init()) { publish(HEALTH_NET_ERROR); vTaskDelete(NULL); return; }
++    health_retry_t retry = {0};
++    health_refresh_t refresh = {0};
++    health_candidate_t candidate = {0};
++    uint64_t setup_deadline = 0, time_deadline = 0;
++    unsigned current_profile = 0;
++    bool manual = false;
++    publish(!s_has_endpoint ? HEALTH_NET_NEEDS_ENDPOINT : !s_profiles.count ? HEALTH_NET_NEEDS_WIFI : HEALTH_NET_CONNECTING);
++    for (;;) {
++        network_command_t command;
++        while (xQueueReceive(s_commands, &command, 0) == pdTRUE) {
++            if (command.kind == COMMAND_ENDPOINT) {
++                bool saved = persist("endpoint", &command.value.endpoint, sizeof(command.value.endpoint));
++                if (saved) { s_endpoint = command.value.endpoint; s_has_endpoint = true; refresh.fetched = false; }
++                s_state.endpoint_configured = s_has_endpoint;
++                s_state.has_snapshot = false;
++                s_state.configuration_ack = true;
++                s_state.configuration_ok = saved;
++                (void)xQueueOverwrite(s_acks, &s_state);
++                s_state.configuration_ack = false;
++            } else if (command.kind == COMMAND_CLEAR) {
++                health_candidate_rollback(&candidate, &s_profiles);
++                bool erased = nvs_erase_key(s_nvs, "profiles") == ESP_OK;
++                if (erased && nvs_commit(s_nvs) == ESP_OK) memset(&s_profiles, 0, sizeof(s_profiles));
++                else if (s_profiles.count) { publish(HEALTH_NET_ERROR); memset(&command, 0, sizeof(command)); continue; }
++                if (s_setup) stop_setup();
++                s_state.setup_failed = false;
++                if (start_setup()) setup_deadline = now_ms() + HEALTH_SETUP_TIMEOUT_MS;
++            } else if (command.kind == COMMAND_SETUP) {
++                health_candidate_rollback(&candidate, &s_profiles);
++                s_state.setup_failed = false;
++                if (start_setup()) setup_deadline = now_ms() + HEALTH_SETUP_TIMEOUT_MS;
++            } else if (command.kind == COMMAND_PROFILES) {
++                /* Keep old NVS profiles until a candidate actually obtains IP. */
++                if (health_candidate_begin(&candidate, &s_profiles, &command.value.profiles, now_ms())) {
++                    stop_setup();
++                    memset(&retry, 0, sizeof(retry));
++                    refresh.fetched = false;
++                } else publish(HEALTH_NET_ERROR);
++            } else if (command.kind == COMMAND_REFRESH) manual = true;
++            memset(&command, 0, sizeof(command));
++        }
++        uint64_t now = now_ms();
++        if (health_candidate_expire(&candidate, &s_profiles, now)) {
++            s_state.setup_failed = true;
++            if (start_setup()) setup_deadline = now + HEALTH_SETUP_TIMEOUT_MS;
++        }
++        if (s_setup) {
++            if (now >= setup_deadline) { stop_setup(); memset(&retry, 0, sizeof(retry)); }
++            else { vTaskDelay(pdMS_TO_TICKS(100)); continue; }
++        }
++        int wifi;
++        while (xQueueReceive(s_wifi_events, &wifi, 0) == pdTRUE) {
++            (void)wifi;
++            bool was_connected = s_has_ip;
++            /* Delayed GOT_IP/disconnect events can outlive a mode/profile switch.
++             * Query the current association and live netif rather than trusting
++             * the queued event as evidence for candidate credential persistence. */
++            s_has_ip = current_connection_verified(current_profile);
++            if (was_connected && !s_has_ip) publish(HEALTH_NET_WIFI_OFFLINE);
++            if (s_has_ip) {
++                if (candidate.pending) {
++                    if (persist("profiles", &s_profiles, sizeof(s_profiles))) health_candidate_commit(&candidate);
++                    else {
++                        health_candidate_rollback(&candidate, &s_profiles);
++                        s_state.setup_failed = true;
++                        if (start_setup()) setup_deadline = now + HEALTH_SETUP_TIMEOUT_MS;
++                        break;
++                    }
++                }
++                health_retry_connected(&retry, current_profile);
++                refresh.fetched = false;
++                time_deadline = now + 30000;
++            }
++        }
++        if (s_setup) { vTaskDelay(pdMS_TO_TICKS(100)); continue; }
++        if (!s_profiles.count) {
++            health_network_status_t status = s_has_endpoint ? HEALTH_NET_NEEDS_WIFI : HEALTH_NET_NEEDS_ENDPOINT;
++            if (s_state.status != status) publish(status);
++        }
++        else if (!s_has_ip) {
++            int index = health_retry_profile(&retry, s_profiles.count, now);
++            if (index >= 0) {
++                current_profile = (unsigned)index;
++                publish(connect_profile(current_profile) ? HEALTH_NET_CONNECTING : HEALTH_NET_WIFI_OFFLINE);
++            }
++        } else if (!s_has_endpoint) {
++            if (s_state.status != HEALTH_NET_NEEDS_ENDPOINT) publish(HEALTH_NET_NEEDS_ENDPOINT);
++        } else if (!clock_ready()) {
++            if (s_state.status != (now < time_deadline ? HEALTH_NET_TIME_SYNC : HEALTH_NET_API_OFFLINE))
++                publish(now < time_deadline ? HEALTH_NET_TIME_SYNC : HEALTH_NET_API_OFFLINE);
++        } else if (health_refresh_due(&refresh, now, manual)) {
++            manual = false;
++            publish(HEALTH_NET_FETCHING);
++            health_snapshot_t snapshot;
++            if (fetch_snapshot(&snapshot)) {
++                s_state.status = snapshot.online ? HEALTH_NET_ONLINE : HEALTH_NET_API_OFFLINE;
++                s_state.has_snapshot = true;
++                s_state.snapshot = snapshot;
++                (void)xQueueOverwrite(s_events, &s_state);
++            } else publish(HEALTH_NET_API_OFFLINE);
++        } else manual = false;
++        vTaskDelay(pdMS_TO_TICKS(100));
++    }
++}
++
++bool health_network_start(void) {
++    s_commands = xQueueCreate(3, sizeof(network_command_t));
++    s_events = xQueueCreate(1, sizeof(health_network_event_t));
++    s_acks = xQueueCreate(1, sizeof(health_network_event_t));
++    s_wifi_events = xQueueCreate(8, sizeof(int));
++    return s_commands && s_events && s_acks && s_wifi_events && xTaskCreate(network_worker, "health_net", 7168, NULL, 3, NULL) == pdPASS;
++}
++
++bool health_network_poll(health_network_event_t *event) {
++    return (s_acks && xQueueReceive(s_acks, event, 0) == pdTRUE) ||
++        (s_events && xQueueReceive(s_events, event, 0) == pdTRUE);
++}
++
++bool health_network_configure(const health_endpoint_t *endpoint) {
++    if (!s_commands || !health_endpoint_valid(endpoint)) return false;
++    network_command_t command = {.kind = COMMAND_ENDPOINT, .value.endpoint = *endpoint};
++    bool sent = xQueueSend(s_commands, &command, 0) == pdTRUE;
++    memset(&command, 0, sizeof(command));
++    return sent;
++}
++
++static void send_command(command_kind_t kind) {
++    if (s_commands) { network_command_t command = {.kind = kind}; (void)xQueueSend(s_commands, &command, 0); }
++}
++void health_network_refresh(void) { send_command(COMMAND_REFRESH); }
++void health_network_setup(void) { send_command(COMMAND_SETUP); }
++void health_network_clear_wifi(void) { send_command(COMMAND_CLEAR); }
+diff --git a/main/health_network.h b/main/health_network.h
+new file mode 100644
+index 0000000..9acbee8
+--- /dev/null
++++ b/main/health_network.h
+@@ -0,0 +1,29 @@
++#pragma once
++#include "health_model.h"
++#include "health_network_model.h"
++
++typedef enum {
++    HEALTH_NET_STARTING, HEALTH_NET_NEEDS_ENDPOINT, HEALTH_NET_NEEDS_WIFI,
++    HEALTH_NET_CONNECTING, HEALTH_NET_TIME_SYNC, HEALTH_NET_FETCHING,
++    HEALTH_NET_ONLINE, HEALTH_NET_WIFI_OFFLINE, HEALTH_NET_API_OFFLINE,
++    HEALTH_NET_SETUP, HEALTH_NET_ERROR,
++} health_network_status_t;
++
++typedef struct {
++    health_network_status_t status;
++    bool endpoint_configured;
++    bool has_snapshot;
++    bool configuration_ack;
++    bool configuration_ok;
++    bool setup_failed;
++    health_snapshot_t snapshot;
++    char setup_ssid[24];
++    char setup_password[13];
++} health_network_event_t;
++
++bool health_network_start(void);
++bool health_network_poll(health_network_event_t *event);
++bool health_network_configure(const health_endpoint_t *endpoint);
++void health_network_refresh(void);
++void health_network_setup(void);
++void health_network_clear_wifi(void);
+diff --git a/main/health_network_model.c b/main/health_network_model.c
+new file mode 100644
+index 0000000..bd2051b
+--- /dev/null
++++ b/main/health_network_model.c
+@@ -0,0 +1,226 @@
++#include "health_network_model.h"
++#include "cJSON.h"
++#include <string.h>
++
++static bool copy_text(const cJSON *object, const char *name, char *out, size_t capacity) {
++    const cJSON *item = cJSON_GetObjectItemCaseSensitive(object, name);
++    if (!cJSON_IsString(item) || strlen(item->valuestring) >= capacity) return false;
++    memcpy(out, item->valuestring, strlen(item->valuestring) + 1);
++    return true;
++}
++
++bool health_endpoint_valid(const health_endpoint_t *endpoint) {
++    const char *url = endpoint->url;
++    if (strncmp(url, "https://", 8) || strlen(url) < 15 || strlen(url) >= HEALTH_URL_CAPACITY) return false;
++    const char *path = strchr(url + 8, '/');
++    if (!path || path == url + 8) return false;
++    const char *port = memchr(url + 8, ':', (size_t)(path - url - 8));
++    const char *host_end = port ? port : path;
++    size_t label_length = 0;
++    for (const char *p = url + 8; p < host_end; ++p) {
++        if (!((*p >= 'a' && *p <= 'z') || (*p >= 'A' && *p <= 'Z') ||
++              (*p >= '0' && *p <= '9') || *p == '.' || *p == '-')) return false;
++        if (*p == '.') {
++            if (!label_length || p[-1] == '-') return false;
++            label_length = 0;
++        } else if ((!label_length && *p == '-') || ++label_length > 63) return false;
++    }
++    if (!label_length || host_end[-1] == '-') return false;
++    unsigned number = 443;
++    if (port) {
++        number = 0;
++        if (port + 1 == path) return false;
++        for (const char *p = port + 1; p < path; ++p) {
++            if (*p < '0' || *p > '9' || number > 6553) return false;
++            number = number * 10 + (unsigned)(*p - '0');
++        }
++        if (!number || number > 65535) return false;
++    }
++    if (strcmp(path, "/badge")) {
++        static const char host[] = "magic.solutionsuite.cn";
++        static const char route[] = "/api/faas/";
++        if (number != 443 || (size_t)(host_end - url - 8) != sizeof(host) - 1 ||
++            memcmp(url + 8, host, sizeof(host) - 1) || strncmp(path, route, sizeof(route) - 1)) return false;
++        const char *id = path + sizeof(route) - 1;
++        if (!*id) return false;
++        for (const char *p = id; *p; ++p) {
++            if (!((*p >= 'a' && *p <= 'z') || (*p >= 'A' && *p <= 'Z') ||
++                  (*p >= '0' && *p <= '9') || *p == '_' || *p == '-')) return false;
++        }
++    }
++    size_t token_length = strlen(endpoint->token);
++    if (token_length < 16 || token_length >= HEALTH_TOKEN_CAPACITY) return false;
++    for (size_t i = 0; i < token_length; ++i) {
++        if ((unsigned char)endpoint->token[i] <= 0x20 || (unsigned char)endpoint->token[i] > 0x7e) return false;
++    }
++    return true;
++}
++
++bool health_endpoint_parse(const char *json, health_endpoint_t *output) {
++    if (!json || !output || strlen(json) > 512) return false;
++    /* The bootstrap only needs literal ASCII; reject escapes and nested tricks. */
++    bool in_string = false;
++    unsigned depth = 0;
++    for (const char *p = json; *p; ++p) {
++        if ((unsigned char)*p < 0x20 || (unsigned char)*p > 0x7e || *p == '\\') return false;
++        if (*p == '"') in_string = !in_string;
++        else if (!in_string) {
++            if (*p == '[' || *p == ']') return false;
++            if (*p == '{' && ++depth > 2) return false;
++            if (*p == '}') { if (!depth) return false; --depth; }
++        }
++    }
++    if (in_string || depth) return false;
++    cJSON *root = cJSON_ParseWithOpts(json, NULL, true);
++    if (!root) return false;
++    const cJSON *config = cJSON_GetObjectItemCaseSensitive(root, "configure");
++    health_endpoint_t endpoint = {0};
++    bool valid = cJSON_IsObject(root) && cJSON_GetArraySize(root) == 1 &&
++        cJSON_IsObject(config) && cJSON_GetArraySize(config) == 2 &&
++        copy_text(config, "url", endpoint.url, sizeof(endpoint.url)) &&
++        copy_text(config, "token", endpoint.token, sizeof(endpoint.token)) &&
++        health_endpoint_valid(&endpoint);
++    if (valid) *output = endpoint;
++    memset(&endpoint, 0, sizeof(endpoint));
++    cJSON_Delete(root);
++    return valid;
++}
++
++static int unhex(char c) {
++    if (c >= '0' && c <= '9') return c - '0';
++    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
++    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
++    return -1;
++}
++
++static bool decode(const char *start, size_t length, char *output, size_t capacity) {
++    size_t used = 0;
++    for (size_t i = 0; i < length; ++i) {
++        unsigned char c = (unsigned char)start[i];
++        if (c == '+') c = ' ';
++        else if (c == '%') {
++            if (i + 2 >= length) return false;
++            int high = unhex(start[i + 1]), low = unhex(start[i + 2]);
++            if (high < 0 || low < 0) return false;
++            c = (unsigned char)(high * 16 + low);
++            i += 2;
++        }
++        if (c < 0x20 || c == 0x7f || used + 1 >= capacity) return false;
++        output[used++] = (char)c;
++    }
++    output[used] = '\0';
++    return true;
++}
++
++bool health_profiles_valid(const health_profiles_t *profiles) {
++    if (profiles->count < 1 || profiles->count > HEALTH_PROFILE_COUNT) return false;
++    for (unsigned i = 0; i < HEALTH_PROFILE_COUNT; ++i) {
++        size_t ssid = strlen(profiles->profile[i].ssid), password = strlen(profiles->profile[i].password);
++        if (i >= profiles->count) { if (ssid || password) return false; continue; }
++        if (!ssid || ssid > 32 || password < 8 || password > 63) return false;
++        for (size_t j = 0; j < ssid; ++j) if ((unsigned char)profiles->profile[i].ssid[j] < 0x20) return false;
++        for (size_t j = 0; j < password; ++j) {
++            unsigned char c = (unsigned char)profiles->profile[i].password[j];
++            if (c < 0x20 || c > 0x7e) return false;
++        }
++    }
++    return profiles->count != 2 || strcmp(profiles->profile[0].ssid, profiles->profile[1].ssid);
++}
++
++bool health_profiles_parse(const char *form, health_profiles_t *output) {
++    if (!form || !output || strlen(form) >= HEALTH_FORM_CAPACITY) return false;
++    const char *names[] = {"ssid1", "password1", "ssid2", "password2"};
++    health_profiles_t profiles = {0};
++    char *values[] = {profiles.profile[0].ssid, profiles.profile[0].password,
++                      profiles.profile[1].ssid, profiles.profile[1].password};
++    const size_t capacities[] = {33, 64, 33, 64};
++    unsigned seen = 0;
++    for (const char *p = form; *p;) {
++        const char *end = strchr(p, '&');
++        if (!end) end = p + strlen(p);
++        const char *equals = memchr(p, '=', (size_t)(end - p));
++        if (!equals) return false;
++        int index = -1;
++        for (int i = 0; i < 4; ++i) if ((size_t)(equals - p) == strlen(names[i]) && !strncmp(p, names[i], (size_t)(equals - p))) index = i;
++        if (index < 0 || (seen & (1u << index)) ||
++            !decode(equals + 1, (size_t)(end - equals - 1), values[index], capacities[index])) return false;
++        seen |= 1u << index;
++        p = *end ? end + 1 : end;
++    }
++    profiles.count = profiles.profile[1].ssid[0] ? 2 : 1;
++    bool valid = seen == 15 && health_profiles_valid(&profiles);
++    if (valid) *output = profiles;
++    memset(&profiles, 0, sizeof(profiles));
++    return valid;
++}
++
++int health_retry_profile(health_retry_t *retry, unsigned count, uint64_t now_ms) {
++    if (!count || count > HEALTH_PROFILE_COUNT || (retry->attempted && now_ms < retry->next_ms)) return -1;
++    unsigned profile = retry->next_profile % count;
++    retry->next_profile = (profile + 1) % count;
++    retry->next_ms = now_ms + HEALTH_CONNECT_TIMEOUT_MS;
++    retry->attempted = true;
++    return (int)profile;
++}
++
++void health_retry_connected(health_retry_t *retry, unsigned profile) {
++    retry->next_profile = profile;
++}
++
++bool health_refresh_due(health_refresh_t *refresh, uint64_t now_ms, bool manual) {
++    if (refresh->fetched && (now_ms < refresh->last_ms ||
++        now_ms - refresh->last_ms < (manual ? HEALTH_MANUAL_REFRESH_MS : HEALTH_POLL_MS))) return false;
++    refresh->last_ms = now_ms;
++    refresh->fetched = true;
++    return true;
++}
++
++bool health_candidate_begin(health_candidate_t *candidate, health_profiles_t *active,
++                            const health_profiles_t *replacement, uint64_t now_ms) {
++    if (candidate->pending || !health_profiles_valid(replacement)) return false;
++    candidate->previous = *active;
++    candidate->deadline = now_ms + HEALTH_CANDIDATE_TIMEOUT_MS;
++    candidate->pending = true;
++    *active = *replacement;
++    return true;
++}
++
++void health_candidate_commit(health_candidate_t *candidate) { memset(candidate, 0, sizeof(*candidate)); }
++
++void health_candidate_rollback(health_candidate_t *candidate, health_profiles_t *active) {
++    if (candidate->pending) *active = candidate->previous;
++    health_candidate_commit(candidate);
++}
++
++bool health_candidate_expire(health_candidate_t *candidate, health_profiles_t *active, uint64_t now_ms) {
++    if (!candidate->pending || now_ms < candidate->deadline) return false;
++    health_candidate_rollback(candidate, active);
++    return true;
++}
++
++bool health_connection_matches(const health_profile_t *profile, bool attempted,
++                               bool associated, bool has_ip, const char *ssid, size_t ssid_length) {
++    return attempted && associated && has_ip && ssid && ssid_length > 0 && ssid_length <= 32 &&
++        strlen(profile->ssid) == ssid_length && !memcmp(profile->ssid, ssid, ssid_length);
++}
++
++void health_http_body_init(health_http_body_t *body, uint64_t now_ms) {
++    memset(body, 0, sizeof(*body));
++    body->deadline = now_ms + HEALTH_HTTP_BUDGET_MS;
++}
++
++bool health_http_body_append(health_http_body_t *body, const char *data, size_t length, uint64_t now_ms) {
++    if (body->failed || now_ms >= body->deadline || length > sizeof(body->data) - 2 - body->length ||
++        (length && (!data || memchr(data, 0, length)))) {
++        body->failed = true;
++        return false;
++    }
++    if (length) memcpy(body->data + body->length, data, length);
++    body->length += length;
++    body->data[body->length] = 0;
++    return true;
++}
++
++bool health_http_body_complete(const health_http_body_t *body, bool complete, int status, uint64_t now_ms) {
++    return !body->failed && now_ms < body->deadline && body->length > 0 && complete && status == 200;
++}
+diff --git a/main/health_network_model.h b/main/health_network_model.h
+new file mode 100644
+index 0000000..d8178ce
+--- /dev/null
++++ b/main/health_network_model.h
+@@ -0,0 +1,42 @@
++#pragma once
++#include <stdbool.h>
++#include <stddef.h>
++#include <stdint.h>
++
++#define HEALTH_URL_CAPACITY 256
++#define HEALTH_TOKEN_CAPACITY 129
++#define HEALTH_PROFILE_COUNT 2
++#define HEALTH_FORM_CAPACITY 768
++#define HEALTH_POLL_MS 1800000
++#define HEALTH_MANUAL_REFRESH_MS 15000
++#define HEALTH_CONNECT_TIMEOUT_MS 15000
++#define HEALTH_SETUP_TIMEOUT_MS 300000
++#define HEALTH_CANDIDATE_TIMEOUT_MS 45000
++#define HEALTH_HTTP_BUDGET_MS 12000
++
++typedef struct { char url[HEALTH_URL_CAPACITY]; char token[HEALTH_TOKEN_CAPACITY]; } health_endpoint_t;
++typedef struct { char ssid[33]; char password[64]; } health_profile_t;
++typedef struct { health_profile_t profile[HEALTH_PROFILE_COUNT]; unsigned count; } health_profiles_t;
++typedef struct { uint64_t next_ms; unsigned next_profile; bool attempted; } health_retry_t;
++typedef struct { uint64_t last_ms; bool fetched; } health_refresh_t;
++typedef struct { health_profiles_t previous; uint64_t deadline; bool pending; } health_candidate_t;
++typedef struct { char data[4096]; size_t length; uint64_t deadline; bool failed; } health_http_body_t;
++
++/* All parsers replace the output only after complete validation. */
++bool health_endpoint_valid(const health_endpoint_t *endpoint);
++bool health_endpoint_parse(const char *json, health_endpoint_t *output);
++bool health_profiles_valid(const health_profiles_t *profiles);
++bool health_profiles_parse(const char *form, health_profiles_t *output);
++int health_retry_profile(health_retry_t *retry, unsigned count, uint64_t now_ms);
++void health_retry_connected(health_retry_t *retry, unsigned profile);
++bool health_refresh_due(health_refresh_t *refresh, uint64_t now_ms, bool manual);
++bool health_candidate_begin(health_candidate_t *candidate, health_profiles_t *active,
++                            const health_profiles_t *replacement, uint64_t now_ms);
++void health_candidate_commit(health_candidate_t *candidate);
++void health_candidate_rollback(health_candidate_t *candidate, health_profiles_t *active);
++bool health_candidate_expire(health_candidate_t *candidate, health_profiles_t *active, uint64_t now_ms);
++bool health_connection_matches(const health_profile_t *profile, bool attempted,
++                               bool associated, bool has_ip, const char *ssid, size_t ssid_length);
++void health_http_body_init(health_http_body_t *body, uint64_t now_ms);
++bool health_http_body_append(health_http_body_t *body, const char *data, size_t length, uint64_t now_ms);
++bool health_http_body_complete(const health_http_body_t *body, bool complete, int status, uint64_t now_ms);
+diff --git a/sdkconfig.defaults b/sdkconfig.defaults
+index ef36d5d..fd883d7 100644
+--- a/sdkconfig.defaults
++++ b/sdkconfig.defaults
+@@ -1,3 +1,6 @@
++# --- Application ---
++CONFIG_HEALTH_BADGE=y
++
+ # --- 目标芯片 ---
+ CONFIG_IDF_TARGET="esp32c3"
+ # 注:ESP32-C3 无 PSRAM,故不设 CONFIG_SPIRAM。
+@@ -24,21 +27,23 @@ CONFIG_LV_COLOR_DEPTH_16=y
+ CONFIG_LV_DEF_REFR_PERIOD=20
+ CONFIG_LV_FONT_MONTSERRAT_14=y
+ CONFIG_LV_FONT_MONTSERRAT_20=y
++CONFIG_LV_FONT_MONTSERRAT_48=y
+ # LVGL 内置 malloc 池大小(KB)。它是独立静态区、不与系统堆共享,配大了会白白占用 RAM。
+-# 本 demo UI 简单,24KB 足够;若自建复杂界面出现绘制卡死/看门狗,调大此值。
+-CONFIG_LV_MEM_SIZE_KILOBYTES=24
++# 健康看板使用 32KB，为五页对象、文字和切页分配保留余量。
++CONFIG_LV_MEM_SIZE_KILOBYTES=32
+ 
+ # --- 系统 ---
+ CONFIG_FREERTOS_HZ=1000
+ 
+-# --- Bluetooth LE / NimBLE ---
+-# ESP32-C3 仅支持 BLE；示例只启用单连接 peripheral 所需的最小 host 配置。
+-CONFIG_BT_ENABLED=y
+-CONFIG_BT_NIMBLE_ENABLED=y
+-CONFIG_BT_NIMBLE_ROLE_CENTRAL=n
+-CONFIG_BT_NIMBLE_ROLE_PERIPHERAL=y
+-CONFIG_BT_NIMBLE_ROLE_BROADCASTER=y
+-CONFIG_BT_NIMBLE_ROLE_OBSERVER=n
+-CONFIG_BT_NIMBLE_MAX_CONNECTIONS=1
+-CONFIG_BT_NIMBLE_HOST_BASED_PRIVACY=n
+-CONFIG_BT_NIMBLE_NVS_PERSIST=n
++# --- Health badge: Wi-Fi enabled; Bluetooth unused ---
++CONFIG_BT_ENABLED=n
++CONFIG_BT_NIMBLE_ENABLED=n
++CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y
++CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_DEFAULT_FULL=y
++CONFIG_LWIP_SNTP_MAX_SERVERS=2
++# Keep Wi-Fi buffers bounded on ESP32-C3 without PSRAM.
++CONFIG_ESP_WIFI_STATIC_RX_BUFFER_NUM=4
++CONFIG_ESP_WIFI_DYNAMIC_RX_BUFFER_NUM=8
++CONFIG_ESP_WIFI_DYNAMIC_TX_BUFFER_NUM=8
++CONFIG_ESP_WIFI_AMPDU_RX_ENABLED=n
++CONFIG_ESP_WIFI_AMPDU_TX_ENABLED=n
+diff --git a/tests/test_configure_wifi.py b/tests/test_configure_wifi.py
+new file mode 100644
+index 0000000..9fde407
+--- /dev/null
++++ b/tests/test_configure_wifi.py
+@@ -0,0 +1,183 @@
++import contextlib
++import importlib.util
++import io
++import json
++import os
++from pathlib import Path
++import select
++import sys
++import tempfile
++import threading
++import tty
++import unittest
++
++
++TOOLS = Path(__file__).resolve().parents[1] / "tools"
++sys.path.insert(0, str(TOOLS))
++spec = importlib.util.spec_from_file_location("configure_wifi", TOOLS / "configure_wifi.py")
++configure_wifi = importlib.util.module_from_spec(spec)
++spec.loader.exec_module(configure_wifi)
++
++CONFIG = {"url": "https://badge.example.test/badge", "token": "synthetic-test-token-0123456789"}
++
++
++class ConfigureWifiTests(unittest.TestCase):
++    def test_miaobi_function_route_requires_the_fixed_https_origin(self):
++        accepted = [
++            "https://health.example.com:8443/badge",
++            "https://magic.solutionsuite.cn/api/faas/example_badge",
++            "https://magic.solutionsuite.cn:443/api/faas/health-badge_2",
++        ]
++        for url in accepted:
++            with self.subTest(url=url):
++                config = {**CONFIG, "url": url}
++                self.assertEqual(configure_wifi.validate_config(config), config)
++        rejected = [
++            "http://magic.solutionsuite.cn/api/faas/health",
++            "HTTPS://magic.solutionsuite.cn/api/faas/health",
++            "https://other.example.com/api/faas/health",
++            "https://magic.solutionsuite.cn.evil.example/api/faas/health",
++            "https://user@magic.solutionsuite.cn/api/faas/health",
++            "https://magic.solutionsuite.cn:444/api/faas/health",
++            "https://magic.solutionsuite.cn/api/faas/",
++            "https://magic.solutionsuite.cn/api/faas/health/more",
++            "https://magic.solutionsuite.cn/api/faas/health?key=value",
++            "https://magic.solutionsuite.cn/api/faas/health?",
++            "https://magic.solutionsuite.cn/api/faas/health#fragment",
++            "https://magic.solutionsuite.cn/api/faas/health#",
++            "https://magic.solutionsuite.cn/api/faas/%68ealth",
++            "https://magic.solutionsuite.cn/api/faas/../health",
++            "https://magic.solutionsuite.cn/api/faas/health.badge",
++            "https://magic.solutionsuite.cn/api/other/health",
++            "https://Magic.solutionsuite.cn/api/faas/health",
++            "https://magic.solutionsuite.cn/api/faas/he\nalth",
++        ]
++        for url in rejected:
++            with self.subTest(url=url):
++                with self.assertRaises(ValueError):
++                    configure_wifi.validate_config({**CONFIG, "url": url})
++
++    def test_only_https_badge_endpoint_and_bounded_printable_token_are_accepted(self):
++        self.assertEqual(configure_wifi.validate_config(CONFIG), CONFIG)
++        invalid = [
++            {**CONFIG, "url": "http://badge.example.test/badge"},
++            {**CONFIG, "url": "https://owner:password@badge.example.test/badge"},
++            {**CONFIG, "url": "https://badge.example.test/dashboard"},
++            {**CONFIG, "url": "https://badge.example.test/badge?token=private"},
++            {**CONFIG, "url": "https://badge.example.test/badge?"},
++            {**CONFIG, "url": "https://badge.example.test/badge#private"},
++            {**CONFIG, "url": "https://badge.example.test/badge#"},
++            {**CONFIG, "url": "https://badge.example.test:0/badge"},
++            {**CONFIG, "url": "https://badge.example.test:99999/badge"},
++            {**CONFIG, "url": "https://bad host.test/badge"},
++            {**CONFIG, "url": "https://例子.test/badge"},
++            {**CONFIG, "token": "short"},
++            {**CONFIG, "token": "x" * 129},
++            {**CONFIG, "token": "x" * 16 + "\n"},
++            {**CONFIG, "token": "x" * 16 + " "},
++            {**CONFIG, "token": "x" * 16 + '"'},
++            {**CONFIG, "token": "x" * 16 + "\\"},
++            {**CONFIG, "password": "not-part-of-bootstrap"},
++        ]
++        for config in invalid:
++            with self.subTest(config_keys=list(config)):
++                with self.assertRaises(ValueError):
++                    configure_wifi.validate_config(config)
++
++    def test_private_config_file_required(self):
++        with tempfile.TemporaryDirectory() as directory:
++            path = Path(directory) / "config.json"
++            path.write_text(json.dumps(CONFIG))
++            path.chmod(0o600)
++            self.assertEqual(configure_wifi.load_config(path), CONFIG)
++            path.chmod(0o644)
++            with self.assertRaises(ValueError):
++                configure_wifi.load_config(path)
++
++    def test_provisioning_uses_real_serial_frame_and_waits_for_persistent_ack(self):
++        master, slave = os.openpty()
++        received = []
++        errors = []
++
++        def badge():
++            try:
++                frame = bytearray()
++                while b"\n" not in frame:
++                    if not select.select([master], [], [], 2)[0]:
++                        raise TimeoutError("configuration frame not received")
++                    frame.extend(os.read(master, 4096))
++                received.append(json.loads(frame))
++                os.write(master, b"I (100) boot: harmless startup log\r\n{\"event\":\"config")
++                os.write(master, b"ured\",\"ok\":true}\n")
++            except Exception as error:
++                errors.append(error)
++
++        thread = threading.Thread(target=badge)
++        thread.start()
++        try:
++            configure_wifi.provision(CONFIG, os.ttyname(slave), timeout=3)
++            thread.join(3)
++            self.assertFalse(thread.is_alive())
++            self.assertEqual(errors, [])
++            self.assertEqual(received, [{"configure": CONFIG}])
++        finally:
++            os.close(master)
++            os.close(slave)
++            thread.join(3)
++
++    def test_rejected_ack_does_not_report_success(self):
++        master, slave = os.openpty()
++        try:
++            os.write(master, b'{"event":"configured","ok":false}\n')
++            with self.assertRaises(ValueError):
++                configure_wifi.wait_for_ack(slave, timeout=0.1)
++        finally:
++            os.close(master)
++            os.close(slave)
++
++    def test_old_success_ack_cannot_mask_rejected_new_configuration(self):
++        master, slave = os.openpty()
++        tty.setraw(slave)
++        os.write(master, b'{"event":"configured","ok":true}\n')
++        received = []
++
++        def badge():
++            if select.select([master], [], [], 2)[0]:
++                received.append(os.read(master, 4096))
++                os.write(master, b'{"event":"configured","ok":false}\n')
++
++        thread = threading.Thread(target=badge)
++        thread.start()
++        try:
++            with self.assertRaises(ValueError):
++                configure_wifi.provision(CONFIG, os.ttyname(slave), timeout=1)
++            thread.join(2)
++            self.assertEqual(len(received), 1)
++        finally:
++            thread.join(2)
++            os.close(master)
++            os.close(slave)
++
++    def test_no_ack_times_out(self):
++        master, slave = os.openpty()
++        try:
++            with self.assertRaises(TimeoutError):
++                configure_wifi.wait_for_ack(slave, timeout=0.02)
++        finally:
++            os.close(master)
++            os.close(slave)
++
++    def test_bad_config_never_echoes_secrets(self):
++        with tempfile.TemporaryDirectory() as directory:
++            path = Path(directory) / "config.json"
++            path.write_text(json.dumps({**CONFIG, "url": "http://private.invalid/badge"}))
++            path.chmod(0o600)
++            output = io.StringIO()
++            with contextlib.redirect_stderr(output):
++                self.assertEqual(configure_wifi.main(["--config", str(path), "--port", "/dev/not-a-device"]), 1)
++            self.assertNotIn(CONFIG["token"], output.getvalue())
++            self.assertNotIn("private.invalid", output.getvalue())
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff --git a/tests/test_health_bridge.py b/tests/test_health_bridge.py
+new file mode 100644
+index 0000000..e9f7df8
+--- /dev/null
++++ b/tests/test_health_bridge.py
+@@ -0,0 +1,389 @@
++"""Synthetic fixtures only: no credentials, personal records, or device access."""
++import copy
++import importlib.util
++import json
++import os
++from pathlib import Path
++import subprocess
++import sys
++import tempfile
++import threading
++from types import SimpleNamespace
++import unittest
++from unittest.mock import patch
++
++
++ROOT = Path(__file__).resolve().parents[1]
++SPEC = importlib.util.spec_from_file_location("health_bridge", ROOT / "tools/health_bridge.py")
++bridge = importlib.util.module_from_spec(SPEC) if SPEC else None
++if SPEC and SPEC.loader and (ROOT / "tools/health_bridge.py").exists():
++    SPEC.loader.exec_module(bridge)
++
++NOW = 1792576800000  # 2026-10-21 18:00 Asia/Shanghai.
++
++
++def fixture():
++    return {
++        "generatedAt": NOW, "dataUpdatedAt": NOW - 60000,
++        "healthIndices": {
++            "validUntil": NOW + 3600000,
++            "pressure": {"score": 36, "evidenceAt": NOW - 1800000,
++                         "validUntil": NOW + 3600000, "hrvMethod": "RMSSD", "retained": False},
++            "sleep": {"score": 85, "date": "2026-10-21", "endAt": NOW - 36000000},
++        },
++        "heart": {"latest": {"s": NOW - 60000, "e": NOW, "v": 72},
++                  "points": [{"s": NOW, "v": 200}]},
++        "recoveryHrv": [{"t": NOW - 1800000, "v": 41}, {"t": NOW - 3600000, "v": 40}],
++        "hrv": [{"t": NOW - 1000, "v": 99}],
++        "sleep": [{"date": "2026-10-21", "asleepMinutes": 423, "end": NOW - 36000000},
++                  {"date": "2026-10-20", "asleepMinutes": 500, "score": 95, "end": NOW}],
++        "pressureHistory": {"days": [
++            {"date": "2026-10-15", "status": "available", "median": 42},
++            {"date": "2026-10-17", "status": "insufficient_samples", "median": 90},
++            {"date": "2026-10-19", "status": "available", "median": 32},
++            {"date": "2026-10-21", "status": "available", "median": 36},
++        ]},
++        "source": "must-not-be-transmitted", "raw": {"private": True},
++    }
++
++
++class ProjectionTests(unittest.TestCase):
++    def test_projects_authoritative_fields_and_independent_measurement_times(self):
++        result = bridge.project_dashboard(fixture(), NOW)
++        self.assertEqual((result["pressure"], result["heart"], result["hrv"]), (36, 72, 41))
++        self.assertEqual((result["pressureAt"], result["heartAt"], result["hrvAt"]),
++                         ("10/21 17:30", "10/21 17:59", "10/21 17:30"))
++        self.assertEqual(result["asOf"], "10/21 17:59")
++        self.assertEqual(result["sleepScore"], 85)
++        self.assertEqual(result["sleepMinutes"], 423)
++        self.assertEqual(result["sleepDate"], "2026-10-21")
++        self.assertEqual(result["trend"], [42, None, None, None, 32, None, 36])
++        self.assertFalse(result["demo"])
++        self.assertTrue(result["online"])
++        self.assertNotIn("source", result)
++        self.assertNotIn("raw", result)
++
++    def test_missing_values_stay_null_and_generated_at_is_not_measurement_time(self):
++        result = bridge.project_dashboard({"generatedAt": NOW}, NOW)
++        for key in ("pressure", "heart", "hrv", "sleepScore", "sleepMinutes"):
++            self.assertIsNone(result[key])
++        self.assertEqual(result["asOf"], "")
++        self.assertEqual(result["trend"], [None] * 7)
++
++    def test_wire_metrics_round_halves_up_and_keep_measurement_timestamps(self):
++        dto = fixture()
++        dto["healthIndices"]["pressure"]["score"] = 36.5
++        dto["heart"]["latest"]["v"] = 72.5
++        dto["recoveryHrv"][0]["v"] = 41.5
++        dto["healthIndices"]["sleep"]["score"] = 85.5
++        dto["sleep"][0]["asleepMinutes"] = 423.5
++        dto["pressureHistory"]["days"][0]["median"] = 42.5
++        result = bridge.project_dashboard(dto, NOW)
++        self.assertEqual([result[key] for key in ("pressure", "heart", "hrv", "sleepScore", "sleepMinutes")],
++                         [37, 73, 42, 86, 424])
++        self.assertEqual(result["trend"][0], 43)
++        self.assertEqual(result["heartAt"], "10/21 17:59")
++
++    def test_asof_ignores_unshown_workout_or_step_update_time(self):
++        dto = fixture()
++        dto["dataUpdatedAt"] = NOW
++        self.assertEqual(bridge.project_dashboard(dto, NOW)["asOf"], "10/21 17:59")
++
++    def test_rejects_bool_nonfinite_and_out_of_range_metrics(self):
++        for value in (True, False, float("nan"), float("inf"), -1, 101, 10 ** 1000):
++            dto = fixture()
++            dto["healthIndices"]["pressure"]["score"] = value
++            self.assertIsNone(bridge.project_dashboard(dto, NOW)["pressure"])
++        dto = fixture()
++        dto["heart"]["latest"]["v"] = 301
++        dto["recoveryHrv"][0]["v"] = True
++        dto["recoveryHrv"][1]["v"] = 0
++        dto["healthIndices"]["sleep"]["score"] = float("inf")
++        dto["sleep"][0]["asleepMinutes"] = 1441
++        result = bridge.project_dashboard(dto, NOW)
++        for key in ("heart", "hrv", "sleepScore", "sleepMinutes"):
++            self.assertIsNone(result[key])
++
++    def test_zero_is_valid_for_scores_but_not_heart_or_hrv(self):
++        dto = fixture()
++        dto["healthIndices"]["pressure"]["score"] = 0
++        dto["healthIndices"]["sleep"]["score"] = 0
++        dto["heart"]["latest"]["v"] = 0
++        result = bridge.project_dashboard(dto, NOW)
++        self.assertEqual(result["pressure"], 0)
++        self.assertEqual(result["sleepScore"], 0)
++        self.assertIsNone(result["heart"])
++
++    def test_retained_and_expired_pressure_remain_marked(self):
++        for fields in ({"retained": True}, {"validUntil": NOW - 1}):
++            dto = fixture()
++            dto["healthIndices"]["pressure"].update(fields)
++            result = bridge.project_dashboard(dto, NOW)
++            self.assertEqual(result["pressure"], 36)
++            self.assertTrue(result["retained"])
++
++    def test_sdnn_never_falls_back_to_rmssd_and_vice_versa(self):
++        dto = fixture()
++        dto["healthIndices"]["pressure"]["hrvMethod"] = "SDNN"
++        self.assertEqual(bridge.project_dashboard(dto, NOW)["hrv"], 99)
++        dto["hrv"] = []
++        self.assertIsNone(bridge.project_dashboard(dto, NOW)["hrv"])
++        dto["healthIndices"]["pressure"]["hrvMethod"] = "RMSSD"
++        dto["recoveryHrv"] = []
++        self.assertIsNone(bridge.project_dashboard(dto, NOW)["hrv"])
++
++    def test_sleep_never_substitutes_historical_score_or_other_night(self):
++        dto = fixture()
++        dto["healthIndices"]["sleep"] = {"score": None, "date": "2026-10-22"}
++        result = bridge.project_dashboard(dto, NOW)
++        self.assertIsNone(result["sleepScore"])
++        self.assertIsNone(result["sleepMinutes"])
++        self.assertEqual(result["sleepDate"], "2026-10-22")
++
++    def test_trend_uses_beijing_day_with_fixed_gaps(self):
++        midnight = NOW + 6 * 3600000
++        result = bridge.project_dashboard(fixture(), midnight)
++        self.assertEqual(result["trend"], [None, None, None, 32, None, 36, None])
++
++    def test_frame_is_ascii_bounded_flat_and_roundtrips_null(self):
++        result = bridge.project_dashboard(fixture(), NOW)
++        frame = bridge.encode_frame(result)
++        self.assertLess(len(frame), 4096)
++        self.assertTrue(frame.endswith(b"\n"))
++        frame.decode("ascii")
++        self.assertEqual(json.loads(frame), result)
++        with self.assertRaises(ValueError):
++            bridge.encode_frame({"bad": float("nan")})
++        with self.assertRaises(ValueError):
++            bridge.encode_frame({"bad": "x" * 4096})
++
++
++class FakeApi:
++    def __init__(self):
++        self.status_calls = 0
++        self.dashboard_calls = 0
++        self.status_value = {"lastReceivedAt": 1, "dashboardCache": {"revision": 1, "lastPublishedAt": 1},
++                             "signature": {"lastSentAt": 1}}
++        self.dto = fixture()
++        self.fail = False
++
++    def status(self):
++        self.status_calls += 1
++        if self.fail:
++            raise OSError("private failure detail")
++        return copy.deepcopy(self.status_value)
++
++    def dashboard(self):
++        self.dashboard_calls += 1
++        return copy.deepcopy(self.dto)
++
++
++class PollTests(unittest.TestCase):
++    def test_unchanged_status_does_not_rescan_dashboard(self):
++        api = FakeApi()
++        live = bridge.LiveBridge(api, report_error=lambda error: None)
++        live.tick(NOW)
++        for seconds in range(15, 301, 15):
++            api.status_value["sqlReadUsage"] = {"reads": seconds}
++            live.tick(NOW + seconds * 1000)
++        self.assertEqual(api.status_calls, 6)
++        self.assertEqual(api.dashboard_calls, 1)
++
++    def test_status_revision_publication_and_receipt_changes_refresh_dashboard(self):
++        for section, key in (("dashboardCache", "revision"), ("dashboardCache", "lastPublishedAt"),
++                             ("signature", "lastSentAt"), (None, "lastReceivedAt")):
++            api = FakeApi()
++            live = bridge.LiveBridge(api, report_error=lambda error: None)
++            live.tick(NOW)
++            target = api.status_value if section is None else api.status_value[section]
++            target[key] = 2
++            live.tick(NOW + 60000)
++            self.assertEqual(api.dashboard_calls, 2)
++
++    def test_expiry_and_midnight_refresh_once(self):
++        api = FakeApi()
++        api.dto["healthIndices"]["validUntil"] = NOW + 30000
++        api.dto["healthIndices"]["pressure"]["validUntil"] = NOW + 30000
++        live = bridge.LiveBridge(api, report_error=lambda error: None)
++        live.tick(NOW)
++        self.assertTrue(live.tick(NOW + 30000)["retained"])
++        live.tick(NOW + 45000)
++        self.assertEqual(api.dashboard_calls, 2)
++        live.tick(NOW + 6 * 3600000)
++        live.tick(NOW + 6 * 3600000 + 1000)
++        self.assertEqual(api.dashboard_calls, 3)
++
++    def test_manual_refresh_is_limited_to_fifteen_seconds(self):
++        api = FakeApi()
++        live = bridge.LiveBridge(api, report_error=lambda error: None)
++        live.tick(NOW)
++        live.tick(NOW + 1000, manual=True)
++        self.assertEqual(api.dashboard_calls, 1)
++        live.tick(NOW + 15000, manual=True)
++        live.tick(NOW + 16000, manual=True)
++        self.assertEqual(api.dashboard_calls, 2)
++
++    def test_api_failure_keeps_cached_measurements_and_signals_offline(self):
++        api = FakeApi()
++        errors = []
++        live = bridge.LiveBridge(api, report_error=errors.append)
++        live.tick(NOW)
++        api.fail = True
++        result = live.tick(NOW + 60000)
++        self.assertFalse(result["online"])
++        self.assertEqual(result["heart"], 72)
++        self.assertEqual(api.dashboard_calls, 1)
++        self.assertEqual(len(errors), 1)
++
++
++class TransportTests(unittest.TestCase):
++    def test_worker_snapshot_remains_available_while_source_read_blocks(self):
++        api = FakeApi()
++        entered, release = threading.Event(), threading.Event()
++        original_status = api.status
++
++        def status():
++            entered.set()
++            release.wait(2)
++            return original_status()
++
++        api.status = status
++        worker = bridge.SourceWorker(api)
++        try:
++            worker.start()
++            self.assertTrue(entered.wait(1))
++            result = worker.snapshot(NOW)
++            self.assertFalse(result["online"])
++            self.assertEqual(result["v"], 1)
++        finally:
++            release.set()
++            worker.close()
++
++    def test_lark_cache_has_a_two_minute_poll_interval(self):
++        api = FakeApi()
++        api.poll_interval_ms = bridge.LocalCacheSource.poll_interval_ms
++        live = bridge.LiveBridge(api, report_error=lambda error: None)
++        live.tick(NOW)
++        live.tick(NOW + 60000)
++        self.assertEqual(api.status_calls, 1)
++        live.tick(NOW + 120000)
++        self.assertEqual(api.status_calls, 2)
++
++    def test_lark_cache_uses_direct_user_cli_and_deletes_private_temporary_files(self):
++        paths = []
++
++        def run(argv, **kwargs):
++            self.assertEqual(argv[:3], ["lark-cli", "base", "+record-get"])
++            self.assertEqual(argv[-2:], ["--as", "user"])
++            self.assertNotIn("shell", kwargs)
++            self.assertNotIn("preexec_fn", kwargs)
++            self.assertIn("cwd", kwargs)
++            directory = Path(kwargs["cwd"])
++            relative_output = Path(argv[argv.index("--output") + 1])
++            self.assertEqual(relative_output, Path("record.ndjson"))
++            self.assertEqual(directory.stat().st_mode & 0o777, 0o700)
++            output = directory / relative_output
++            self.assertFalse(output.exists())
++            paths.append(directory)
++            output.write_text(json.dumps({"payload_7d": json.dumps(fixture()), "record_id": "synthetic"}) + "\n")
++            (output.parent / "manifest.json").write_text("{}")
++            return SimpleNamespace(returncode=0, stdout=json.dumps({"record_file": str(output)}), stderr="")
++
++        source = bridge.LocalCacheSource("synthetic-base", "synthetic-table", "synthetic-record")
++        with patch.object(bridge.subprocess, "run", side_effect=run):
++            source.status()
++        self.assertEqual(source.dashboard()["healthIndices"]["pressure"]["score"], 36)
++        self.assertTrue(all(not path.exists() for path in paths))
++
++    def test_lark_cache_error_is_short_and_cannot_leak_cli_output(self):
++        source = bridge.LocalCacheSource("base", "table", "record")
++        failure = SimpleNamespace(returncode=1, stdout="private health", stderr="private health")
++        with patch.object(bridge.subprocess, "run", return_value=failure):
++            with self.assertRaises(RuntimeError) as caught:
++                source.status()
++        self.assertNotIn("private", str(caught.exception))
++
++    def test_https_validation_and_fixed_read_endpoints(self):
++        for url in ("http://example.invalid/dashboard", "https://u:p@example.invalid/dashboard",
++                    "https:///dashboard", "https://example.invalid/dashboard#secret"):
++            with self.assertRaises(ValueError):
++                bridge.endpoint_urls(url)
++        self.assertEqual(bridge.endpoint_urls("https://example.invalid/dashboard?range=24h"),
++                         ("https://example.invalid/status", "https://example.invalid/dashboard?range=7d"))
++
++    def test_redirect_handler_never_forwards_authenticated_request(self):
++        import urllib.request
++        request = urllib.request.Request("https://example.invalid/dashboard", headers={"X-API-Key": "synthetic"})
++        self.assertIsNone(bridge.NoRedirect().redirect_request(request, None, 302, "redirect", {},
++                                                              "https://other.invalid/dashboard"))
++
++    def test_write_all_handles_partial_and_temporarily_blocked_writes(self):
++        output = bytearray()
++        calls = [0]
++
++        def write(fd, data):
++            calls[0] += 1
++            if calls[0] == 1:
++                raise BlockingIOError()
++            output.extend(data[:3])
++            return min(len(data), 3)
++
++        with patch.object(bridge.os, "write", side_effect=write), patch.object(bridge.select, "select", return_value=([], [7], [])):
++            bridge.write_all(7, b'{"v":1}\n')
++        self.assertEqual(output, b'{"v":1}\n')
++
++    def test_refresh_decoder_handles_partial_oversize_and_untrusted_input(self):
++        reader = bridge.RefreshReader()
++        self.assertFalse(reader.feed(b'{"event":'))
++        self.assertTrue(reader.feed(b'"refresh"}\n'))
++        self.assertFalse(reader.feed(b'x' * 5000))
++        self.assertTrue(reader.feed(b'garbage\n{"event":"refresh"}\n'))
++        self.assertFalse(reader.feed(b'{"event":"other"}\nnull\n[]\n'))
++
++    def test_cli_demo_has_explicit_demo_flag_without_network(self):
++        with tempfile.TemporaryDirectory() as directory:
++            output = Path(directory) / "badge.json"
++            result = subprocess.run([sys.executable, str(ROOT / "tools/health_bridge.py"), "--demo", "--output", str(output)],
++                                    capture_output=True, text=True, check=False)
++            self.assertEqual(result.returncode, 0, result.stderr)
++            self.assertEqual(result.stdout, "")
++            self.assertTrue(json.loads(output.read_text())["demo"])
++
++    def test_cli_offline_projection_uses_private_output_permissions(self):
++        with tempfile.TemporaryDirectory() as directory:
++            source, output = Path(directory) / "dto.json", Path(directory) / "badge.json"
++            source.write_text(json.dumps(fixture()))
++            result = subprocess.run([sys.executable, str(ROOT / "tools/health_bridge.py"),
++                                     "--input", str(source), "--output", str(output)],
++                                    capture_output=True, text=True, check=False)
++            self.assertEqual(result.returncode, 0, result.stderr)
++            self.assertEqual(result.stdout, "")
++            self.assertEqual(output.stat().st_mode & 0o777, 0o600)
++            self.assertFalse(json.loads(output.read_text())["demo"])
++
++    def test_serial_configuration_never_issues_control_line_ioctls(self):
++        attrs = [0, 0, bridge.termios.HUPCL, 0, 0, 0, [0] * 32]
++        link = bridge.SerialLink("/synthetic/port")
++        with patch.object(bridge.os, "open", return_value=7), \
++                patch.object(bridge.termios, "tcgetattr", return_value=attrs), \
++                patch.object(bridge.termios, "tcsetattr") as configure, \
++                patch.object(bridge.os, "close"):
++            link.connect()
++            configured = configure.call_args[0][2]
++            self.assertEqual(configured[4:6], [bridge.termios.B115200] * 2)
++            self.assertFalse(configured[2] & bridge.termios.HUPCL)
++            self.assertEqual(link.fd, 7)
++            link.close()
++            self.assertIsNone(link.fd)
++
++    def test_cli_invalid_live_config_never_prints_credentials(self):
++        env = dict(os.environ, HEALTH_DASHBOARD_URL="http://private.invalid/secret", HEALTH_ANALYSIS_API_KEY="private-key")
++        result = subprocess.run([sys.executable, str(ROOT / "tools/health_bridge.py")], env=env,
++                                capture_output=True, text=True, check=False)
++        self.assertNotEqual(result.returncode, 0)
++        self.assertNotIn("private", result.stderr)
++        self.assertNotIn("private", result.stdout)
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff --git a/tests/test_health_idle.c b/tests/test_health_idle.c
+new file mode 100644
+index 0000000..43e2064
+--- /dev/null
++++ b/tests/test_health_idle.c
+@@ -0,0 +1,114 @@
++#include "health_idle.h"
++
++#include <assert.h>
++#include <stdio.h>
++
++static void test_timeout_boundary_and_background_updates(void) {
++    health_idle_t idle;
++    health_idle_init(&idle, 1000);
++    assert(!health_idle_update(&idle, 1000, false));
++    assert(!health_idle_update(&idle, 60999, false));
++    assert(health_idle_update(&idle, 61000, false));
++    assert(idle.asleep);
++    assert(health_idle_update(&idle, 61001, false));
++    assert(health_idle_update(&idle, 3600000, false));
++    /* A timestamp older than startup must not underflow into an immediate sleep. */
++    health_idle_init(&idle, 1000);
++    assert(!health_idle_update(&idle, 999, false));
++}
++
++static void test_normal_actions_reset_inactivity(void) {
++    health_idle_t idle;
++    health_idle_init(&idle, 0);
++    assert(!health_idle_button(&idle, BSP_BTN_DOWN, BSP_BTN_PRESS, 59000));
++    assert(!health_idle_button(&idle, BSP_BTN_DOWN, BSP_BTN_RELEASE, 59020));
++    assert(health_idle_button(&idle, BSP_BTN_DOWN, BSP_BTN_CLICK, 59200));
++    assert(!health_idle_update(&idle, 119199, false));
++    assert(health_idle_update(&idle, 119200, false));
++}
++
++static void test_each_key_wakes_without_dispatching_late_click(void) {
++    const bsp_btn_t buttons[] = {BSP_BTN_UP, BSP_BTN_DOWN, BSP_BTN_OK};
++    for (size_t i = 0; i < sizeof(buttons) / sizeof(buttons[0]); ++i) {
++        health_idle_t idle;
++        health_idle_init(&idle, 0);
++        assert(health_idle_update(&idle, 60000, false));
++        assert(!health_idle_button(&idle, buttons[i], BSP_BTN_PRESS, 60001));
++        assert(!idle.asleep); /* Wake on PRESS, without waiting for release. */
++        assert(!health_idle_button(&idle, buttons[i], BSP_BTN_RELEASE, 60020));
++        assert(!health_idle_button(&idle, buttons[i], BSP_BTN_CLICK, 60200));
++        assert(!health_idle_update(&idle, 120199, false));
++        assert(health_idle_update(&idle, 120200, false));
++        assert(!health_idle_button(&idle, buttons[i], BSP_BTN_PRESS, 121000));
++        assert(!health_idle_button(&idle, buttons[i], BSP_BTN_RELEASE, 121020));
++        assert(!health_idle_button(&idle, buttons[i], BSP_BTN_CLICK, 121200));
++        /* The next ordinary gesture resumes the original page/refresh actions. */
++        assert(!health_idle_button(&idle, buttons[i], BSP_BTN_PRESS, 122000));
++        assert(!health_idle_button(&idle, buttons[i], BSP_BTN_RELEASE, 122020));
++        assert(health_idle_button(&idle, buttons[i], BSP_BTN_CLICK, 122200));
++    }
++}
++
++static void test_waking_long_press_never_changes_wifi(void) {
++    const bsp_btn_t buttons[] = {BSP_BTN_UP, BSP_BTN_DOWN, BSP_BTN_OK};
++    for (size_t i = 0; i < sizeof(buttons) / sizeof(buttons[0]); ++i) {
++        health_idle_t idle;
++        health_idle_init(&idle, 0);
++        assert(health_idle_update(&idle, 60000, false));
++        assert(!health_idle_button(&idle, buttons[i], BSP_BTN_PRESS, 60001));
++        assert(!health_idle_button(&idle, buttons[i], BSP_BTN_LONG, 60501));
++        assert(!health_idle_update(&idle, 300000, false)); /* Still held. */
++        assert(!health_idle_button(&idle, buttons[i], BSP_BTN_RELEASE, 300010));
++        assert(!health_idle_button(&idle, buttons[i], BSP_BTN_CLICK, 300190));
++        assert(!health_idle_button(&idle, buttons[i], BSP_BTN_PRESS, 301000));
++        assert(health_idle_button(&idle, buttons[i], BSP_BTN_LONG, 301500));
++        assert(!health_idle_button(&idle, buttons[i], BSP_BTN_RELEASE, 301510));
++    }
++}
++
++static void test_held_keys_and_double_click(void) {
++    health_idle_t idle;
++    health_idle_init(&idle, 0);
++    assert(!health_idle_button(&idle, BSP_BTN_OK, BSP_BTN_PRESS, 1));
++    assert(!health_idle_update(&idle, 60000, false));
++    assert(!health_idle_update(&idle, 3600000, false));
++    assert(!health_idle_button(&idle, BSP_BTN_OK, BSP_BTN_RELEASE, 3600010));
++    assert(!health_idle_button(&idle, BSP_BTN_OK, BSP_BTN_DOUBLE, 3600190));
++    assert(!health_idle_update(&idle, 3660189, false));
++    assert(health_idle_update(&idle, 3660190, false));
++}
++
++static void test_setup_stays_visible_and_restarts_timeout(void) {
++    health_idle_t idle;
++    health_idle_init(&idle, 0);
++    assert(!health_idle_update(&idle, 60000, true));
++    assert(!health_idle_update(&idle, 300000, true));
++    assert(!health_idle_update(&idle, 359999, false));
++    assert(health_idle_update(&idle, 360000, false));
++    assert(!health_idle_update(&idle, 360001, true));
++    assert(!idle.asleep);
++}
++
++static void test_invalid_events_do_not_dispatch_or_reset_timeout(void) {
++    health_idle_t idle;
++    health_idle_init(&idle, 0);
++    assert(!health_idle_button(&idle, (bsp_btn_t)-1, BSP_BTN_PRESS, 59000));
++    assert(!health_idle_button(&idle, (bsp_btn_t)99, BSP_BTN_PRESS, 59000));
++    assert(!health_idle_button(&idle, BSP_BTN_OK, (bsp_btn_ev_t)99, 59000));
++    assert(health_idle_update(&idle, 60000, false));
++    assert(!health_idle_button(&idle, BSP_BTN_OK, BSP_BTN_CLICK, 60001));
++    assert(!health_idle_button(&idle, BSP_BTN_UP, BSP_BTN_LONG, 60001));
++    assert(idle.asleep);
++}
++
++int main(void) {
++    test_timeout_boundary_and_background_updates();
++    test_normal_actions_reset_inactivity();
++    test_each_key_wakes_without_dispatching_late_click();
++    test_waking_long_press_never_changes_wifi();
++    test_held_keys_and_double_click();
++    test_setup_stays_visible_and_restarts_timeout();
++    test_invalid_events_do_not_dispatch_or_reset_timeout();
++    puts("health_idle: PASS");
++    return 0;
++}
+diff --git a/tests/test_health_model.c b/tests/test_health_model.c
+new file mode 100644
+index 0000000..559a128
+--- /dev/null
++++ b/tests/test_health_model.c
+@@ -0,0 +1,362 @@
++#include "health_model.h"
++#include <assert.h>
++#include <stdio.h>
++#include <string.h>
++
++static const char VALID[] =
++    "{\"v\":1,\"online\":true,\"demo\":true,\"asOf\":\"10/21 18:40\","
++    "\"pressure\":36,\"retained\":false,\"pressureAt\":\"10/21 18:30\","
++    "\"heart\":72,\"heartAt\":\"10/21 18:40\",\"hrv\":41,\"hrvMethod\":\"RMSSD\","
++    "\"hrvAt\":\"10/21 18:30\",\"sleepScore\":85,\"sleepMinutes\":423,"
++    "\"sleepDate\":\"2026-10-21\",\"trend\":[null,42,38,51,40,32,36]}";
++
++static const char DAILY[] =
++    "{\"v\":2,\"online\":true,\"demo\":false,\"asOf\":\"10/21 18:40\","
++    "\"pressure\":36,\"retained\":false,\"pressureAt\":\"10/21 18:30\","
++    "\"heart\":72,\"heartAt\":\"10/21 18:40\",\"hrv\":41,\"hrvMethod\":\"RMSSD\","
++    "\"hrvAt\":\"10/21 18:30\",\"sleepScore\":85,\"sleepMinutes\":423,"
++    "\"sleepDate\":\"2026-10-21\",\"trend\":[null,42,38,51,40,32,36],"
++    "\"day\":\"2026-10-21\",\"workoutCount\":2,\"workoutMinutes\":53,"
++    "\"workoutKcal\":340,\"steps\":9876,\"activeKcal\":620,"
++    "\"exerciseMinutes\":61,\"distanceMeters\":6532}";
++
++static const char WEEKLY[] =
++    "{\"v\":3,\"online\":true,\"demo\":false,\"asOf\":\"10/21 18:40\","
++    "\"pressure\":83,\"retained\":true,\"pressureAt\":\"10/20 18:48\","
++    "\"heart\":72,\"heartAt\":\"10/21 18:40\",\"hrv\":41,\"hrvMethod\":\"RMSSD\","
++    "\"hrvAt\":\"10/21 18:30\",\"sleepScore\":85,\"sleepMinutes\":423,"
++    "\"sleepDate\":\"2026-10-21\",\"trend\":[null,42,38,51,40,32,36],"
++    "\"day\":\"2026-10-21\",\"workoutCount\":2,\"workoutMinutes\":53,"
++    "\"workoutKcal\":340,\"steps\":9876,\"activeKcal\":620,"
++    "\"exerciseMinutes\":61,\"distanceMeters\":6532,"
++    "\"sleepWeek\":["
++    "{\"date\":\"2026-10-15\",\"total\":null,\"deep\":null,\"core\":null,\"rem\":null,\"awake\":null,\"unknown\":null},"
++    "{\"date\":\"2026-10-16\",\"total\":420,\"deep\":60,\"core\":250,\"rem\":110,\"awake\":20,\"unknown\":0},"
++    "{\"date\":\"2026-10-17\",\"total\":400,\"deep\":55,\"core\":240,\"rem\":100,\"awake\":10,\"unknown\":5},"
++    "{\"date\":\"2026-10-18\",\"total\":390,\"deep\":null,\"core\":null,\"rem\":null,\"awake\":null,\"unknown\":390},"
++    "{\"date\":\"2026-10-19\",\"total\":450,\"deep\":70,\"core\":260,\"rem\":120,\"awake\":10,\"unknown\":0},"
++    "{\"date\":\"2026-10-20\",\"total\":480,\"deep\":80,\"core\":270,\"rem\":130,\"awake\":15,\"unknown\":0},"
++    "{\"date\":\"2026-10-21\",\"total\":423,\"deep\":63,\"core\":240,\"rem\":120,\"awake\":12,\"unknown\":0}],"
++    "\"workoutTypes\":[\"Traditional strength\",\"Outdoor walk\"]}";
++
++static void test_weekly_packet(void) {
++    health_snapshot_t snapshot;
++    assert(health_snapshot_parse(WEEKLY, &snapshot));
++    assert(snapshot.pressure == 83 && snapshot.retained);
++    assert(strcmp(snapshot.pressure_at, "10/20 18:48") == 0);
++    assert(snapshot.has_sleep_week);
++    assert(snapshot.sleep_week[0].total == HEALTH_MISSING);
++    assert(snapshot.sleep_week[6].deep == 63 && snapshot.sleep_week[6].rem == 120);
++    assert(snapshot.sleep_week[6].core == 240 && snapshot.sleep_week[6].awake == 12);
++    assert(snapshot.sleep_week[6].unknown == 0 && snapshot.sleep_week[6].total == 423);
++    assert(snapshot.workout_type_count == 2);
++    assert(strcmp(snapshot.workout_types[0], "Traditional strength") == 0);
++    assert(strcmp(snapshot.workout_types[1], "Outdoor walk") == 0);
++}
++
++static void test_daily_packet(void) {
++    health_snapshot_t snapshot;
++    assert(health_snapshot_parse(DAILY, &snapshot));
++    assert(strcmp(snapshot.day, "2026-10-21") == 0);
++    assert(snapshot.workout_count == 2 && snapshot.workout_minutes == 53);
++    assert(snapshot.workout_kcal == 340 && snapshot.steps == 9876);
++    assert(snapshot.active_kcal == 620 && snapshot.exercise_minutes == 61);
++    assert(snapshot.distance_meters == 6532);
++    assert(!snapshot.has_sleep_week && snapshot.workout_type_count == 0);
++}
++
++static void test_clock_and_midnight_data_identity(void) {
++    health_clock_t clock;
++    health_clock_format(0, &clock);
++    assert(!clock.valid && strcmp(clock.time, "--:--:--") == 0 && !clock.date[0]);
++    health_clock_format(1792598399, &clock); /* 2026-10-21 23:59:59 UTC+8 */
++    assert(clock.valid && strcmp(clock.time, "23:59:59") == 0);
++    assert(strcmp(clock.date, "2026-10-21") == 0);
++    health_snapshot_t data;
++    assert(health_snapshot_parse(DAILY, &data));
++    assert(health_snapshot_is_today(&data, &clock));
++    health_clock_format(1792598400, &clock);
++    assert(strcmp(clock.time, "00:00:00") == 0 && strcmp(clock.date, "2026-10-22") == 0);
++    assert(!health_snapshot_is_today(&data, &clock));
++    assert(strcmp(data.day, "2026-10-21") == 0 && data.pressure == 36);
++    health_clock_format(0, &clock);
++    assert(!health_snapshot_is_today(&data, &clock));
++    health_clock_format(1792598399, &clock);
++    assert(health_snapshot_parse(VALID, &data));
++    assert(!health_snapshot_is_today(&data, &clock));
++}
++
++static void test_initial_missing_values(void) {
++    health_model_t model;
++    health_model_init(&model);
++    assert(model.page == HEALTH_PAGE_OVERVIEW);
++    assert(model.snapshot.pressure == HEALTH_MISSING);
++    assert(model.snapshot.heart == HEALTH_MISSING);
++    assert(model.snapshot.hrv == HEALTH_MISSING);
++    assert(model.snapshot.sleep_score == HEALTH_MISSING);
++    assert(model.snapshot.sleep_minutes == HEALTH_MISSING);
++    assert(model.snapshot.workout_count == HEALTH_MISSING);
++    assert(model.snapshot.workout_minutes == HEALTH_MISSING);
++    assert(model.snapshot.workout_kcal == HEALTH_MISSING);
++    assert(model.snapshot.steps == HEALTH_MISSING && model.snapshot.active_kcal == HEALTH_MISSING);
++    assert(model.snapshot.exercise_minutes == HEALTH_MISSING && model.snapshot.distance_meters == HEALTH_MISSING);
++    for (size_t i = 0; i < HEALTH_TREND_DAYS; ++i) assert(model.snapshot.trend[i] == HEALTH_MISSING);
++    assert(!health_model_connected(&model, 0));
++}
++
++static void test_page_wrap_and_disconnect_retains_data(void) {
++    health_model_t model;
++    health_model_init(&model);
++    health_model_turn_page(&model, -1);
++    assert(model.page == HEALTH_PAGE_ACTIVITY);
++    health_model_turn_page(&model, 1);
++    assert(model.page == HEALTH_PAGE_OVERVIEW);
++    health_model_turn_page(&model, 1);
++    assert(model.page == HEALTH_PAGE_PRESSURE);
++    health_model_turn_page(&model, 0);
++    assert(model.page == HEALTH_PAGE_PRESSURE);
++    health_snapshot_t snapshot = { .pressure = 36 };
++    health_model_accept(&model, &snapshot, 15000);
++    assert(health_model_connected(&model, 59999));
++    assert(!health_model_connected(&model, 60000));
++    assert(model.snapshot.pressure == 36);
++}
++
++static void test_fragmented_lines_and_recovery(void) {
++    health_line_t line = {0};
++    assert(!health_line_push(&line, '{'));
++    assert(!health_line_push(&line, '}'));
++    assert(!health_line_push(&line, '\r'));
++    assert(health_line_push(&line, '\n'));
++    assert(strcmp(line.data, "{}") == 0);
++    assert(!health_line_push(&line, '\n'));
++    for (size_t i = 0; i < HEALTH_LINE_CAPACITY; ++i) assert(!health_line_push(&line, 'x'));
++    assert(!health_line_push(&line, '\n'));
++    assert(!health_line_push(&line, '{'));
++    assert(!health_line_push(&line, '}'));
++    assert(health_line_push(&line, '\n'));
++    assert(strcmp(line.data, "{}") == 0);
++    assert(!health_line_push(&line, 0));
++    assert(!health_line_push(&line, 'x'));
++    assert(!health_line_push(&line, '\n'));
++    assert(!health_line_push(&line, 0xff));
++    assert(!health_line_push(&line, '\n'));
++}
++
++static void test_line_limits_and_carriage_return(void) {
++    health_line_t line = {0};
++    for (size_t i = 0; i < HEALTH_LINE_CAPACITY - 2; ++i) assert(!health_line_push(&line, 'x'));
++    assert(health_line_push(&line, '\n'));
++    assert(strlen(line.data) == HEALTH_LINE_CAPACITY - 2);
++    assert(!health_line_push(&line, '{'));
++    assert(!health_line_push(&line, '\r'));
++    assert(!health_line_push(&line, '}'));
++    assert(!health_line_push(&line, '\n'));
++    assert(!health_line_push(&line, '{'));
++    assert(!health_line_push(&line, '}'));
++    assert(health_line_push(&line, '\n'));
++    for (size_t i = 0; i < HEALTH_LINE_CAPACITY - 2; ++i) assert(!health_line_push(&line, 'x'));
++    assert(!health_line_push(&line, '\r'));
++    assert(!health_line_push(&line, '\n'));
++}
++
++static void test_valid_nullable_packet(void) {
++    health_snapshot_t snapshot;
++    assert(health_snapshot_parse(VALID, &snapshot));
++    assert(snapshot.demo && snapshot.online && !snapshot.retained);
++    assert(snapshot.pressure == 36 && snapshot.heart == 72 && snapshot.hrv == 41);
++    assert(snapshot.sleep_score == 85 && snapshot.sleep_minutes == 423);
++    assert(snapshot.trend[0] == HEALTH_MISSING && snapshot.trend[6] == 36);
++    assert(strcmp(snapshot.hrv_method, "RMSSD") == 0);
++    assert(strcmp(snapshot.pressure_at, "10/21 18:30") == 0);
++    assert(!snapshot.day[0] && snapshot.workout_count == HEALTH_MISSING);
++    assert(snapshot.steps == HEALTH_MISSING && snapshot.distance_meters == HEALTH_MISSING);
++    const char *nullable = "{\"v\":1,\"online\":false,\"demo\":false,\"asOf\":\"\","
++        "\"pressure\":null,\"retained\":false,\"pressureAt\":\"\",\"heart\":null,\"heartAt\":\"\","
++        "\"hrv\":null,\"hrvMethod\":\"SDNN\",\"hrvAt\":\"\",\"sleepScore\":null,"
++        "\"sleepMinutes\":null,\"sleepDate\":\"\",\"trend\":[null,null,null,null,null,null,null]}";
++    assert(health_snapshot_parse(nullable, &snapshot));
++    assert(snapshot.pressure == HEALTH_MISSING && snapshot.heart == HEALTH_MISSING);
++    assert(snapshot.hrv == HEALTH_MISSING && snapshot.sleep_minutes == HEALTH_MISSING);
++    assert(!snapshot.online && !snapshot.demo);
++    assert(strcmp(snapshot.hrv_method, "SDNN") == 0);
++}
++
++static void assert_rejected_packet_mutation(const char *base, const char *needle, const char *replacement) {
++    char json[HEALTH_LINE_CAPACITY];
++    const char *start = strstr(base, needle);
++    assert(start);
++    size_t prefix = (size_t)(start - base);
++    memcpy(json, base, prefix);
++    snprintf(json + prefix, sizeof(json) - prefix, "%s%s", replacement, start + strlen(needle));
++    health_snapshot_t snapshot;
++    memset(&snapshot, 0x5a, sizeof(snapshot));
++    health_snapshot_t original = snapshot;
++    assert(!health_snapshot_parse(json, &snapshot));
++    assert(memcmp(&snapshot, &original, sizeof(snapshot)) == 0);
++}
++
++static void assert_rejected_mutation(const char *needle, const char *replacement) {
++    assert_rejected_packet_mutation(VALID, needle, replacement);
++}
++
++static void test_weekly_boundaries_and_atomic_rejection(void) {
++    assert_rejected_packet_mutation(WEEKLY, "\"v\":3", "\"v\":4");
++    assert_rejected_packet_mutation(WEEKLY, "\"deep\":63", "\"deep\":1441");
++    assert_rejected_packet_mutation(WEEKLY, "\"deep\":63", "\"deep\":-1");
++    assert_rejected_packet_mutation(WEEKLY, "\"deep\":63", "\"deep\":1.5");
++    assert_rejected_packet_mutation(WEEKLY, "\"deep\":63", "\"deep\":true");
++    assert_rejected_packet_mutation(WEEKLY, "\"deep\":63", "\"deep\":{}");
++    assert_rejected_packet_mutation(WEEKLY, "\"deep\":63", "\"deep\":62");
++    assert_rejected_packet_mutation(WEEKLY, "\"deep\":63", "\"deep\":63,\"deep\":63");
++    assert_rejected_packet_mutation(WEEKLY, "\"deep\":63,\"core\":240", "\"deep\":63,\"deep\":240");
++    assert_rejected_packet_mutation(WEEKLY, "\"deep\":63,\"core\":240", "\"deep\":63,\"extra\":240");
++    assert_rejected_packet_mutation(WEEKLY, "\"date\":\"2026-10-15\"", "\"date\":\"2026-02-30\"");
++    assert_rejected_packet_mutation(WEEKLY, "\"date\":\"2026-10-15\"", "\"date\":\"2026-10-14\"");
++    assert_rejected_packet_mutation(WEEKLY, "\"date\":\"2026-10-20\"", "\"date\":\"2026-10-21\"");
++    assert_rejected_packet_mutation(WEEKLY, "\"day\":\"2026-10-21\"", "\"day\":\"2026-10-22\"");
++    assert_rejected_packet_mutation(WEEKLY, "\"workoutTypes\":[\"Traditional strength\",\"Outdoor walk\"]", "\"workoutTypes\":null");
++    assert_rejected_packet_mutation(WEEKLY, "\"workoutTypes\":[\"Traditional strength\",\"Outdoor walk\"]", "\"workoutTypes\":[1]");
++    assert_rejected_packet_mutation(WEEKLY, "\"workoutTypes\":[\"Traditional strength\",\"Outdoor walk\"]", "\"workoutTypes\":[\"\"]");
++    assert_rejected_packet_mutation(WEEKLY, "Traditional strength", "1234567890123456789012345");
++    assert_rejected_packet_mutation(WEEKLY, "Traditional strength", "Walk/Run");
++    assert_rejected_packet_mutation(WEEKLY, "Traditional strength", "Walk_Run");
++    assert_rejected_packet_mutation(WEEKLY, "Traditional strength", "Walk+Run");
++    assert_rejected_packet_mutation(WEEKLY, "\"workoutTypes\":[\"Traditional strength\",\"Outdoor walk\"]", "\"workoutTypes\":[\"A\",\"B\",\"C\",\"D\",\"E\",\"F\",\"G\",\"H\",\"I\"]");
++    assert_rejected_packet_mutation(WEEKLY, "\"workoutTypes\":[\"Traditional strength\",\"Outdoor walk\"]", "\"workoutTypes\":[[\"A\"]]");
++    assert_rejected_packet_mutation(WEEKLY, "\"workoutTypes\":[\"Traditional strength\",\"Outdoor walk\"]", "\"workoutTypes\":[\"A\",\"A\"]");
++    assert_rejected_packet_mutation(WEEKLY,
++        "{\"date\":\"2026-10-15\",\"total\":null,\"deep\":null,\"core\":null,\"rem\":null,\"awake\":null,\"unknown\":null},", "");
++    assert_rejected_packet_mutation(WEEKLY, "\"sleepWeek\":[", "\"sleepWeek\":{");
++    assert_rejected_packet_mutation(WEEKLY, "\"online\":true,\"demo\":false", "\"online\":true,\"online\":false");
++    char json[HEALTH_LINE_CAPACITY];
++    const char *types = strstr(WEEKLY, "\"workoutTypes\":[");
++    assert(types);
++    size_t prefix = (size_t)(types - WEEKLY);
++    memcpy(json, WEEKLY, prefix);
++    snprintf(json + prefix, sizeof(json) - prefix,
++        "\"workoutTypes\":[\"123456789012345678901234\",\"B\",\"C\",\"D\",\"E\",\"F\",\"G\",\"H\"]}");
++    health_snapshot_t snapshot;
++    assert(health_snapshot_parse(json, &snapshot));
++    assert(snapshot.workout_type_count == 8 && strlen(snapshot.workout_types[0]) == 24);
++    snprintf(json + prefix, sizeof(json) - prefix, "\"workoutTypes\":[]}");
++    assert(health_snapshot_parse(json, &snapshot) && snapshot.workout_type_count == 0);
++    char padded[HEALTH_LINE_CAPACITY];
++    size_t length = strlen(WEEKLY);
++    memcpy(padded, WEEKLY, length);
++    memset(padded + length, ' ', HEALTH_LINE_CAPACITY - 2 - length);
++    padded[HEALTH_LINE_CAPACITY - 2] = '\0';
++    assert(health_snapshot_parse(padded, &snapshot));
++    health_snapshot_t original = snapshot;
++    padded[HEALTH_LINE_CAPACITY - 2] = ' ';
++    padded[HEALTH_LINE_CAPACITY - 1] = '\0';
++    assert(!health_snapshot_parse(padded, &snapshot));
++    assert(!memcmp(&original, &snapshot, sizeof(snapshot)));
++}
++
++static void test_week_dates_across_leap_and_year_boundaries(void) {
++    const char *dates[][HEALTH_TREND_DAYS] = {
++        {"2024-02-24", "2024-02-25", "2024-02-26", "2024-02-27", "2024-02-28", "2024-02-29", "2024-03-01"},
++        {"2026-12-26", "2026-12-27", "2026-12-28", "2026-12-29", "2026-12-30", "2026-12-31", "2027-01-01"},
++    };
++    for (size_t calendar = 0; calendar < sizeof(dates) / sizeof(dates[0]); ++calendar) {
++        char json[HEALTH_LINE_CAPACITY];
++        memcpy(json, DAILY, sizeof(DAILY));
++        json[5] = '3';
++        char *day = strstr(json, "\"day\":\"");
++        assert(day);
++        memcpy(day + 7, dates[calendar][6], 10);
++        size_t used = strlen(json) - 1;
++        used += (size_t)snprintf(json + used, sizeof(json) - used, ",\"sleepWeek\":[");
++        for (int i = 0; i < HEALTH_TREND_DAYS; ++i) {
++            used += (size_t)snprintf(json + used, sizeof(json) - used,
++                "%s{\"date\":\"%s\",\"total\":null,\"deep\":null,\"core\":null,\"rem\":null,\"awake\":null,\"unknown\":null}",
++                i ? "," : "", dates[calendar][i]);
++        }
++        snprintf(json + used, sizeof(json) - used, "],\"workoutTypes\":[]}");
++        health_snapshot_t snapshot;
++        assert(health_snapshot_parse(json, &snapshot));
++        assert(!strcmp(snapshot.sleep_week[0].date, dates[calendar][0]));
++    }
++}
++
++static void test_daily_boundaries_and_atomic_rejection(void) {
++    assert_rejected_packet_mutation(DAILY, "\"day\":\"2026-10-21\"", "\"day\":\"\"");
++    assert_rejected_packet_mutation(DAILY, "\"day\":\"2026-10-21\"", "\"day\":\"2026-02-29\"");
++    assert_rejected_packet_mutation(DAILY, "\"sleepDate\":\"2026-10-21\"", "\"sleepDate\":\"2026-04-31\"");
++    assert_rejected_packet_mutation(DAILY, "\"workoutCount\":2", "\"workoutCount\":101");
++    assert_rejected_packet_mutation(DAILY, "\"workoutCount\":2", "\"workoutCount\":-1");
++    assert_rejected_packet_mutation(DAILY, "\"workoutCount\":2,", "");
++    assert_rejected_packet_mutation(DAILY, "\"workoutMinutes\":53", "\"workoutMinutes\":1441");
++    assert_rejected_packet_mutation(DAILY, "\"workoutKcal\":340", "\"workoutKcal\":10001");
++    assert_rejected_packet_mutation(DAILY, "\"steps\":9876", "\"steps\":200001");
++    assert_rejected_packet_mutation(DAILY, "\"activeKcal\":620", "\"activeKcal\":20001");
++    assert_rejected_packet_mutation(DAILY, "\"exerciseMinutes\":61", "\"exerciseMinutes\":1441");
++    assert_rejected_packet_mutation(DAILY, "\"distanceMeters\":6532", "\"distanceMeters\":2000001");
++    assert_rejected_packet_mutation(DAILY, "\"distanceMeters\":6532", "\"distanceMeters\":0.5");
++    assert_rejected_packet_mutation(DAILY, "\"distanceMeters\":6532", "\"distanceMeters\":true");
++    assert_rejected_packet_mutation(DAILY, "\"day\":\"2026-10-21\"", "\"day\":\"2026-10-21\",\"day\":\"2026-10-21\"");
++    const char *nullable = "{\"v\":2,\"online\":false,\"demo\":false,\"asOf\":\"\","
++        "\"pressure\":null,\"retained\":false,\"pressureAt\":\"\",\"heart\":null,\"heartAt\":\"\","
++        "\"hrv\":null,\"hrvMethod\":\"SDNN\",\"hrvAt\":\"\",\"sleepScore\":null,"
++        "\"sleepMinutes\":null,\"sleepDate\":\"\",\"trend\":[null,null,null,null,null,null,null],"
++        "\"day\":\"2024-02-29\",\"workoutCount\":null,\"workoutMinutes\":null,\"workoutKcal\":null,"
++        "\"steps\":null,\"activeKcal\":null,\"exerciseMinutes\":null,\"distanceMeters\":null}";
++    health_snapshot_t data;
++    assert(health_snapshot_parse(nullable, &data));
++    assert(data.workout_count == HEALTH_MISSING && data.workout_minutes == HEALTH_MISSING);
++    assert(data.workout_kcal == HEALTH_MISSING && data.steps == HEALTH_MISSING);
++    assert(data.active_kcal == HEALTH_MISSING && data.exercise_minutes == HEALTH_MISSING);
++    assert(data.distance_meters == HEALTH_MISSING);
++    const char *zero = "{\"v\":2,\"online\":true,\"demo\":false,\"asOf\":\"\","
++        "\"pressure\":0,\"retained\":false,\"pressureAt\":\"\",\"heart\":null,\"heartAt\":\"\","
++        "\"hrv\":null,\"hrvMethod\":\"SDNN\",\"hrvAt\":\"\",\"sleepScore\":0,"
++        "\"sleepMinutes\":0,\"sleepDate\":\"2026-10-21\",\"trend\":[null,null,null,null,null,null,0],"
++        "\"day\":\"2026-10-21\",\"workoutCount\":0,\"workoutMinutes\":0,\"workoutKcal\":0,"
++        "\"steps\":0,\"activeKcal\":0,\"exerciseMinutes\":0,\"distanceMeters\":0}";
++    assert(health_snapshot_parse(zero, &data));
++    assert(data.pressure == 0 && data.sleep_score == 0 && data.sleep_minutes == 0);
++    assert(data.workout_count == 0 && data.workout_minutes == 0 && data.workout_kcal == 0);
++    assert(data.steps == 0 && data.active_kcal == 0 && data.exercise_minutes == 0 && data.distance_meters == 0);
++}
++
++static void test_invalid_packets_are_atomic(void) {
++    assert_rejected_mutation("\"v\":1", "\"v\":2");
++    assert_rejected_mutation("\"pressure\":36", "\"pressure\":101");
++    assert_rejected_mutation("\"pressure\":36", "\"pressure\":0.5");
++    assert_rejected_mutation("\"heart\":72", "\"heart\":0");
++    assert_rejected_mutation("\"hrv\":41", "\"hrv\":1001");
++    assert_rejected_mutation("\"sleepMinutes\":423", "\"sleepMinutes\":1441");
++    assert_rejected_mutation("\"online\":true", "\"online\":1");
++    assert_rejected_mutation("\"hrvMethod\":\"RMSSD\"", "\"hrvMethod\":\"UNKNOWN\"");
++    assert_rejected_mutation("[null,42,38,51,40,32,36]", "[1,2]");
++    assert_rejected_mutation("[null,42,38,51,40,32,36]", "[1,2,3,4,5,6,101]");
++    assert_rejected_mutation("\"asOf\":\"10/21 18:40\"", "\"asOf\":\"2026-10-21 18:40\"");
++    assert_rejected_mutation("\"asOf\":\"10/21 18:40\"", "\"asOf\":\"10/21 25:40\"");
++    assert_rejected_mutation("\"asOf\":\"10/21 18:40\"", "\"asOf\":\"\\u4e2d\"");
++    assert_rejected_mutation("\"heartAt\":\"10/21 18:40\",", "");
++    assert_rejected_mutation("\"v\":1", "\"v\":1,\"v\":1");
++    assert_rejected_mutation("\"v\":1", "\"v\":1,\"nested\":{}");
++    assert_rejected_mutation("\"v\":1", "\"v\":1,\"secret\":\"x\"");
++    assert_rejected_mutation("\"v\":1", "\"v\":1,\"v\\u0000x\":1");
++    health_snapshot_t snapshot;
++    assert(!health_snapshot_parse("{}x", &snapshot));
++    assert(!health_snapshot_parse("[]", &snapshot));
++}
++
++int main(void) {
++    test_initial_missing_values();
++    test_weekly_packet();
++    test_weekly_boundaries_and_atomic_rejection();
++    test_week_dates_across_leap_and_year_boundaries();
++    test_daily_packet();
++    test_daily_boundaries_and_atomic_rejection();
++    test_clock_and_midnight_data_identity();
++    test_page_wrap_and_disconnect_retains_data();
++    test_fragmented_lines_and_recovery();
++    test_line_limits_and_carriage_return();
++    test_valid_nullable_packet();
++    test_invalid_packets_are_atomic();
++    puts("health_model: PASS");
++    return 0;
++}
+diff --git a/tests/test_health_network_model.c b/tests/test_health_network_model.c
+new file mode 100644
+index 0000000..d7259d9
+--- /dev/null
++++ b/tests/test_health_network_model.c
+@@ -0,0 +1,173 @@
++#include "health_network_model.h"
++#include <assert.h>
++#include <stdio.h>
++#include <string.h>
++
++static void configuration_is_atomic_and_https_only(void) {
++    health_endpoint_t output = {0};
++    assert(health_endpoint_parse("{\"configure\":{\"url\":\"https://health.example.com/badge\",\"token\":\"0123456789abcdef\"}}", &output));
++    assert(strcmp(output.url, "https://health.example.com/badge") == 0);
++    health_endpoint_t original = output;
++    const char *invalid[] = {
++        "{\"configure\":{\"url\":\"http://health.example.com/badge\",\"token\":\"0123456789abcdef\"}}",
++        "{\"configure\":{\"url\":\"https://user@health.example.com/badge\",\"token\":\"0123456789abcdef\"}}",
++        "{\"configure\":{\"url\":\"https://health.example.com/badge?secret=x\",\"token\":\"0123456789abcdef\"}}",
++        "{\"configure\":{\"url\":\"https://health.example.com/badge\",\"token\":\"short\"}}",
++        "{\"configure\":{\"url\":\"https://health.example.com/badge\",\"token\":\"0123456789abc def\"}}",
++        "{\"configure\":{\"url\":\"https://health.example.com/badge\",\"token\":\"0123456789abcdef\",\"extra\":1}}",
++        "{\"configure\":{\"url\":\"https://health.example.com/badge\",\"url\":\"https://evil.example/badge\",\"token\":\"0123456789abcdef\"}}",
++    };
++    for (unsigned i = 0; i < sizeof(invalid) / sizeof(invalid[0]); ++i) {
++        assert(!health_endpoint_parse(invalid[i], &output));
++        assert(memcmp(&output, &original, sizeof(output)) == 0);
++    }
++}
++
++static void endpoint_supports_only_the_miaobi_function_route(void) {
++    const char *accepted[] = {
++        "https://health.example.com:8443/badge",
++        "https://magic.solutionsuite.cn/api/faas/example_badge",
++        "https://magic.solutionsuite.cn:443/api/faas/health-badge_2",
++    };
++    health_endpoint_t output = {0};
++    char frame[512];
++    for (unsigned i = 0; i < sizeof(accepted) / sizeof(accepted[0]); ++i) {
++        snprintf(frame, sizeof(frame), "{\"configure\":{\"url\":\"%s\",\"token\":\"0123456789abcdef\"}}", accepted[i]);
++        assert(health_endpoint_parse(frame, &output));
++        assert(strcmp(output.url, accepted[i]) == 0);
++    }
++    health_endpoint_t original = output;
++    const char *rejected[] = {
++        "http://magic.solutionsuite.cn/api/faas/health",
++        "HTTPS://magic.solutionsuite.cn/api/faas/health",
++        "https://other.example.com/api/faas/health",
++        "https://magic.solutionsuite.cn.evil.example/api/faas/health",
++        "https://user@magic.solutionsuite.cn/api/faas/health",
++        "https://magic.solutionsuite.cn:444/api/faas/health",
++        "https://magic.solutionsuite.cn/api/faas/",
++        "https://magic.solutionsuite.cn/api/faas/health/more",
++        "https://magic.solutionsuite.cn/api/faas/health?key=value",
++        "https://magic.solutionsuite.cn/api/faas/health?",
++        "https://magic.solutionsuite.cn/api/faas/health#fragment",
++        "https://magic.solutionsuite.cn/api/faas/health#",
++        "https://magic.solutionsuite.cn/api/faas/%68ealth",
++        "https://magic.solutionsuite.cn/api/faas/../health",
++        "https://magic.solutionsuite.cn/api/faas/health.badge",
++        "https://magic.solutionsuite.cn/api/other/health",
++        "https://Magic.solutionsuite.cn/api/faas/health",
++        "https://magic.solutionsuite.cn/api/faas/he\nalth",
++    };
++    for (unsigned i = 0; i < sizeof(rejected) / sizeof(rejected[0]); ++i) {
++        snprintf(frame, sizeof(frame), "{\"configure\":{\"url\":\"%s\",\"token\":\"0123456789abcdef\"}}", rejected[i]);
++        assert(!health_endpoint_parse(frame, &output));
++        assert(memcmp(&output, &original, sizeof(output)) == 0);
++    }
++}
++
++static void two_profile_form_validates_before_replacing(void) {
++    health_profiles_t output = {0};
++    assert(health_profiles_parse("ssid1=Home+WiFi&password1=12345678&ssid2=iPhone%27s&password2=hotspot123", &output));
++    assert(output.count == 2);
++    assert(strcmp(output.profile[0].ssid, "Home WiFi") == 0);
++    assert(strcmp(output.profile[1].ssid, "iPhone's") == 0);
++    assert(health_profiles_parse("ssid1=%E5%AE%B6%E9%87%8C&password1=12345678&ssid2=&password2=", &output));
++    assert(output.count == 1);
++    health_profiles_t original = output;
++    const char *invalid[] = {
++        "ssid1=x&password1=short&ssid2=&password2=",
++        "ssid1=x%00y&password1=12345678&ssid2=&password2=",
++        "ssid1=x%ZZ&password1=12345678&ssid2=&password2=",
++        "ssid1=x&password1=12345678&ssid1=y&password2=12345678",
++        "ssid1=x&password1=12345678&ssid2=&password2=12345678",
++        "ssid1=x&password1=12345678&ssid2=x&password2=12345678",
++        "ssid1=x&password1=12345678&ssid2=&password2=&token=secret",
++    };
++    for (unsigned i = 0; i < sizeof(invalid) / sizeof(invalid[0]); ++i) {
++        assert(!health_profiles_parse(invalid[i], &output));
++        assert(memcmp(&output, &original, sizeof(output)) == 0);
++    }
++}
++
++static void retry_and_refresh_are_bounded(void) {
++    health_retry_t retry = {0};
++    assert(health_retry_profile(&retry, 2, 0) == 0);
++    assert(health_retry_profile(&retry, 2, 14999) == -1);
++    assert(health_retry_profile(&retry, 2, 15000) == 1);
++    assert(health_retry_profile(&retry, 2, 30000) == 0);
++    health_retry_connected(&retry, 1);
++    assert(health_retry_profile(&retry, 2, 45000) == 1);
++    assert(health_retry_profile(&retry, 0, 999999) == -1);
++    health_refresh_t refresh = {0};
++    assert(health_refresh_due(&refresh, 0, false));
++    assert(!health_refresh_due(&refresh, 14999, true));
++    assert(health_refresh_due(&refresh, 15000, true));
++    assert(!health_refresh_due(&refresh, 134999, false));
++    assert(!health_refresh_due(&refresh, 135000, false));
++    assert(!health_refresh_due(&refresh, 1814999, false));
++    assert(health_refresh_due(&refresh, 1815000, false));
++}
++
++static void candidate_networks_commit_only_after_connection(void) {
++    health_profiles_t active = {0}, replacement = {0};
++    assert(health_profiles_parse("ssid1=old&password1=12345678&ssid2=&password2=", &active));
++    assert(health_profiles_parse("ssid1=new&password1=abcdefgh&ssid2=hotspot&password2=12345678", &replacement));
++    health_candidate_t candidate = {0};
++    assert(health_candidate_begin(&candidate, &active, &replacement, 100));
++    assert(candidate.pending && strcmp(active.profile[0].ssid, "new") == 0);
++    assert(!health_candidate_expire(&candidate, &active, 45099));
++    assert(health_candidate_expire(&candidate, &active, 45100));
++    assert(!candidate.pending && strcmp(active.profile[0].ssid, "old") == 0);
++    assert(health_candidate_begin(&candidate, &active, &replacement, 50000));
++    health_candidate_commit(&candidate);
++    assert(!candidate.pending && !health_candidate_expire(&candidate, &active, 999999));
++    assert(strcmp(active.profile[0].ssid, "new") == 0);
++    assert(health_candidate_begin(&candidate, &active, &replacement, 1000000));
++    health_candidate_rollback(&candidate, &active);
++    assert(!candidate.pending && strcmp(active.profile[0].ssid, "new") == 0);
++}
++
++static void got_ip_must_belong_to_current_candidate_attempt(void) {
++    const health_profile_t candidate = {.ssid = "candidate", .password = "12345678"};
++    assert(!health_connection_matches(&candidate, true, true, true, "old", 3));
++    assert(!health_connection_matches(&candidate, false, true, true, "candidate", 9));
++    assert(!health_connection_matches(&candidate, true, false, true, "candidate", 9));
++    assert(!health_connection_matches(&candidate, true, true, false, "candidate", 9));
++    assert(!health_connection_matches(&candidate, true, true, true, "candidate-other", 15));
++    assert(health_connection_matches(&candidate, true, true, true, "candidate", 9));
++    /* Even a queued event naming the new SSID cannot commit before an attempt. */
++    assert(!health_connection_matches(&candidate, false, true, true, "candidate", 9));
++}
++
++static void http_body_is_bounded_and_requires_complete_success(void) {
++    health_http_body_t body;
++    health_http_body_init(&body, 100);
++    assert(health_http_body_append(&body, "{", 1, 101));
++    assert(!health_http_body_complete(&body, false, 200, 102));
++    assert(health_http_body_append(&body, "}", 1, 103));
++    assert(!health_http_body_complete(&body, true, 503, 104));
++    assert(health_http_body_complete(&body, true, 200, 104));
++    assert(strcmp(body.data, "{}") == 0);
++    health_http_body_init(&body, 0);
++    for (unsigned i = 1; i < 120; ++i) assert(health_http_body_append(&body, "x", 1, i * 100));
++    assert(!health_http_body_append(&body, "x", 1, 12000));
++    assert(body.failed && !health_http_body_complete(&body, true, 200, 12000));
++    health_http_body_init(&body, 0);
++    char huge[4096];
++    memset(huge, 'x', sizeof(huge));
++    assert(!health_http_body_append(&body, huge, sizeof(huge), 1));
++    assert(body.failed && body.length == 0);
++    health_http_body_init(&body, 0);
++    assert(!health_http_body_append(&body, "a\0b", 3, 1));
++    assert(body.failed);
++}
++
++int main(void) {
++    configuration_is_atomic_and_https_only();
++    endpoint_supports_only_the_miaobi_function_route();
++    two_profile_form_validates_before_replacing();
++    retry_and_refresh_are_bounded();
++    candidate_networks_commit_only_after_connection();
++    got_ip_must_belong_to_current_candidate_attempt();
++    http_body_is_bounded_and_requires_complete_success();
++    puts("health_network_model: PASS");
++}
+diff --git a/tools/configure_wifi.py b/tools/configure_wifi.py
+new file mode 100644
+index 0000000..b760273
+--- /dev/null
++++ b/tools/configure_wifi.py
+@@ -0,0 +1,109 @@
++#!/usr/bin/env python3
++"""Provision a badge's HTTPS endpoint from a private file, without echoing it."""
++import argparse
++import json
++import os
++from pathlib import Path
++import re
++import select
++import sys
++import termios
++import time
++import urllib.parse
++
++from health_bridge import FRAME_LIMIT, SerialLink, encode_frame, write_all
++
++
++def validate_config(config):
++    if not isinstance(config, dict) or set(config) != {"url", "token"}:
++        raise ValueError("invalid_configuration")
++    url, token = config["url"], config["token"]
++    if (not isinstance(url, str) or not 15 <= len(url) < 256 or not url.startswith("https://") or
++            any(not 0x21 <= ord(c) <= 0x7e for c in url) or "?" in url or "#" in url):
++        raise ValueError("invalid_endpoint")
++    parsed = urllib.parse.urlsplit(url)
++    if (parsed.scheme != "https" or not parsed.hostname or parsed.username is not None or
++            parsed.password is not None or
++            not re.fullmatch(r"[A-Za-z0-9.-]+(?::[0-9]+)?", parsed.netloc)):
++        raise ValueError("invalid_endpoint")
++    if parsed.port == 0:  # urlsplit rejects ports over 65535.
++        raise ValueError("invalid_endpoint")
++    miaobi_route = (parsed.netloc.split(":", 1)[0] == "magic.solutionsuite.cn" and
++                    parsed.port in (None, 443) and
++                    re.fullmatch(r"/api/faas/[A-Za-z0-9_-]+", parsed.path))
++    if parsed.path != "/badge" and not miaobi_route:
++        raise ValueError("invalid_endpoint")
++    if (not isinstance(token, str) or not 16 <= len(token) <= 128 or
++            any(not 0x21 <= ord(c) <= 0x7e or c in '\\"' for c in token)):
++        raise ValueError("invalid_token")
++    return {"url": url, "token": token}
++
++
++def load_config(path):
++    if path.stat().st_mode & 0o077 or path.stat().st_size > FRAME_LIMIT:
++        raise ValueError("configuration_file_must_be_private")
++    return validate_config(json.loads(path.read_text()))
++
++
++def wait_for_ack(fd, timeout):
++    deadline = time.monotonic() + timeout
++    line = bytearray()
++    discarding = False
++    while time.monotonic() < deadline:
++        if not select.select([fd], [], [], max(0, deadline - time.monotonic()))[0]:
++            break
++        data = os.read(fd, FRAME_LIMIT)
++        if not data:
++            raise OSError("serial_disconnected")
++        for byte in data:
++            if byte == 10:
++                if not discarding:
++                    try:
++                        event = json.loads(line)
++                    except (ValueError, UnicodeDecodeError):
++                        event = None
++                    if isinstance(event, dict) and event.get("event") == "configured":
++                        if event.get("ok") is True:
++                            return
++                        raise ValueError("badge_rejected_configuration")
++                line.clear()
++                discarding = False
++            elif not discarding:
++                line.append(byte)
++                if len(line) >= FRAME_LIMIT:
++                    line.clear()
++                    discarding = True
++    raise TimeoutError("configuration_not_acknowledged")
++
++
++def provision(config, port, timeout=30):
++    config = validate_config(config)
++    serial = SerialLink(port)
++    try:
++        serial.connect()
++        if serial.fd is None:
++            raise OSError("serial_unavailable")
++        termios.tcflush(serial.fd, termios.TCIFLUSH)
++        write_all(serial.fd, encode_frame({"configure": config}))
++        wait_for_ack(serial.fd, timeout)
++    finally:
++        serial.close()
++
++
++def main(argv=None):
++    parser = argparse.ArgumentParser(description=__doc__)
++    parser.add_argument("--config", type=Path, required=True, help="owner-only JSON file containing url and token")
++    parser.add_argument("--port", required=True, help="explicit badge serial path; stop the USB bridge first")
++    args = parser.parse_args(argv)
++    try:
++        provision(load_config(args.config), args.port)
++        print("Endpoint saved. Hold OK on the badge to enter Wi-Fi setup.")
++        return 0
++    except (OSError, ValueError, TimeoutError) as error:
++        # Neither exception messages nor received device lines are safe to echo.
++        print("configure_wifi: " + type(error).__name__, file=sys.stderr)
++        return 1
++
++
++if __name__ == "__main__":
++    sys.exit(main())
+diff --git a/tools/health_bridge.py b/tools/health_bridge.py
+new file mode 100644
+index 0000000..29ef0d4
+--- /dev/null
++++ b/tools/health_bridge.py
+@@ -0,0 +1,525 @@
++#!/usr/bin/env python3
++"""Reduce a private dashboard to an in-memory, bounded USB display snapshot.
++
++Offline: --input dto.json --output badge.json, or --demo --output badge.json.
++Live HTTPS: HEALTH_DASHBOARD_URL and HEALTH_ANALYSIS_API_KEY, optionally --port.
++Published Base cache: --lark-base TOKEN --lark-table TABLE --lark-record RECORD.
++Only the offline commands write health content to a user-selected output file.
++"""
++import argparse
++from datetime import date, datetime, timedelta, timezone
++import glob
++import hashlib
++import json
++import math
++import os
++from pathlib import Path
++import select
++import subprocess
++import sys
++import tempfile
++import termios
++import threading
++import time
++import urllib.parse
++import urllib.request
++
++
++BEIJING = timezone(timedelta(hours=8))
++FRAME_LIMIT = 4096
++HTTP_LIMIT = 8 * 1024 * 1024
++SEND_INTERVAL_MS = 15000
++STATUS_INTERVAL_MS = 60000
++
++
++def number(value, minimum, maximum):
++    if isinstance(value, bool) or not isinstance(value, (int, float)):
++        return None
++    return value if minimum <= value <= maximum and math.isfinite(value) else None
++
++
++def metric(value, minimum, maximum):
++    value = number(value, minimum, maximum)
++    return math.floor(value + 0.5) if value is not None else None
++
++
++def timestamp(value):
++    # A finite, plausible epoch prevents overflows in datetime on malformed input.
++    return number(value, 0, 253402214399999)
++
++
++def clock_ms():
++    return int(time.time() * 1000)
++
++
++def local_day(now_ms):
++    return datetime.fromtimestamp(now_ms / 1000, BEIJING).date()
++
++
++def time_label(value):
++    value = timestamp(value)
++    return datetime.fromtimestamp(value / 1000, BEIJING).strftime("%m/%d %H:%M") if value is not None else ""
++
++
++def mapping(value):
++    return value if isinstance(value, dict) else {}
++
++
++def rows(value):
++    return [row for row in value if isinstance(row, dict)] if isinstance(value, list) else []
++
++
++def date_label(value):
++    if not isinstance(value, str):
++        return ""
++    try:
++        parsed = date.fromisoformat(value)
++        return value if parsed.isoformat() == value else ""
++    except ValueError:
++        return ""
++
++
++def project_dashboard(dto, now_ms, online=True, demo=False):
++    """Project only display fields; receipt/render timestamps never become evidence."""
++    dto = mapping(dto)
++    indices = mapping(dto.get("healthIndices"))
++    pressure = mapping(indices.get("pressure"))
++    sleep = mapping(indices.get("sleep"))
++    heart = mapping(mapping(dto.get("heart")).get("latest"))
++    method = pressure.get("hrvMethod", "SDNN")
++    valid_method = method in ("RMSSD", "SDNN")
++    method = method if valid_method else "SDNN"
++    hrv_rows = rows(dto.get("recoveryHrv" if method == "RMSSD" else "hrv")) if valid_method else []
++    hrv_rows = [row for row in hrv_rows if timestamp(row.get("t")) is not None and
++                row["t"] <= now_ms and number(row.get("v"), 1, 1000) is not None]
++    latest_hrv = max(hrv_rows, key=lambda row: row["t"], default={})
++    sleep_date = date_label(sleep.get("date"))
++    sleep_rows = [row for row in rows(dto.get("sleep")) if sleep_date and row.get("date") == sleep_date]
++    sleep_row = max(sleep_rows, key=lambda row: timestamp(row.get("end")) or 0, default={})
++    history = {row.get("date"): row for row in rows(mapping(dto.get("pressureHistory")).get("days"))
++               if date_label(row.get("date"))}
++    today = local_day(now_ms)
++    trend = []
++    for offset in range(6, -1, -1):
++        row = history.get((today - timedelta(days=offset)).isoformat(), {})
++        trend.append(metric(row.get("median"), 0, 100) if row.get("status") == "available" else None)
++    score = metric(pressure.get("score"), 0, 100)
++    expires = timestamp(pressure.get("validUntil"))
++    retained = score is not None and (pressure.get("retained") is True or
++                                     (expires is not None and now_ms >= expires))
++    heart_value = metric(heart.get("v"), 1, 300)
++    hrv_value = metric(latest_hrv.get("v"), 1, 1000)
++    sleep_score = metric(sleep.get("score"), 0, 100)
++    sleep_minutes = metric(sleep_row.get("asleepMinutes"), 0, 1440)
++    has_sleep = sleep_score is not None or sleep_minutes is not None
++    measurements = [timestamp(pressure.get("evidenceAt")) if score is not None else None,
++                    timestamp(heart.get("s")) if heart_value is not None else None,
++                    timestamp(latest_hrv.get("t")) if hrv_value is not None else None,
++                    timestamp(sleep.get("endAt")) if has_sleep else None,
++                    timestamp(sleep_row.get("end")) if has_sleep else None]
++    measurements = [value for value in measurements if value is not None and value <= now_ms]
++    return {
++        "v": 1, "online": bool(online), "demo": bool(demo),
++        "asOf": time_label(max(measurements)) if measurements else "",
++        "pressure": score, "retained": retained,
++        "pressureAt": time_label(pressure.get("evidenceAt")) if score is not None else "",
++        "heart": heart_value, "heartAt": time_label(heart.get("s")) if heart_value is not None else "",
++        "hrv": hrv_value, "hrvMethod": method,
++        "hrvAt": time_label(latest_hrv.get("t")) if hrv_value is not None else "",
++        "sleepScore": sleep_score, "sleepMinutes": sleep_minutes,
++        "sleepDate": sleep_date, "trend": trend,
++    }
++
++
++def encode_frame(payload):
++    frame = (json.dumps(payload, ensure_ascii=True, allow_nan=False, separators=(",", ":")) + "\n").encode("ascii")
++    if len(frame) >= FRAME_LIMIT:
++        raise ValueError("frame_too_large")
++    return frame
++
++
++def reject_constant(value):
++    raise ValueError("nonfinite_json")
++
++
++def read_json(value):
++    dto = json.loads(value, parse_constant=reject_constant)
++    if not isinstance(dto, dict):
++        raise ValueError("invalid_document")
++    return dto
++
++
++def endpoint_urls(value):
++    parsed = urllib.parse.urlsplit(value)
++    if (parsed.scheme != "https" or not parsed.hostname or parsed.username is not None or
++            parsed.password is not None or parsed.fragment):
++        raise ValueError("invalid_https_endpoint")
++    try:
++        parsed.port
++    except ValueError:
++        raise ValueError("invalid_https_endpoint") from None
++    path = parsed.path.rstrip("/")
++    if path and not path.endswith("/dashboard"):
++        raise ValueError("invalid_dashboard_path")
++    prefix = path[:-len("/dashboard")] if path else ""
++    root = urllib.parse.urlunsplit(("https", parsed.netloc, prefix, "", ""))
++    return root + "/status", root + "/dashboard?range=7d"
++
++
++class NoRedirect(urllib.request.HTTPRedirectHandler):
++    def redirect_request(self, req, fp, code, msg, headers, newurl):
++        return None
++
++
++class ApiSource:
++    def __init__(self, url, key):
++        self.status_url, self.dashboard_url = endpoint_urls(url)
++        if not key or "\r" in key or "\n" in key:
++            raise ValueError("invalid_api_key")
++        self.key = key
++        self.opener = urllib.request.build_opener(NoRedirect())
++
++    def fetch(self, url):
++        request = urllib.request.Request(url, headers={"X-API-Key": self.key, "Accept": "application/json"})
++        with self.opener.open(request, timeout=15) as response:
++            body = response.read(HTTP_LIMIT + 1)
++        if len(body) > HTTP_LIMIT:
++            raise ValueError("response_too_large")
++        return read_json(body)
++
++    def status(self):
++        return self.fetch(self.status_url)
++
++    def dashboard(self):
++        return self.fetch(self.dashboard_url)
++
++
++class LocalCacheSource:
++    """Read the existing published Base snapshot using the user's CLI session."""
++    poll_interval_ms = 120000
++
++    def __init__(self, base, table, record):
++        self.base, self.table, self.record = base, table, record
++        self.cached = None
++
++    def status(self):
++        with tempfile.TemporaryDirectory(prefix="health-badge-") as directory:
++            output = Path(directory) / "record.ndjson"
++            command = ["lark-cli", "base", "+record-get", "--base-token", self.base,
++                       "--table-id", self.table, "--record-id", self.record,
++                       "--field-id", "payload_7d", "--format", "ndjson", "--output", output.name, "--as", "user"]
++            result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
++                                    timeout=45, check=False, cwd=directory)
++            if result.returncode != 0:
++                raise RuntimeError("cache_cli_failed")
++            summary = read_json(result.stdout)
++            record_file = summary.get("record_file") or mapping(summary.get("data")).get("record_file")
++            record_path = Path(record_file) if isinstance(record_file, str) else output
++            if not record_path.is_absolute():
++                record_path = Path(directory) / record_path
++            if record_path.resolve().parent != Path(directory).resolve():
++                raise ValueError("invalid_cache_path")
++            os.chmod(str(record_path), 0o600)
++            if record_path.stat().st_size > HTTP_LIMIT:
++                raise ValueError("cache_too_large")
++            records = [read_json(line) for line in record_path.read_text().splitlines() if line.strip()]
++            if len(records) != 1 or not isinstance(records[0].get("payload_7d"), str):
++                raise ValueError("invalid_cache_record")
++            self.cached = read_json(records[0]["payload_7d"])
++        revision = self.cached.get("contentHash")
++        if not isinstance(revision, str):
++            revision = hashlib.sha256(json.dumps(self.cached, sort_keys=True, allow_nan=False).encode()).hexdigest()
++        return {"dashboardCache": {"revision": revision}, "lastReceivedAt": self.cached.get("dataUpdatedAt")}
++
++    def dashboard(self):
++        if self.cached is None:
++            raise ValueError("missing_cache")
++        return self.cached
++
++
++def status_fingerprint(status):
++    cache, signature = mapping(status.get("dashboardCache")), mapping(status.get("signature"))
++    selected = {"revision": cache.get("revision"), "lastPublishedAt": cache.get("lastPublishedAt"),
++                "lastReceivedAt": status.get("lastReceivedAt"), "lastSentAt": signature.get("lastSentAt"),
++                "dataTimes": status.get("dataTimes")}
++    return json.dumps(selected, sort_keys=True, allow_nan=False, separators=(",", ":"))
++
++
++def report_error(error):
++    # Exception messages, CLI output and URLs may contain private information.
++    print("health_bridge: " + type(error).__name__, file=sys.stderr)
++
++
++class LiveBridge:
++    def __init__(self, source, report_error=report_error):
++        self.source, self.report_error = source, report_error
++        self.cached = {}
++        self.online = False
++        self.fingerprint = None
++        self.fetched_fingerprint = None
++        self.last_status = None
++        self.last_attempt = None
++        self.retry_at = 0
++        self.dashboard_day = None
++        self.expiry = None
++        self.has_dashboard = False
++
++    def tick(self, now_ms, manual=False):
++        allowed = self.last_attempt is None or now_ms - self.last_attempt >= SEND_INTERVAL_MS
++        manual = manual and allowed
++        interval = getattr(self.source, "poll_interval_ms", STATUS_INTERVAL_MS)
++        status_due = self.last_status is None or now_ms - self.last_status >= interval
++        status_ok = self.online
++        if status_due or manual:
++            self.last_status = now_ms
++            try:
++                self.fingerprint = status_fingerprint(self.source.status())
++                status_ok = True
++                self.online = self.has_dashboard
++            except Exception as error:
++                self.online, status_ok = False, False
++                self.report_error(error)
++        due = (not self.has_dashboard or self.fingerprint != self.fetched_fingerprint or
++               self.dashboard_day != local_day(now_ms) or (self.expiry is not None and now_ms >= self.expiry))
++        if status_ok and allowed and (manual or (due and now_ms >= self.retry_at)):
++            self.last_attempt = now_ms
++            try:
++                dto = self.source.dashboard()
++                if not isinstance(dto, dict):
++                    raise ValueError("invalid_dashboard")
++                self.cached, self.has_dashboard, self.online = dto, True, True
++                self.fetched_fingerprint = self.fingerprint
++                self.dashboard_day = local_day(now_ms)
++                indices = mapping(dto.get("healthIndices"))
++                expiries = [timestamp(indices.get("validUntil")),
++                            timestamp(mapping(indices.get("pressure")).get("validUntil"))]
++                self.expiry = min((value for value in expiries if value is not None and value > now_ms), default=None)
++                self.retry_at = 0
++            except Exception as error:
++                self.online = False
++                self.retry_at = now_ms + interval
++                self.report_error(error)
++        return project_dashboard(self.cached, now_ms, online=self.online)
++
++
++class SourceWorker:
++    """Keep source latency out of the USB receive and 15-second keepalive loop."""
++    def __init__(self, source):
++        self.live = LiveBridge(source)
++        self.lock = threading.Lock()
++        self.stopped = threading.Event()
++        self.manual = threading.Event()
++        self.cached, self.online = {}, False
++        self.thread = threading.Thread(target=self.run, name="health-source")
++
++    def start(self):
++        self.thread.start()
++
++    def run(self):
++        while not self.stopped.is_set():
++            manual = self.manual.is_set()
++            self.manual.clear()
++            self.live.tick(clock_ms(), manual=manual)
++            with self.lock:
++                self.cached, self.online = self.live.cached, self.live.online
++            self.stopped.wait(0.2)
++
++    def refresh(self):
++        self.manual.set()
++
++    def snapshot(self, now):
++        with self.lock:
++            cached, online = self.cached, self.online
++        return project_dashboard(cached, now, online=online)
++
++    def close(self):
++        self.stopped.set()
++        if self.thread.is_alive():
++            self.thread.join()  # Allow a pending CLI read to remove its private files.
++
++
++def write_all(fd, frame, timeout=3):
++    remaining = memoryview(frame)
++    deadline = time.monotonic() + timeout
++    while remaining:
++        wait = deadline - time.monotonic()
++        if wait <= 0:
++            raise TimeoutError("serial_write_timeout")
++        if not select.select([], [fd], [], wait)[1]:
++            raise TimeoutError("serial_write_timeout")
++        try:
++            written = os.write(fd, remaining)
++        except BlockingIOError:
++            continue
++        if written <= 0:
++            raise OSError("serial_write_failed")
++        remaining = remaining[written:]
++
++
++class RefreshReader:
++    def __init__(self):
++        self.buffer = bytearray()
++        self.discarding = False
++
++    def feed(self, data):
++        refresh = False
++        for value in data:
++            if value == 10:
++                if not self.discarding:
++                    try:
++                        event = json.loads(self.buffer)
++                        refresh = refresh or (isinstance(event, dict) and event.get("event") == "refresh")
++                    except (ValueError, UnicodeDecodeError):
++                        pass
++                self.buffer.clear()
++                self.discarding = False
++            elif not self.discarding:
++                self.buffer.append(value)
++                if len(self.buffer) >= FRAME_LIMIT:
++                    self.buffer.clear()
++                    self.discarding = True
++        return refresh
++
++
++class SerialLink:
++    def __init__(self, port=None):
++        self.port, self.fd = port, None
++        self.reader = RefreshReader()
++        self.reconnect_at = 0
++
++    def close(self):
++        if self.fd is not None:
++            os.close(self.fd)
++            self.fd = None
++        self.reader = RefreshReader()
++
++    def connect(self):
++        if self.fd is not None or time.monotonic() < self.reconnect_at:
++            return
++        self.reconnect_at = time.monotonic() + 3
++        ports = [self.port] if self.port else sorted(set(glob.glob("/dev/cu.usbmodem*") + glob.glob("/dev/cu.usbserial*")))
++        if len(ports) != 1:
++            return
++        fd = os.open(ports[0], os.O_RDWR | os.O_NOCTTY | os.O_NONBLOCK)
++        try:
++            attrs = termios.tcgetattr(fd)
++            attrs[0] = 0
++            attrs[1] = 0
++            attrs[2] = (attrs[2] & ~(termios.CSIZE | termios.PARENB | termios.CSTOPB | termios.HUPCL)) | termios.CS8 | termios.CLOCAL | termios.CREAD
++            attrs[3] = 0
++            attrs[4] = attrs[5] = termios.B115200
++            attrs[6][termios.VMIN] = 0
++            attrs[6][termios.VTIME] = 0
++            termios.tcsetattr(fd, termios.TCSANOW, attrs)
++        except Exception:
++            os.close(fd)
++            raise
++        # Never issue DTR/RTS ioctls or an ESP reset sequence.
++        self.fd = fd
++
++    def refresh_requested(self):
++        if self.fd is None or not select.select([self.fd], [], [], 0)[0]:
++            return False
++        data = os.read(self.fd, FRAME_LIMIT)
++        if not data:
++            raise OSError("serial_disconnected")
++        return self.reader.feed(data)
++
++    def send(self, payload):
++        if self.fd is not None:
++            write_all(self.fd, encode_frame(payload))
++
++
++def run_live(source, port=None):
++    worker, serial = SourceWorker(source), SerialLink(port)
++    next_send = 0
++    worker.start()
++    try:
++        while True:
++            manual = False
++            try:
++                was_connected = serial.fd is not None
++                serial.connect()
++                if not was_connected and serial.fd is not None:
++                    next_send = 0
++                manual = serial.refresh_requested()
++            except (OSError, termios.error) as error:
++                report_error(error)
++                serial.close()
++            now = clock_ms()
++            if manual:
++                worker.refresh()
++            payload = worker.snapshot(now)
++            if now >= next_send or manual:
++                try:
++                    serial.send(payload)
++                except (OSError, TimeoutError) as error:
++                    report_error(error)
++                    serial.close()
++                next_send = now + SEND_INTERVAL_MS
++            time.sleep(0.1)
++    finally:
++        serial.close()
++        worker.close()
++
++
++def demo_dashboard(now):
++    """Explicitly synthetic: never derived from local or remote health records."""
++    today = local_day(now)
++    return {"dataUpdatedAt": now - 60000,
++            "healthIndices": {"pressure": {"score": 36, "evidenceAt": now - 1800000,
++                                             "validUntil": now + 3600000, "hrvMethod": "RMSSD"},
++                              "sleep": {"score": 85, "date": today.isoformat()}},
++            "heart": {"latest": {"s": now - 60000, "v": 72}},
++            "recoveryHrv": [{"t": now - 1800000, "v": 41}],
++            "sleep": [{"date": today.isoformat(), "asleepMinutes": 423}],
++            "pressureHistory": {"days": [{"date": (today - timedelta(days=6 - index)).isoformat(),
++                                             "status": "available", "median": score}
++                                            for index, score in enumerate([42, 38, 51, 40, 32, 36, 36])]}}
++
++
++def main(argv=None):
++    parser = argparse.ArgumentParser(description=__doc__)
++    modes = parser.add_mutually_exclusive_group()
++    modes.add_argument("--input", type=Path, help="saved dashboard DTO (offline)")
++    modes.add_argument("--demo", action="store_true", help="synthetic preview (offline)")
++    modes.add_argument("--lark-base", help="published Base cache token (user CLI session)")
++    parser.add_argument("--lark-table")
++    parser.add_argument("--lark-record")
++    parser.add_argument("--output", type=Path, help="offline snapshot destination")
++    parser.add_argument("--port", help="explicit POSIX serial port; otherwise detect one USB candidate")
++    args = parser.parse_args(argv)
++    try:
++        if args.demo or args.input:
++            now = clock_ms()
++            dto = demo_dashboard(now) if args.demo else read_json(args.input.read_bytes())
++            frame = encode_frame(project_dashboard(dto, now, online=True, demo=args.demo))
++            if args.output:
++                descriptor = os.open(str(args.output), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
++                with os.fdopen(descriptor, "wb") as output:
++                    os.fchmod(output.fileno(), 0o600)
++                    output.write(frame)
++            else:
++                sys.stdout.buffer.write(frame)
++            return 0
++        if args.output:
++            raise ValueError("output_requires_offline_mode")
++        if args.lark_base:
++            if not args.lark_table or not args.lark_record:
++                raise ValueError("missing_cache_identifiers")
++            source = LocalCacheSource(args.lark_base, args.lark_table, args.lark_record)
++        else:
++            if args.lark_table or args.lark_record:
++                raise ValueError("missing_cache_base")
++            source = ApiSource(os.environ.get("HEALTH_DASHBOARD_URL", ""), os.environ.get("HEALTH_ANALYSIS_API_KEY", ""))
++        run_live(source, args.port)
++        return 0
++    except KeyboardInterrupt:
++        return 0
++    except Exception as error:
++        report_error(error)
++        return 1
++
++
++if __name__ == "__main__":
++    sys.exit(main())
+diff --git a/tools/validate.sh b/tools/validate.sh
+index fd2608b..bebcb09 100755
+--- a/tools/validate.sh
++++ b/tools/validate.sh
+@@ -11,6 +11,10 @@ usage() {
+ run_static_checks() {
+     local actionlint_bin
+     local test_dir
++    local -a dead_code_linker=(-Wl,--gc-sections)
++    if [[ "$(uname -s)" == "Darwin" ]]; then
++        dead_code_linker=(-Wl,-dead_strip)
++    fi
+ 
+     python3 tools/check_repo.py
+ 
+@@ -60,7 +64,7 @@ run_static_checks() {
+     for demo in audio low_power ble wifi; do
+         "${CC:-cc}" -std=c11 -Wall -Wextra -Werror \
+             -ffunction-sections -fdata-sections -Itests/demo_stubs -Imain \
+-            "tests/test_demo_${demo}_runtime.c" -Wl,--gc-sections \
++            "tests/test_demo_${demo}_runtime.c" "${dead_code_linker[@]}" \
+             -o "${test_dir}/test_demo_${demo}_runtime"
+         "${test_dir}/test_demo_${demo}_runtime"
+     done
+@@ -70,10 +74,34 @@ run_static_checks() {
+     PYTHONDONTWRITEBYTECODE=1 python3 tests/test_verify_firmware.py
+     PYTHONDONTWRITEBYTECODE=1 python3 tests/test_archive_firmware.py
+     PYTHONDONTWRITEBYTECODE=1 python3 tests/test_install_passport_skills.py
++    PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -p test_health_bridge.py
++    PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -p test_configure_wifi.py
+     rm -rf "${test_dir}"
+     echo "Host tests: PASS"
+ }
+ 
++run_health_model_checks() (
++    local health_test_dir
++    : "${IDF_PATH:?Activate ESP-IDF 5.5.3 before running health model checks.}"
++    health_test_dir="$(mktemp -d /tmp/ai-passport-health-tests.XXXXXX)"
++    trap 'case "${health_test_dir}" in /tmp/ai-passport-health-tests.*) rm -rf -- "${health_test_dir}" ;; esac' EXIT
++    "${CC:-cc}" -std=c11 -Wno-deprecated-declarations -fsanitize=address,undefined \
++        -I"${IDF_PATH}/components/json/cJSON" \
++        -c "${IDF_PATH}/components/json/cJSON/cJSON.c" -o "${health_test_dir}/cJSON.o"
++    for model in health_model health_network_model; do
++        "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined \
++            -Imain -I"${IDF_PATH}/components/json/cJSON" \
++            "tests/test_${model}.c" "main/${model}.c" "${health_test_dir}/cJSON.o" \
++            -o "${health_test_dir}/test_${model}"
++        "${health_test_dir}/test_${model}"
++    done
++    "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined \
++        -Imain -Itests/bsp_stubs -Icomponents/bsp/include \
++        tests/test_health_idle.c main/health_idle.c -o "${health_test_dir}/test_health_idle"
++    "${health_test_dir}/test_health_idle"
++    echo "Health model sanitizer tests: PASS"
++)
++
+ run_firmware_checks() (
+     local validation_build_dir
+ 
+@@ -104,6 +132,7 @@ cd "${repo_root}"
+ case "${mode}" in
+     --all)
+         run_static_checks
++        run_health_model_checks
+         run_firmware_checks
+         ;;
+     --static)
