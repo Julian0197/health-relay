@@ -50,8 +50,59 @@ test('maps native HealthKit units and sleep stages into the existing scorer with
   assert.equal(series.daily.find(r => r.metric === 'step_count').value, 150);
   assert.equal(series.daily.find(r => r.metric === 'resting_heart_rate').value, 56);
   const state = store.status(now);
-  assert.equal(state.title, '⏳ 状态数据积累中｜🛏️ 睡眠暂无｜❤️ 心率76｜🪑 今日150步｜同步时间: 10/20 16:00｜详情 ↗');
+  assert.equal(state.title, '❔ 状态暂无｜🛏️ 睡眠暂无｜❤️ 心率76｜🪑 今日150步｜同步时间: 10/20 16:00｜详情 ↗');
   assert.doesNotMatch(state.title, /HRV|69/);
+});
+test('keeps native RMSSD and SDNN separate and converts recovery HRV seconds to milliseconds', t => {
+  const store = fixture(t).open(); t.after(() => store.close());
+  store.ingest(batch('recovery', [sample('HeartRateVariabilityRMSSD', 'r', .0456, 's'),
+    sample('HeartRateVariabilityRMSSD', 'r-ms', 51, 'ms'),
+    sample('HeartRateVariabilitySDNN', 's', 99, 'ms')]), 'recovery', now);
+  assert.deepEqual(store.series(now).hrv.map(({ id, value, unit, method }) => ({ id, value, unit, method })), [
+    { id: 'r', value: 45.6, unit: 'ms', method: 'RMSSD' },
+    { id: 'r-ms', value: 51, unit: 'ms', method: 'RMSSD' },
+    { id: 's', value: 99, unit: 'ms', method: 'SDNN' },
+  ]);
+});
+test('rejects invalid recovery HRV before committing the batch', t => {
+  const store = fixture(t).open(); t.after(() => store.close());
+  for (const [value, unit] of [[0, 'ms'], [-1, 'ms'], [null, 'ms'], [45, 'bpm']]) {
+    assert.throws(() => store.ingest(batch('invalid', [sample('HeartRate', 'h', 70),
+      sample('HeartRateVariabilityRMSSD', 'r', value, unit)]), 'invalid', now), e => e.status === 422);
+    assert.equal(store.rawRecords().length, 0);
+  }
+});
+test('uses recovery HRV on cold start and never reuses the old SDNN score or baseline', async t => {
+  const f = fixture(t), store = f.open(); t.after(() => store.close());
+  const records = [0, 1, 2, 3].flatMap(day => [
+    sample('HeartRateVariabilitySDNN', `v-${day}`, 50, 'ms', now - 60000 - day * 86400000),
+    sample('HeartRate', `h-${day}`, 60, 'count/min', now - 60000 - day * 86400000),
+  ]);
+  store.ingest(batch('old', records), 'old', now);
+  store.saveState('publishedDecision', { ruleVersion: 'health-indices-v4-nightly',
+    features: { hrv: { method: 'SDNN' } }, pressure: { score: 50, source: 'watch-source',
+      evidenceAt: now - 60000, context: 'awake_sample', evidence: { hrv: 50 } } });
+  let title;
+  await store.publish(async value => { title = value; }, now);
+  assert.match(title, /^❔ 状态暂无｜/);
+  assert.doesNotMatch(title, /状态正常|HRV 50/);
+  const restarted = f.open(); t.after(() => restarted.close());
+  const indices = restarted.status(now).indices;
+  assert.equal(indices.features.hrv.method, 'RMSSD');
+  assert.equal(indices.pressure.hrvMethod, 'RMSSD');
+  assert.equal(indices.pressure.score, null);
+  assert.equal(indices.pressure.reason, 'missing_hrv');
+  assert.equal(indices.pressure.hrvBaseline.days, 0);
+});
+test('RMSSD needs ten distinct heart minutes rather than ten dense native samples', t => {
+  const store = fixture(t).open(); t.after(() => store.close());
+  store.ingest(batch('dense-heart', [
+    ...[1, 6, 11].map(minute => sample('HeartRateVariabilityRMSSD', `r-${minute}`, 45, 'ms', now-minute*60000)),
+    ...Array.from({ length: 10 }, (_, i) => sample('HeartRate', `h-${i}`, 60, 'count/min', now-2*60000+i*1000)),
+  ]), 'dense-heart', now);
+  const pressure = store.status(now).indices.pressure;
+  assert.equal(pressure.reason, 'missing_or_conflicting_aligned_hr');
+  assert.equal(pressure.evidence.heartWindows, 1);
 });
 test('corrections replace derived facts and deletions survive restart', t => {
   const f = fixture(t); let store = f.open();
@@ -90,32 +141,32 @@ test('sync time advances only on a new committed batch, never on a refresh or ol
 test('publishes each pressure category with its scoring HRV and preserves it for retained results', async t => {
   const f = fixture(t), store = f.open(); t.after(() => store.close());
   const evidence = now - 30 * 60000;
-  const history = [1, 2, 3].flatMap(day => [
-    sample('HeartRateVariabilitySDNN', `v-${day}`, 50, 'ms', evidence-day*86400000),
-    sample('HeartRate', `h-${day}`, 60, 'count/min', evidence-day*86400000),
-  ]);
+  const window = (id, at, hrv, heart) => [
+    ...[0, 10, 19].map(minute => sample('HeartRateVariabilityRMSSD', `v-${id}-${minute}`, hrv, 'ms', at-minute*60000)),
+    ...Array.from({ length: 10 }, (_, minute) => sample('HeartRate', `h-${id}-${minute}`, heart, 'count/min', at-minute*60000)),
+  ];
+  const history = [1, 2, 3, 4, 5, 6, 7].flatMap(day => window(day, evidence-day*86400000, 50, 60));
   store.ingest(batch('history', history), 'history', now);
   for (const [id, hrv, heart, expected] of [
     ['relaxed', 70, 50, '🌟 状态优秀'], ['normal', 50, 60, '🌿 状态正常'],
     ['elevated', 42, 65, '⚡ 注意压力'], ['high', 20, 85, '🚨 压力过载'],
   ]) {
-    store.ingest(batch(id, [sample('HeartRateVariabilitySDNN', 'v-current', hrv, 'ms', evidence),
-      sample('HeartRate', 'h-current', heart, 'count/min', evidence), sample('HeartRate', 'h-latest', 76)]), id, now);
+    store.ingest(batch(id, [...window('current', evidence, hrv, heart), sample('HeartRate', 'h-latest', 76)]), id, now);
     const status = store.status(now);
-    assert.equal(status.title, `${expected}(HRV ${hrv})｜🛏️ 睡眠暂无｜❤️ 心率76｜👣 今日步数暂无｜同步时间: 10/20 16:00｜详情 ↗`);
+    assert.equal(status.title, `${expected}(恢复HRV ${hrv})｜🛏️ 睡眠暂无｜❤️ 心率76｜👣 今日步数暂无｜同步时间: 10/20 16:00｜详情 ↗`);
     assert.equal(status.indices.title, status.title);
     assert.equal(status.indices.features.hrv.current, hrv);
     let sent;
     await store.publish(async title => { sent = title; }, now);
     assert.equal(sent, status.title);
-    assert.match(sent, new RegExp(`\\(HRV ${hrv}\\)`));
+    assert.match(sent, new RegExp(`\\(恢复HRV ${hrv}\\)`));
   }
   const retained = store.status(now + 6 * 3600000);
-  assert.match(retained.title, /^🚨 上次压力过载\(HRV 20\)｜🛏️ 睡眠暂无｜❤️ 上次心率76/);
+  assert.match(retained.title, /^🚨 上次压力过载\(恢复HRV 20\)｜🛏️ 睡眠暂无｜❤️ 上次心率76/);
   assert.match(retained.title, /同步时间: 10\/20 16:00｜详情 ↗$/);
   await store.publish(async () => {}, now + 6 * 3600000);
   const restarted = f.open(); t.after(() => restarted.close());
-  assert.match(restarted.status(now + 6 * 3600000 + 60000).title, /^🚨 上次压力过载\(HRV 20\)｜/);
+  assert.match(restarted.status(now + 6 * 3600000 + 60000).title, /^🚨 上次压力过载\(恢复HRV 20\)｜/);
   assert.match(store.status(now + 8 * 86400000).title, /^❔ 状态暂无｜/);
 });
 

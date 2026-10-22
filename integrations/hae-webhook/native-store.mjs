@@ -22,9 +22,10 @@ function normalized(row) {
   const base = { id: row.recordId, source: row.source.id, start, end };
   const type = row.typeIdentifier.replace('HKQuantityTypeIdentifier', '');
   const numeric = () => { if (!Number.isFinite(payload.value) || payload.value < 0) fail('invalid_quantity'); };
-  if (type === 'HeartRateVariabilitySDNN') {
+  if (['HeartRateVariabilitySDNN', 'HeartRateVariabilityRMSSD'].includes(type)) {
     numeric(); if (!['ms', 's'].includes(payload.unit) || payload.value <= 0) fail('invalid_hrv');
-    return { ...base, kind: 'hrv', value: payload.value * (payload.unit === 's' ? 1000 : 1), unit: 'ms', method: 'SDNN' };
+    return { ...base, kind: 'hrv', value: payload.value * (payload.unit === 's' ? 1000 : 1), unit: 'ms',
+      method: type === 'HeartRateVariabilityRMSSD' ? 'RMSSD' : 'SDNN' };
   }
   if (type === 'HeartRate') {
     numeric(); if (!['count/min', 'bpm'].includes(payload.unit) || payload.value <= 0) fail('invalid_heart_rate');
@@ -128,7 +129,7 @@ export class NativeStore {
   status(now = Date.now()) {
     const previous = this.state('publishedDecision');
     const records = this.rawRecords(), activity = summarizeNativeActivity(records, now);
-    const indices = evaluateHealthIndices(this.series(now, records), now, previous);
+    const indices = evaluateHealthIndices(this.series(now, records), now, previous, { hrvMethod: 'RMSSD' });
     const last = previous?.pressure;
     indices.lastValidPressure = Number.isFinite(last?.score) ? {
       ruleVersion: previous.ruleVersion, source: last.source, score: last.score,

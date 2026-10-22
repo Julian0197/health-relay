@@ -4,7 +4,7 @@ Watch App 复用现有 Mac 原生接收服务、SQLite、健康状态算法、Ba
 
 ## 日常同步与运动同步
 
-- 日常：读取手表已授权且本机可用的健康记录。两个预设任务首次读取近 30 天，之后增量，最小期望间隔 5 分钟。HealthKit 通知、打开 App 与系统后台刷新提供执行机会；watchOS 不保证每 5 分钟唤醒。
+- 日常：读取手表已授权且本机可用的健康记录。指标预设读取恢复 HRV（RMSSD）、心率、睡眠与活动数据；两个预设任务首次读取近 30 天，之后增量，最小期望间隔 5 分钟。HealthKit 通知、打开 App 与系统后台刷新提供执行机会；watchOS 不保证每 5 分钟唤醒。
 - 运动：用户在「运动与每分钟同步」明确开始一次真实运动。使用 HKWorkoutSession 和 HKLiveWorkoutBuilder，运动中每 60 秒尝试交付一份实际心率及累计运动时长摘要。支持力量训练、室内步行、室内跑步、室内骑行；暂停不计入实际运动时长。
 - 正常佩戴、已解锁时，放下手腕不等于结束运动会话。持续传感器采样及后台执行由系统控制，网络上传和签名刷新仍可能延后。离腕锁定、重启、关机或强制退出均可能中断；不能承诺全天每分钟同步。
 - 结束会保存一次真实运动到 Apple 健康。App 的“已到达服务”表示 Mac 已返回提交回执；签名还要经过服务合并发布和客户端缓存。
@@ -13,7 +13,7 @@ Watch App 复用现有 Mac 原生接收服务、SQLite、健康状态算法、Ba
 
 ## 配置与安装
 
-1. 在 Xcode 选择 HealthRelayWatch scheme，确认签名 Team、唯一 Watch bundle ID 及配对 iPhone 的 companion bundle ID。Apple Watch 需要 watchOS 11 或更新版本。
+1. 在 Xcode 选择 HealthRelayWatch scheme，确认签名 Team、唯一 Watch bundle ID 及配对 iPhone 的 companion bundle ID。Apple Watch App 需要 watchOS 11 或更新版本；当前健康签名预设的恢复 HRV（RMSSD）要求 watchOS 27 或以上，并且实际存在已授权样本。
 2. 在 Xcode 的 Device Hub 开始设备配对；iPhone 与 Watch 都启用开发者模式，并确认信任。入口可能要开始配对才出现。说明见 [Apple Device Hub](https://developer.apple.com/documentation/xcode/managing-your-simulated-and-physical-devices-in-device-hub)。
 3. 安装包含 Watch 内容的 iPhone App；需要时在 iPhone 的 Watch App → 可用 App 中安装 HealthRelay。也可在 Xcode 直接部署到已配对手表。
 4. 使用公共受信任 HTTPS 可直接配置服务。自签本地 HTTPS 要在 Watch App 数据容器的 `Library/Application Support/HealthRelayWatch/trusted-server.cer` 显式提供 CA 的 DER 公钥证书；不得提供 CA 私钥或服务私钥。证书校验仍检查证书链、有效期与所请求主机名/IP。缺少此文件时使用系统默认信任。新系统对 IP 地址另有 ATS 检查；本地自签 CA 还需在私密开发构建的 Info.plist 中为准确的 Mac IP 配置 `NSExceptionDomains`，最低 TLS 1.2、保持前向保密，并允许该主机的自定义根验证。个人 IP 不写入仓库；不设置全局 `NSAllowsArbitraryLoads`。公开受信任 HTTPS 无需此例外。

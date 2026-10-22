@@ -26,6 +26,23 @@ test('shows the scoring HRV beside every pressure category rather than an unrela
   }
 });
 
+test('labels RMSSD scoring evidence as recovery HRV for current, nightly and retained states', () => {
+  const now = Date.parse('2026-10-21T02:00:00Z');
+  const indices = { ruleVersion: 'rmssd-rule', features: { hrv: { method: 'RMSSD', current: 99 } },
+    pressure: { score: 50, hrvMethod: 'RMSSD', source: 'watch', evidenceAt: now - 60000,
+      evidence: { hrv: 45.56 } } };
+  for (const [score, heading] of [[10, '🌟 状态优秀'], [50, '🌿 状态正常'],
+    [70, '⚡ 注意压力'], [90, '🚨 压力过载']]) {
+    indices.pressure.score = score;
+    assert.match(presentation.renderStatusSignature(indices, now), new RegExp(`^${heading}\\(恢复HRV 45\\.6\\)｜`));
+  }
+  indices.pressure.score = 50; indices.pressure.context = 'nightly';
+  assert.match(presentation.renderStatusSignature(indices, now), /^🌿 夜间状态正常\(恢复HRV 45\.6\)｜/);
+  indices.lastValidPressure = { ruleVersion: 'rmssd-rule', source: 'watch', score: 50,
+    evidenceAt: now - 3600000, hrv: 42.1 };
+  indices.pressure.score = null; indices.pressure.reason = 'expired_hrv';
+  assert.match(presentation.renderStatusSignature(indices, now), /^🌿 上次状态正常\(恢复HRV 42\.1\)｜/);
+});
 test('missing or invalid scoring HRV stays unavailable instead of borrowing a different measurement', () => {
   const now = Date.parse('2026-10-21T02:00:00Z');
   const indices = { features: { hrv: { current: 99 } }, pressure: { score: 50, evidence: {} } };

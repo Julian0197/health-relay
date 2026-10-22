@@ -2,7 +2,7 @@
 const MINUTE = 60000, HOUR = 60 * MINUTE;
 // The signature names only the state; whether it is today's, current or historical is shown on the dashboard.
 export const SIGNATURE_TEXT_VERSION = 'health-signature-text-v1';
-export const STATUS_SIGNATURE_TEXT_VERSION = 'health-status-signature-text-v4';
+export const STATUS_SIGNATURE_TEXT_VERSION = 'health-status-signature-text-v5';
 export const RETAINED_PRESSURE_MS = 7 * 24 * HOUR;
 export const PRESSURE_LABELS = { relaxed: '状态优秀', balanced: '状态正常', elevated: '注意压力', high: '压力过载' };
 const labels = PRESSURE_LABELS;
@@ -65,8 +65,9 @@ export function renderStatusSignature(indices, now, activity = null, syncedAt = 
   const prefix = { nightly: '夜间', retained: '上次' }[headline.basis] ?? '';
   const hrv = headline.basis === 'retained' ? indices.lastValidPressure?.hrv : indices.pressure.evidence?.hrv;
   const hrvText = Number.isFinite(hrv) && hrv > 0 ? Math.round(hrv * 10) / 10 : '暂无';
+  const hrvLabel = (indices.features.hrv.method ?? indices.pressure.hrvMethod) === 'RMSSD' ? '恢复HRV' : 'HRV';
   const heading = headline.basis === 'building_baseline' ? '⏳ 状态数据积累中'
-    : headline.basis === 'missing' ? '❔ 状态暂无' : `${statusEmojis[headline.state]} ${prefix}${headline.label}(HRV ${hrvText})`;
+    : headline.basis === 'missing' ? '❔ 状态暂无' : `${statusEmojis[headline.state]} ${prefix}${headline.label}(${hrvLabel} ${hrvText})`;
   const sleep = indices.sleep;
   const todaySleep = sleep?.date === dateKey(now) && Number.isFinite(sleep.score) && sleep.score >= 0 && sleep.score <= 100;
   const sleepLabels = { excellent: '优秀', good: '良好', fair: '一般', rest_needed: '待改善' };

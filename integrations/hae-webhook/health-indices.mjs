@@ -21,6 +21,25 @@ const median = values => {
   return a.length ? a.length % 2 ? a[i] : (a[i - 1] + a[i]) / 2 : null;
 };
 const unique = rows => [...new Map(rows.map(r => [JSON.stringify([r.start, r.end, r.value, r.stage, r.source, r.method]), r])).values()];
+function heartMinuteWindows(rows) {
+  const groups = new Map();
+  for (const row of rows) {
+    const key = JSON.stringify([Math.floor(row.start / 60000), row.source]);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(row);
+  }
+  return [...groups.values()].flatMap(group => {
+    const times = new Map();
+    const conflict = group.some(row => {
+      const previous = times.get(row.start); times.set(row.start, row.value);
+      return previous !== undefined && previous !== row.value;
+    });
+    const start = Math.floor(group[0].start / 60000) * 60000, end = start + 60000;
+    // Keep conflicting values visible to the existing ambiguity checks.
+    return conflict ? group.map(row => ({ ...row, start, end }))
+      : [{ ...group[0], start, end, value: median(group.map(row => row.value)) }];
+  });
+}
 function baseline(rows, current, days, logarithmic = false, rmssdCurrent = current.method === 'RMSSD') {
   const groups = new Map();
   for (const r of rows) {
@@ -144,12 +163,14 @@ export function evaluateHealthIndices(series, now, previous = null, options = {}
   const excluded = t => sessions.some(s => s.start <= t && t < s.end);
   const valid = rows => unique(rows ?? []).filter(r => Number.isFinite(r.value) && r.value > 0 && r.start <= now);
   const allHrv = valid(series.hrv);
-  // Once RMSSD is in use, missing/stale data must not silently select the old SDNN baseline.
-  const method = allHrv.some(r => r.method === 'RMSSD') || previous?.features?.hrv?.method === 'RMSSD' ? 'RMSSD' : 'SDNN';
+  // A configured RMSSD stream must not use the old SDNN baseline, even before its first sample.
+  const method = options.hrvMethod === 'RMSSD' || allHrv.some(r => r.method === 'RMSSD') ||
+    previous?.features?.hrv?.method === 'RMSSD' ? 'RMSSD' : 'SDNN';
   const rmssd = method === 'RMSSD', ruleVersion = rmssd ? RMSSD_RULE_VERSION : RULE_VERSION;
   const freshness = rmssd ? 90 * 60000 : 6 * HOUR, requirement = BASELINE_REQUIREMENT[method];
   const hrv = allHrv.filter(r => r.method === method);
-  const heart = valid(series.heart).filter(r => r.end <= now);
+  const heartSamples = valid(series.heart).filter(r => r.end <= now);
+  const heart = (rmssd ? heartMinuteWindows(heartSamples) : heartSamples).filter(r => r.end <= now);
   // Do not fall back to an older sample when the latest one is sleeping or ambiguous.
   const current = [...hrv].sort((a, b) => b.start - a.start)[0];
   const alignedWindow = current ? heart.filter(r => r.source === current.source && (rmssd
