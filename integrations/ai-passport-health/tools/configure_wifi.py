@@ -28,7 +28,7 @@ def validate_config(config):
         raise ValueError("invalid_endpoint")
     if parsed.port == 0:  # urlsplit rejects ports over 65535.
         raise ValueError("invalid_endpoint")
-    miaobi_route = (parsed.netloc.split(":", 1)[0] == "magic.solutionsuite.cn" and
+    miaobi_route = (parsed.netloc.split(":", 1)[0] == "reader.example.com" and
                     parsed.port in (None, 443) and
                     re.fullmatch(r"/api/faas/[A-Za-z0-9_-]+", parsed.path))
     if parsed.path != "/badge" and not miaobi_route:

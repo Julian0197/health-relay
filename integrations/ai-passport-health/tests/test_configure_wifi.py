@@ -25,32 +25,32 @@ class ConfigureWifiTests(unittest.TestCase):
     def test_miaobi_function_route_requires_the_fixed_https_origin(self):
         accepted = [
             "https://health.example.com:8443/badge",
-            "https://magic.solutionsuite.cn/api/faas/example_badge",
-            "https://magic.solutionsuite.cn:443/api/faas/health-badge_2",
+            "https://reader.example.com/api/faas/example_badge",
+            "https://reader.example.com:443/api/faas/health-badge_2",
         ]
         for url in accepted:
             with self.subTest(url=url):
                 config = {**CONFIG, "url": url}
                 self.assertEqual(configure_wifi.validate_config(config), config)
         rejected = [
-            "http://magic.solutionsuite.cn/api/faas/health",
-            "HTTPS://magic.solutionsuite.cn/api/faas/health",
+            "http://reader.example.com/api/faas/health",
+            "HTTPS://reader.example.com/api/faas/health",
             "https://other.example.com/api/faas/health",
-            "https://magic.solutionsuite.cn.evil.example/api/faas/health",
-            "https://user@magic.solutionsuite.cn/api/faas/health",
-            "https://magic.solutionsuite.cn:444/api/faas/health",
-            "https://magic.solutionsuite.cn/api/faas/",
-            "https://magic.solutionsuite.cn/api/faas/health/more",
-            "https://magic.solutionsuite.cn/api/faas/health?key=value",
-            "https://magic.solutionsuite.cn/api/faas/health?",
-            "https://magic.solutionsuite.cn/api/faas/health#fragment",
-            "https://magic.solutionsuite.cn/api/faas/health#",
-            "https://magic.solutionsuite.cn/api/faas/%68ealth",
-            "https://magic.solutionsuite.cn/api/faas/../health",
-            "https://magic.solutionsuite.cn/api/faas/health.badge",
-            "https://magic.solutionsuite.cn/api/other/health",
-            "https://Magic.solutionsuite.cn/api/faas/health",
-            "https://magic.solutionsuite.cn/api/faas/he\nalth",
+            "https://reader.example.com.evil.example/api/faas/health",
+            "https://user@reader.example.com/api/faas/health",
+            "https://reader.example.com:444/api/faas/health",
+            "https://reader.example.com/api/faas/",
+            "https://reader.example.com/api/faas/health/more",
+            "https://reader.example.com/api/faas/health?key=value",
+            "https://reader.example.com/api/faas/health?",
+            "https://reader.example.com/api/faas/health#fragment",
+            "https://reader.example.com/api/faas/health#",
+            "https://reader.example.com/api/faas/%68ealth",
+            "https://reader.example.com/api/faas/../health",
+            "https://reader.example.com/api/faas/health.badge",
+            "https://reader.example.com/api/other/health",
+            "https://Reader.example.com/api/faas/health",
+            "https://reader.example.com/api/faas/he\nalth",
         ]
         for url in rejected:
             with self.subTest(url=url):

@@ -1,14 +1,15 @@
 diff --git a/docs/apps/health-dashboard.md b/docs/apps/health-dashboard.md
 new file mode 100644
-index 0000000..6caed2f
+index 0000000..6256932
 --- /dev/null
 +++ b/docs/apps/health-dashboard.md
-@@ -0,0 +1,28 @@
+@@ -0,0 +1,31 @@
 +# Wi-Fi health dashboard
 +
 +A dedicated 240×320 LVGL application for the ESP32-C3 / 8 MB FoloToy AI Passport.
 +
-+- Three pages: home with pressure, heart rate, HRV and their individual measurement times; seven nights of staged sleep with today's score; combined workouts/activity with every summary metric and a scrolling type list.
++- Three pages: home with an enlarged clock, a prominent pressure card, larger heart rate/HRV cards and individual measurement times; seven nights of staged sleep with today's score; combined workouts/activity with every summary metric and a scrolling type list.
++- Home places the date and network status on one compact row and omits TODAY for current-day data. Retained pressure, dated old data, unknown data dates and offline warnings remain visible.
 +- An SNTP-calibrated UTC+8 clock updates locally. A clock tick does not make an HTTP request.
 +- Two 2.4 GHz Wi-Fi profiles and a dedicated read-only HTTPS credential are stored in NVS; health snapshots stay in RAM.
 +- Poll every 30 minutes. Short OK refreshes with a 15-second minimum interval; UP/DOWN change pages.
@@ -22,6 +23,8 @@ index 0000000..6caed2f
 +Data path: Apple Health → HealthRelay service → dedicated private Base cache → authenticated read-only Magic FaaS → badge.
 +See [HealthRelay badge documentation](https://github.com/Julian0197/health-relay/blob/master/docs/ai-passport-health.md) for the complete deployment, permissions, local synthetic debug mode and bootstrap instructions.
 +
++The public template uses reader.example.com for the managed reader host. Before using your own /api/faas/<ID> endpoint, replace this example host in both main/health_network_model.c and tools/configure_wifi.py in a private copy, then build and provision. Generic HTTPS /badge validation is unchanged. Never publish the actual host or credentials.
++
 +```sh
 +# Activate ESP-IDF 5.5.3 first.
 +./tools/validate.sh --all
@@ -34,15 +37,16 @@ index 0000000..6caed2f
 +Report build, host tests and device observations separately. Verify extended reconnect, unplugged polling and battery discharge on your own hardware.
 diff --git a/docs/apps/health-dashboard.zh_CN.md b/docs/apps/health-dashboard.zh_CN.md
 new file mode 100644
-index 0000000..3cc0afa
+index 0000000..e3c47e0
 --- /dev/null
 +++ b/docs/apps/health-dashboard.zh_CN.md
-@@ -0,0 +1,28 @@
+@@ -0,0 +1,31 @@
 +# Wi-Fi 健康看板
 +
 +以专用的 240×320 本地 LVGL 看板替代头像和名牌，适用于 ESP32-C3、8MB Flash 的 FoloToy AI Passport。
 +
-+- 三页：首页展示最近有效压力、心率、HRV 和各自原测量时间；睡眠页保留最近七晚分期和当天得分；运动／活动页合并全部锻炼汇总、可滚动类型列表、步数、活动消耗、运动分钟和距离。
++- 三页：首页放大时钟，以压力主卡突出最近有效分数，放大心率／HRV 双卡并保留各自原测量时间；睡眠页保留最近七晚分期和当天得分；运动／活动页合并全部锻炼汇总、可滚动类型列表、步数、活动消耗、运动分钟和距离。
++- 首页日期与联网状态同行紧凑展示，当天数据省去 TODAY 提示；历史压力、旧数据原日期、未知数据日期和离线警示继续显示，不把历史值当成刚测量。
 +- 时钟经 SNTP 校准后按 UTC+8 本地更新；当前日期只显示一次，不因更新时钟而请求云端。
 +- NVS 保存两个 2.4GHz Wi-Fi 网络和独立只读 HTTPS 地址／凭据；健康快照只保留在 RAM。
 +- 每 30 分钟取数，确定键短按手动刷新，最少间隔 15 秒。上／下短按切页。
@@ -55,6 +59,8 @@ index 0000000..3cc0afa
 +
 +数据链路为 Apple Health → HealthRelay 服务 → 专用私有 Base 缓存 → 妙笔鉴权只读函数 → 工卡。
 +服务部署、私有缓存字段与权限、FaaS 模板、本地合成调试和固件初始化见 [HealthRelay 工卡文档](https://github.com/Julian0197/health-relay/blob/master/docs/ai-passport-health.md)。
++
++公开模板仅用 reader.example.com 作为托管读取主机。使用自己的 /api/faas/<ID> 入口前，在私有副本中同时替换 main/health_network_model.c 与 tools/configure_wifi.py 的示例主机，再构建和初始化；通用 HTTPS /badge 校验不变。实际主机和凭据不得提交。
 +
 +```sh
 +# 先激活 ESP-IDF 5.5.3
@@ -210,10 +216,10 @@ index 0000000..9a0e5a3
 +bool health_idle_update(health_idle_t *idle, uint64_t now_ms, bool setup_active);
 diff --git a/main/health_main.c b/main/health_main.c
 new file mode 100644
-index 0000000..4f05218
+index 0000000..011843d
 --- /dev/null
 +++ b/main/health_main.c
-@@ -0,0 +1,462 @@
+@@ -0,0 +1,473 @@
 +/* Health values exist only in RAM; dedicated network credentials are stored in NVS. */
 +#include "health_model.h"
 +#include "health_network.h"
@@ -302,20 +308,22 @@ index 0000000..4f05218
 +
 +static void overview(const health_snapshot_t *data) {
 +    char value[16], text[64];
-+    label(s_screen, 18, 97, 207, data->retained ? "LAST PRESSURE" : "PRESSURE", &lv_font_montserrat_20, COLOR_TEXT);
-+    label(s_screen, 16, 121, 119, metric_text(data->pressure, value, sizeof(value)), &lv_font_montserrat_48, COLOR_ACCENT);
-+    label(s_screen, 137, 149, 70, "/ 100", &lv_font_montserrat_14, COLOR_MUTED);
++    lv_obj_t *card = panel(16, 65, 208, 112);
++    label(card, 10, 8, 134, data->retained ? "LAST PRESSURE" : "PRESSURE", &lv_font_montserrat_14, COLOR_MUTED);
++    if (data->demo) label(card, 148, 8, 52, "DEMO", &lv_font_montserrat_14, COLOR_WARNING);
++    label(card, 8, 28, 108, metric_text(data->pressure, value, sizeof(value)), &lv_font_montserrat_48, COLOR_ACCENT);
++    label(card, 118, 55, 70, "/ 100", &lv_font_montserrat_14, COLOR_MUTED);
 +    snprintf(text, sizeof(text), "Measured %s", time_text(data->pressure_at));
-+    label(s_screen, 18, 176, 207, text, &lv_font_montserrat_14, COLOR_MUTED);
-+    lv_obj_t *card = panel(16, 203, 101, 72);
++    label(card, 10, 90, 188, text, &lv_font_montserrat_14, COLOR_MUTED);
++    card = panel(16, 185, 101, 77);
 +    label(card, 8, 5, 88, "HEART bpm", &lv_font_montserrat_14, COLOR_MUTED);
-+    label(card, 8, 26, 88, metric_text(data->heart, value, sizeof(value)), &lv_font_montserrat_20, COLOR_TEXT);
-+    label(card, 8, 52, 90, time_text(data->heart_at), &lv_font_montserrat_14, COLOR_MUTED);
-+    card = panel(123, 203, 101, 72);
++    label(card, 8, 23, 88, metric_text(data->heart, value, sizeof(value)), &lv_font_montserrat_28, COLOR_TEXT);
++    label(card, 8, 55, 90, time_text(data->heart_at), &lv_font_montserrat_14, COLOR_MUTED);
++    card = panel(123, 185, 101, 77);
 +    snprintf(text, sizeof(text), "%s ms", data->hrv_method[0] ? data->hrv_method : "HRV");
 +    label(card, 8, 5, 88, text, &lv_font_montserrat_14, COLOR_MUTED);
-+    label(card, 8, 26, 88, metric_text(data->hrv, value, sizeof(value)), &lv_font_montserrat_20, COLOR_TEXT);
-+    label(card, 8, 52, 90, time_text(data->hrv_at), &lv_font_montserrat_14, COLOR_MUTED);
++    label(card, 8, 23, 88, metric_text(data->hrv, value, sizeof(value)), &lv_font_montserrat_28, COLOR_TEXT);
++    label(card, 8, 55, 90, time_text(data->hrv_at), &lv_font_montserrat_14, COLOR_MUTED);
 +}
 +
 +static void color_block(int x, int y, int width, int height, unsigned color) {
@@ -438,20 +446,20 @@ index 0000000..4f05218
 +    activity_metric(123, 236, "DIST km", text);
 +}
 +
-+static const char *network_status(void) {
-+    if (!s_network_ready) return "NETWORK UNAVAILABLE";
++static const char *network_status(bool compact) {
++    if (!s_network_ready) return compact ? "NO NETWORK" : "NETWORK UNAVAILABLE";
 +    switch (s_network.status) {
-+        case HEALTH_NET_STARTING: return "STARTING WI-FI";
-+        case HEALTH_NET_NEEDS_ENDPOINT: return "USB SETUP REQUIRED";
-+        case HEALTH_NET_NEEDS_WIFI: return "HOLD OK: WI-FI SETUP";
-+        case HEALTH_NET_CONNECTING: return "CONNECTING WI-FI";
-+        case HEALTH_NET_TIME_SYNC: return "SYNCING CLOCK";
-+        case HEALTH_NET_FETCHING: return "UPDATING...";
++        case HEALTH_NET_STARTING: return compact ? "STARTING" : "STARTING WI-FI";
++        case HEALTH_NET_NEEDS_ENDPOINT: return compact ? "USB SETUP" : "USB SETUP REQUIRED";
++        case HEALTH_NET_NEEDS_WIFI: return compact ? "WI-FI SETUP" : "HOLD OK: WI-FI SETUP";
++        case HEALTH_NET_CONNECTING: return compact ? "CONNECTING" : "CONNECTING WI-FI";
++        case HEALTH_NET_TIME_SYNC: return compact ? "TIME SYNC" : "SYNCING CLOCK";
++        case HEALTH_NET_FETCHING: return compact ? "UPDATING" : "UPDATING...";
 +        case HEALTH_NET_ONLINE: return "WI-FI ONLINE";
 +        case HEALTH_NET_WIFI_OFFLINE: return "WI-FI OFFLINE";
-+        case HEALTH_NET_API_OFFLINE: return "API OFFLINE / LAST DATA";
-+        case HEALTH_NET_SETUP: return "WI-FI SETUP / 5 MIN";
-+        default: return "NETWORK ERROR";
++        case HEALTH_NET_API_OFFLINE: return compact ? "API OFFLINE" : "API OFFLINE / LAST DATA";
++        case HEALTH_NET_SETUP: return compact ? "WI-FI SETUP" : "WI-FI SETUP / 5 MIN";
++        default: return compact ? "NET ERROR" : "NETWORK ERROR";
 +    }
 +}
 +
@@ -469,8 +477,9 @@ index 0000000..4f05218
 +/* A clock tick changes only these two labels, never rebuilds health widgets. */
 +static bool update_clock(void) {
 +    if (!s_clock_label || !s_date_label || !bsp_lvgl_lock(100)) return false;
++    bool home = s_model.page == HEALTH_PAGE_OVERVIEW && s_network.status != HEALTH_NET_SETUP;
 +    lv_label_set_text(s_clock_label, s_clock.time);
-+    lv_label_set_text(s_date_label, s_clock.valid ? s_clock.date : "Clock not synced");
++    lv_label_set_text(s_date_label, s_clock.valid ? s_clock.date : home ? "NO CLOCK" : "Clock not synced");
 +    bsp_lvgl_unlock();
 +    return true;
 +}
@@ -489,25 +498,33 @@ index 0000000..4f05218
 +    }
 +    lv_obj_clean(s_screen);
 +    char text[64];
-+    s_clock_label = label(s_screen, 18, 8, 142, s_clock.time, &lv_font_montserrat_20, COLOR_TEXT);
-+    s_date_label = label(s_screen, 18, 33, 140, s_clock.valid ? s_clock.date : "Clock not synced", &lv_font_montserrat_14, COLOR_MUTED);
-+    if (s_model.snapshot.demo) label(s_screen, 167, 33, 55, "DEMO", &lv_font_montserrat_14, COLOR_WARNING);
++    bool home = s_model.page == HEALTH_PAGE_OVERVIEW && s_network.status != HEALTH_NET_SETUP;
++    s_clock_label = label(s_screen, 18, 8, home ? 150 : 142, s_clock.time,
++                          home ? &lv_font_montserrat_28 : &lv_font_montserrat_20, COLOR_TEXT);
++    s_date_label = label(s_screen, 18, home ? 40 : 33, home ? 92 : 140,
++                         s_clock.valid ? s_clock.date : home ? "NO CLOCK" : "Clock not synced",
++                         &lv_font_montserrat_14, COLOR_MUTED);
++    if (s_model.snapshot.demo && !home) label(s_screen, 167, 33, 55, "DEMO", &lv_font_montserrat_14, COLOR_WARNING);
 +    if (battery < 0) snprintf(text, sizeof(text), "BAT --");
 +    else snprintf(text, sizeof(text), "%d%%", battery);
 +    lv_obj_t *battery_label = label(s_screen, 167, 12, 55, text, &lv_font_montserrat_14, COLOR_MUTED);
 +    lv_obj_set_style_text_align(battery_label, LV_TEXT_ALIGN_RIGHT, 0);
 +    bool connected = health_model_connected(&s_model, now_ms);
-+    const char *status = network_status();
-+    if (!s_network.endpoint_configured && connected) status = s_model.snapshot.online ? "USB CONNECTED" : "API OFFLINE";
-+    label(s_screen, 18, 53, 207, status, &lv_font_montserrat_14,
-+          s_network.status == HEALTH_NET_ONLINE ? COLOR_ACCENT : COLOR_WARNING);
++    const char *status = network_status(home);
++    if (!s_network.endpoint_configured && connected)
++        status = s_model.snapshot.online ? (home ? "USB ONLINE" : "USB CONNECTED") : "API OFFLINE";
++    lv_obj_t *status_label = label(s_screen, home ? 112 : 18, home ? 40 : 53,
++                                  home ? 112 : 207, status, &lv_font_montserrat_14,
++                                  s_network.status == HEALTH_NET_ONLINE ? COLOR_ACCENT : COLOR_WARNING);
++    if (home) lv_obj_set_style_text_align(status_label, LV_TEXT_ALIGN_RIGHT, 0);
 +    const bool today = health_snapshot_is_today(&s_model.snapshot, &s_clock);
 +    const char *day_label = !s_model.snapshot.day[0] ? "DATA DATE UNKNOWN" :
 +        today ? "TODAY" : s_clock.valid ? "LAST DATA" : "DATA";
 +    if (!s_model.snapshot.day[0]) snprintf(text, sizeof(text), "%s", day_label);
 +    else if (today) snprintf(text, sizeof(text), "%s", day_label);
 +    else snprintf(text, sizeof(text), "%s %s", day_label, s_model.snapshot.day);
-+    label(s_screen, 18, 73, 207, text, &lv_font_montserrat_14, today ? COLOR_MUTED : COLOR_WARNING);
++    if (!home || !today)
++        label(s_screen, 18, home ? 266 : 73, 207, text, &lv_font_montserrat_14, today ? COLOR_MUTED : COLOR_WARNING);
 +    if (s_network.status == HEALTH_NET_SETUP) setup_page();
 +    else switch (s_model.page) {
 +        case HEALTH_PAGE_OVERVIEW: overview(&s_model.snapshot); break;
@@ -1538,7 +1555,7 @@ index 0000000..9acbee8
 +void health_network_clear_wifi(void);
 diff --git a/main/health_network_model.c b/main/health_network_model.c
 new file mode 100644
-index 0000000..bd2051b
+index 0000000..2ed7541
 --- /dev/null
 +++ b/main/health_network_model.c
 @@ -0,0 +1,226 @@
@@ -1581,7 +1598,7 @@ index 0000000..bd2051b
 +        if (!number || number > 65535) return false;
 +    }
 +    if (strcmp(path, "/badge")) {
-+        static const char host[] = "magic.solutionsuite.cn";
++        static const char host[] = "reader.example.com";
 +        static const char route[] = "/api/faas/";
 +        if (number != 443 || (size_t)(host_end - url - 8) != sizeof(host) - 1 ||
 +            memcmp(url + 8, host, sizeof(host) - 1) || strncmp(path, route, sizeof(route) - 1)) return false;
@@ -1817,7 +1834,7 @@ index 0000000..d8178ce
 +bool health_http_body_append(health_http_body_t *body, const char *data, size_t length, uint64_t now_ms);
 +bool health_http_body_complete(const health_http_body_t *body, bool complete, int status, uint64_t now_ms);
 diff --git a/sdkconfig.defaults b/sdkconfig.defaults
-index ef36d5d..b6acc7d 100644
+index ef36d5d..6b28f27 100644
 --- a/sdkconfig.defaults
 +++ b/sdkconfig.defaults
 @@ -1,3 +1,6 @@
@@ -1827,10 +1844,11 @@ index ef36d5d..b6acc7d 100644
  # --- 目标芯片 ---
  CONFIG_IDF_TARGET="esp32c3"
  # 注:ESP32-C3 无 PSRAM,故不设 CONFIG_SPIRAM。
-@@ -24,21 +27,28 @@ CONFIG_LV_COLOR_DEPTH_16=y
+@@ -24,21 +27,29 @@ CONFIG_LV_COLOR_DEPTH_16=y
  CONFIG_LV_DEF_REFR_PERIOD=20
  CONFIG_LV_FONT_MONTSERRAT_14=y
  CONFIG_LV_FONT_MONTSERRAT_20=y
++CONFIG_LV_FONT_MONTSERRAT_28=y
 +CONFIG_LV_FONT_MONTSERRAT_48=y
  # LVGL 内置 malloc 池大小(KB)。它是独立静态区、不与系统堆共享,配大了会白白占用 RAM。
 -# 本 demo UI 简单,24KB 足够;若自建复杂界面出现绘制卡死/看门狗,调大此值。
@@ -1871,7 +1889,7 @@ index ef36d5d..b6acc7d 100644
 +CONFIG_ESP_WIFI_AMPDU_TX_ENABLED=n
 diff --git a/tests/test_configure_wifi.py b/tests/test_configure_wifi.py
 new file mode 100644
-index 0000000..9fde407
+index 0000000..e0df639
 --- /dev/null
 +++ b/tests/test_configure_wifi.py
 @@ -0,0 +1,183 @@
@@ -1902,32 +1920,32 @@ index 0000000..9fde407
 +    def test_miaobi_function_route_requires_the_fixed_https_origin(self):
 +        accepted = [
 +            "https://health.example.com:8443/badge",
-+            "https://magic.solutionsuite.cn/api/faas/example_badge",
-+            "https://magic.solutionsuite.cn:443/api/faas/health-badge_2",
++            "https://reader.example.com/api/faas/example_badge",
++            "https://reader.example.com:443/api/faas/health-badge_2",
 +        ]
 +        for url in accepted:
 +            with self.subTest(url=url):
 +                config = {**CONFIG, "url": url}
 +                self.assertEqual(configure_wifi.validate_config(config), config)
 +        rejected = [
-+            "http://magic.solutionsuite.cn/api/faas/health",
-+            "HTTPS://magic.solutionsuite.cn/api/faas/health",
++            "http://reader.example.com/api/faas/health",
++            "HTTPS://reader.example.com/api/faas/health",
 +            "https://other.example.com/api/faas/health",
-+            "https://magic.solutionsuite.cn.evil.example/api/faas/health",
-+            "https://user@magic.solutionsuite.cn/api/faas/health",
-+            "https://magic.solutionsuite.cn:444/api/faas/health",
-+            "https://magic.solutionsuite.cn/api/faas/",
-+            "https://magic.solutionsuite.cn/api/faas/health/more",
-+            "https://magic.solutionsuite.cn/api/faas/health?key=value",
-+            "https://magic.solutionsuite.cn/api/faas/health?",
-+            "https://magic.solutionsuite.cn/api/faas/health#fragment",
-+            "https://magic.solutionsuite.cn/api/faas/health#",
-+            "https://magic.solutionsuite.cn/api/faas/%68ealth",
-+            "https://magic.solutionsuite.cn/api/faas/../health",
-+            "https://magic.solutionsuite.cn/api/faas/health.badge",
-+            "https://magic.solutionsuite.cn/api/other/health",
-+            "https://Magic.solutionsuite.cn/api/faas/health",
-+            "https://magic.solutionsuite.cn/api/faas/he\nalth",
++            "https://reader.example.com.evil.example/api/faas/health",
++            "https://user@reader.example.com/api/faas/health",
++            "https://reader.example.com:444/api/faas/health",
++            "https://reader.example.com/api/faas/",
++            "https://reader.example.com/api/faas/health/more",
++            "https://reader.example.com/api/faas/health?key=value",
++            "https://reader.example.com/api/faas/health?",
++            "https://reader.example.com/api/faas/health#fragment",
++            "https://reader.example.com/api/faas/health#",
++            "https://reader.example.com/api/faas/%68ealth",
++            "https://reader.example.com/api/faas/../health",
++            "https://reader.example.com/api/faas/health.badge",
++            "https://reader.example.com/api/other/health",
++            "https://Reader.example.com/api/faas/health",
++            "https://reader.example.com/api/faas/he\nalth",
 +        ]
 +        for url in rejected:
 +            with self.subTest(url=url):
@@ -2954,7 +2972,7 @@ index 0000000..9f3b805
 +}
 diff --git a/tests/test_health_network_model.c b/tests/test_health_network_model.c
 new file mode 100644
-index 0000000..d7259d9
+index 0000000..a2141e3
 --- /dev/null
 +++ b/tests/test_health_network_model.c
 @@ -0,0 +1,173 @@
@@ -2986,8 +3004,8 @@ index 0000000..d7259d9
 +static void endpoint_supports_only_the_miaobi_function_route(void) {
 +    const char *accepted[] = {
 +        "https://health.example.com:8443/badge",
-+        "https://magic.solutionsuite.cn/api/faas/example_badge",
-+        "https://magic.solutionsuite.cn:443/api/faas/health-badge_2",
++        "https://reader.example.com/api/faas/example_badge",
++        "https://reader.example.com:443/api/faas/health-badge_2",
 +    };
 +    health_endpoint_t output = {0};
 +    char frame[512];
@@ -2998,24 +3016,24 @@ index 0000000..d7259d9
 +    }
 +    health_endpoint_t original = output;
 +    const char *rejected[] = {
-+        "http://magic.solutionsuite.cn/api/faas/health",
-+        "HTTPS://magic.solutionsuite.cn/api/faas/health",
++        "http://reader.example.com/api/faas/health",
++        "HTTPS://reader.example.com/api/faas/health",
 +        "https://other.example.com/api/faas/health",
-+        "https://magic.solutionsuite.cn.evil.example/api/faas/health",
-+        "https://user@magic.solutionsuite.cn/api/faas/health",
-+        "https://magic.solutionsuite.cn:444/api/faas/health",
-+        "https://magic.solutionsuite.cn/api/faas/",
-+        "https://magic.solutionsuite.cn/api/faas/health/more",
-+        "https://magic.solutionsuite.cn/api/faas/health?key=value",
-+        "https://magic.solutionsuite.cn/api/faas/health?",
-+        "https://magic.solutionsuite.cn/api/faas/health#fragment",
-+        "https://magic.solutionsuite.cn/api/faas/health#",
-+        "https://magic.solutionsuite.cn/api/faas/%68ealth",
-+        "https://magic.solutionsuite.cn/api/faas/../health",
-+        "https://magic.solutionsuite.cn/api/faas/health.badge",
-+        "https://magic.solutionsuite.cn/api/other/health",
-+        "https://Magic.solutionsuite.cn/api/faas/health",
-+        "https://magic.solutionsuite.cn/api/faas/he\nalth",
++        "https://reader.example.com.evil.example/api/faas/health",
++        "https://user@reader.example.com/api/faas/health",
++        "https://reader.example.com:444/api/faas/health",
++        "https://reader.example.com/api/faas/",
++        "https://reader.example.com/api/faas/health/more",
++        "https://reader.example.com/api/faas/health?key=value",
++        "https://reader.example.com/api/faas/health?",
++        "https://reader.example.com/api/faas/health#fragment",
++        "https://reader.example.com/api/faas/health#",
++        "https://reader.example.com/api/faas/%68ealth",
++        "https://reader.example.com/api/faas/../health",
++        "https://reader.example.com/api/faas/health.badge",
++        "https://reader.example.com/api/other/health",
++        "https://Reader.example.com/api/faas/health",
++        "https://reader.example.com/api/faas/he\nalth",
 +    };
 +    for (unsigned i = 0; i < sizeof(rejected) / sizeof(rejected[0]); ++i) {
 +        snprintf(frame, sizeof(frame), "{\"configure\":{\"url\":\"%s\",\"token\":\"0123456789abcdef\"}}", rejected[i]);
@@ -3133,7 +3151,7 @@ index 0000000..d7259d9
 +}
 diff --git a/tools/configure_wifi.py b/tools/configure_wifi.py
 new file mode 100644
-index 0000000..b760273
+index 0000000..f5fb4c0
 --- /dev/null
 +++ b/tools/configure_wifi.py
 @@ -0,0 +1,109 @@
@@ -3167,7 +3185,7 @@ index 0000000..b760273
 +        raise ValueError("invalid_endpoint")
 +    if parsed.port == 0:  # urlsplit rejects ports over 65535.
 +        raise ValueError("invalid_endpoint")
-+    miaobi_route = (parsed.netloc.split(":", 1)[0] == "magic.solutionsuite.cn" and
++    miaobi_route = (parsed.netloc.split(":", 1)[0] == "reader.example.com" and
 +                    parsed.port in (None, 443) and
 +                    re.fullmatch(r"/api/faas/[A-Za-z0-9_-]+", parsed.path))
 +    if parsed.path != "/badge" and not miaobi_route:

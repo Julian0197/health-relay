@@ -298,12 +298,12 @@ test('dashboard accepts an HMAC viewer assertion without exposing API keys', asy
 
 test('dashboard preflight and CORS headers are origin-scoped', async () => {
   const authEnv = { ...env, DASHBOARD_VIEWER_SECRET: 's', DASHBOARD_VIEWER_OPENIDS: 'ou_owner',
-    DASHBOARD_VIEWER_ORIGINS: 'https://magic.solutionsuite.cn' };
+    DASHBOARD_VIEWER_ORIGINS: 'https://reader.example.com' };
   const preflight = await handleRequest(new Request('https://demo.test/dashboard', {
-    method: 'OPTIONS', headers: { Origin: 'https://magic.solutionsuite.cn' },
+    method: 'OPTIONS', headers: { Origin: 'https://reader.example.com' },
   }), authEnv);
   assert.equal(preflight.status, 204);
-  assert.equal(preflight.headers.get('Access-Control-Allow-Origin'), 'https://magic.solutionsuite.cn');
+  assert.equal(preflight.headers.get('Access-Control-Allow-Origin'), 'https://reader.example.com');
   assert.match(preflight.headers.get('Access-Control-Allow-Headers'), /If-None-Match/i);
   assert.match(preflight.headers.get('Access-Control-Expose-Headers'), /ETag/i);
   const foreign = await handleRequest(new Request('https://demo.test/dashboard', {
@@ -317,7 +317,7 @@ test('CORS is fail-closed with no configured origin, never a guessed platform de
   const authEnv = { ...env, DASHBOARD_VIEWER_SECRET: 's', DASHBOARD_VIEWER_OPENIDS: 'ou_owner' };
   // Even the former hard-coded default must not pass before it is observed and configured.
   const preflight = await handleRequest(new Request('https://demo.test/dashboard', {
-    method: 'OPTIONS', headers: { Origin: 'https://magic.solutionsuite.cn' },
+    method: 'OPTIONS', headers: { Origin: 'https://reader.example.com' },
   }), authEnv);
   assert.equal(preflight.status, 403);
   assert.equal(preflight.headers.get('Access-Control-Allow-Origin'), null);

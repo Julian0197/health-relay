@@ -1,6 +1,10 @@
 # AI Passport 健康工卡
 
-用 FoloToy AI Passport 的 ESP32-C3 和 240×320 屏幕展示三页 HealthRelay 看板：首页压力、心率和 HRV 及各自测量时间；七晚睡眠分期和当天得分；合并运动与活动的全部指标及运动类型。它通过家里 Wi-Fi 或 iPhone 热点读取云端快照，每 30 分钟更新，可以脱离电脑使用。
+用 FoloToy AI Passport 的 ESP32-C3 和 240×320 屏幕展示三页 HealthRelay 看板：首页放大时钟、以主卡突出压力分，放大心率和 HRV 并保留各自测量时间；七晚睡眠分期和当天得分；合并运动与活动的全部指标及运动类型。它通过家里 Wi-Fi 或 iPhone 热点读取云端快照，每 30 分钟更新，可以脱离电脑使用。
+
+首页日期与联网状态紧凑展示，当天省去 TODAY 提示；历史压力、旧数据原日期、未知数据日期和离线警示继续保留。
+
+公开模板的托管读取主机为 `reader.example.com`。使用自己的 `/api/faas/<ID>` 入口前，在私有副本中同时替换固件 `main/health_network_model.c` 和初始化工具 `tools/configure_wifi.py` 的示例主机，再构建／初始化；从本集成目录运行工具时也使用已替换的私有工具副本。通用 HTTPS `/badge` 校验保持不变。实际主机与地址不得提交。
 
 [完整数据流、部署、构建、烧录和操作说明](../../docs/ai-passport-health.md)
 

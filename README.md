@@ -21,7 +21,7 @@
 - **iPhone**：任务配置、AI 配置参考、JSON 粘贴／批量导入与校验、脱敏导出、HealthKit 读取、原生 JSON / CSV / Markdown、部分 HAE JSON / CSV、历史补传、持久重试和快捷指令入口已有实现。先在 iPhone 完成所需指标的实际对照，再切换执行设备。
 - **Watch**：已实现配置同步、本机授权与认证、数据读取、后台文件上传和回执处理；真机配对、自然唤醒与长期可靠性仍待验收。
 - **下游服务**：五流接收、SQLite 存储、确定性状态算法、签名发布、加签群卡和 HTML 看板已迁入；群卡支持四项健康指标、最近锻炼及 7 天消耗图，与看板评分同源；附五份可导入的 HealthRelay 配置及完整五流配置说明。
-- **AI Passport 工卡**：三页看板：首页压力／心率／HRV 及各自测量时间、七晚睡眠分期与当天得分、合并运动和活动指标；双 Wi-Fi 配网、每 30 分钟更新、60 秒自动息屏和按键唤醒。默认 CPU 80MHz、背光 45%、按键扫描 20ms；续航尚未实测。源码、私有缓存读取链路和本地合成调试已集成，见[工卡说明](docs/ai-passport-health.md)。
+- **AI Passport 工卡**：三页看板：首页放大时钟、突出压力主卡和心率／HRV 双卡，保留各自测量时间；另两页展示七晚睡眠分期与当天得分、合并运动和活动指标。双 Wi-Fi 配网、每 30 分钟更新、60 秒自动息屏和按键唤醒。默认 CPU 80MHz、背光 45%、按键扫描 20ms；续航尚未实测。源码、私有缓存读取链路和本地合成调试已集成，见[工卡说明](docs/ai-passport-health.md)。
 
 目前尚未完整替代 HAE。锻炼与扩展 HAE JSON 已实现；本轮按实机文件修正了中文健康指标 CSV 宽表（106 项数量指标与睡眠），并保留旧待发送批次的重试入口。真实运动数据行、CSV 跨指标整包与 REST 传输、两端自然后台连续运行仍待验收，详见[HEA 对照记录](docs/implementation-hea.md)。30 分钟等配置表示期望最小执行间隔，实际后台时机由系统决定。详见[能力表](docs/capabilities.md)和[迁移验收](docs/service-migration.md)。
 
@@ -120,7 +120,7 @@ npm --prefix integrations/hae-webhook/dashboard-app run preview
 
 ## 隐私与开源
 
-公开仓库只保存代码、脱敏配置和合成数据。API key、webhook、签名 secret、Base / 文档资源 ID、Magic 授权码及健康导出保留在本机忽略文件或 Cloudflare Secrets；发布后的带授权 HTML 也不得提交。提交前运行 `python3 scripts/check_public_artifacts.py`，并人工检查截图和暂存内容。
+公开仓库只保存代码、脱敏配置和合成数据。工卡托管读取主机使用 `reader.example.com` 占位，实际主机只在私有源码／工具副本中替换后构建和初始化。API key、webhook、签名 secret、Base / 文档资源 ID、Magic 授权码及健康导出保留在本机忽略文件或 Cloudflare Secrets；发布后的带授权 HTML 也不得提交。提交前运行 `python3 scripts/check_public_artifacts.py`，并人工检查截图和暂存内容。
 
 本次迁移复制了可运行的服务代码与任务规则；原生产服务、云端数据和真实群绑定未被切换。[迁移记录](docs/service-migration.md)列出来源、验证与差距。
 
