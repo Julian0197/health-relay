@@ -1,12 +1,12 @@
 # AI Passport 健康工卡
 
-用 FoloToy AI Passport 的 ESP32-C3 和 240×320 屏幕展示 HealthRelay 的压力、睡眠、健身与活动。它通过家里 Wi-Fi 或 iPhone 热点读取云端快照，每 30 分钟更新，可以脱离电脑使用。
+用 FoloToy AI Passport 的 ESP32-C3 和 240×320 屏幕展示三页 HealthRelay 看板：首页压力、心率和 HRV 及各自测量时间；七晚睡眠分期和当天得分；合并运动与活动的全部指标及运动类型。它通过家里 Wi-Fi 或 iPhone 热点读取云端快照，每 30 分钟更新，可以脱离电脑使用。
 
 [完整数据流、部署、构建、烧录和操作说明](../../docs/ai-passport-health.md)
 
 | 文件 | 用途 |
 | --- | --- |
-| `prepare_firmware.py` + `firmware.patch` | 从固定上游 commit 重建完整可构建固件源码，包含五页 LVGL、Wi-Fi、配网和息屏 |
+| `prepare_firmware.py` + `firmware.patch` | 从固定上游 commit 重建完整可构建固件源码，包含三页 LVGL、Wi-Fi、配网和息屏 |
 | `tools/configure_wifi.py` | 从本机私有 JSON 经 USB 初始化 HTTPS 读取地址与独立设备凭据 |
 | `tools/health_bridge.py` | 可选 USB 兼容桥接和合成演示；Wi-Fi 初始化后不承担持续同步 |
 | `miaobi/badge-cache-reader.cjs` | 妙笔 HTTP FaaS 模板：鉴权后只读一条固定的私有 Base 缓存记录 |
@@ -27,3 +27,5 @@ node --test integrations/ai-passport-health/miaobi/badge-cache-reader.test.mjs
 ```
 
 `firmware.patch` 的 `main/health_*.c` 是应用实现；`components/bsp` 来自固定上游版本。屏幕用 C/LVGL 本地绘制，通过 SPI 输出，不下载 HTML、图片或浏览器页面。
+
+默认 CPU 80MHz、背光 45%、按键扫描 20ms（两次扫描去抖约 40ms）。60 秒自动息屏、按键唤醒和每 30 分钟同步保持不变。固件只绘制当前页，减少页数主要改善操作；本版未测平均电流或完整放电，不承诺续航增幅。

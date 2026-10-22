@@ -1,21 +1,22 @@
 diff --git a/docs/apps/health-dashboard.md b/docs/apps/health-dashboard.md
 new file mode 100644
-index 0000000..9a2c50b
+index 0000000..6caed2f
 --- /dev/null
 +++ b/docs/apps/health-dashboard.md
-@@ -0,0 +1,27 @@
+@@ -0,0 +1,28 @@
 +# Wi-Fi health dashboard
 +
 +A dedicated 240×320 LVGL application for the ESP32-C3 / 8 MB FoloToy AI Passport.
 +
-+- Five pages: overview, latest valid pressure with its original measurement time, seven nights of staged sleep with today's score, workout types and totals, and daily activity.
++- Three pages: home with pressure, heart rate, HRV and their individual measurement times; seven nights of staged sleep with today's score; combined workouts/activity with every summary metric and a scrolling type list.
 +- An SNTP-calibrated UTC+8 clock updates locally. A clock tick does not make an HTTP request.
 +- Two 2.4 GHz Wi-Fi profiles and a dedicated read-only HTTPS credential are stored in NVS; health snapshots stay in RAM.
 +- Poll every 30 minutes. Short OK refreshes with a 15-second minimum interval; UP/DOWN change pages.
 +- Hold OK for about half a second to configure Wi-Fi. Join the displayed Health-XXXX network and open http://192.168.4.1.
 +- Configure home Wi-Fi and an iPhone hotspot; enable Maximum Compatibility on the hotspot. Failed candidate profiles roll back after 45 seconds.
 +- After 60 idle seconds, turn the backlight off and stop LVGL timers. Any function key only wakes; a subsequent gesture acts normally. Setup stays awake.
-+- Network updates continue with the screen off and never wake it. CPU deep sleep is not enabled. Battery runtime has not been measured.
++- Defaults: 80MHz CPU, 45% backlight, 20ms button scans and two debounce ticks (about 40ms). Network updates continue with the screen off and never wake it. CPU deep sleep is not enabled. Battery runtime has not been measured.
++- Only the selected page is rendered. Fewer pages simplify navigation without establishing an improvement in standby power or runtime.
 +- API OFFLINE / LAST DATA retains the original snapshot date. Missing values are not zero; retained pressure keeps its original time.
 +
 +Data path: Apple Health → HealthRelay service → dedicated private Base cache → authenticated read-only Magic FaaS → badge.
@@ -33,22 +34,23 @@ index 0000000..9a2c50b
 +Report build, host tests and device observations separately. Verify extended reconnect, unplugged polling and battery discharge on your own hardware.
 diff --git a/docs/apps/health-dashboard.zh_CN.md b/docs/apps/health-dashboard.zh_CN.md
 new file mode 100644
-index 0000000..dbafe81
+index 0000000..3cc0afa
 --- /dev/null
 +++ b/docs/apps/health-dashboard.zh_CN.md
-@@ -0,0 +1,27 @@
+@@ -0,0 +1,28 @@
 +# Wi-Fi 健康看板
 +
 +以专用的 240×320 本地 LVGL 看板替代头像和名牌，适用于 ESP32-C3、8MB Flash 的 FoloToy AI Passport。
 +
-+- 五页：概览、最近有效压力与原测量时间、最近七晚睡眠分期与当天得分、健身类型与汇总、当天活动。
++- 三页：首页展示最近有效压力、心率、HRV 和各自原测量时间；睡眠页保留最近七晚分期和当天得分；运动／活动页合并全部锻炼汇总、可滚动类型列表、步数、活动消耗、运动分钟和距离。
 +- 时钟经 SNTP 校准后按 UTC+8 本地更新；当前日期只显示一次，不因更新时钟而请求云端。
 +- NVS 保存两个 2.4GHz Wi-Fi 网络和独立只读 HTTPS 地址／凭据；健康快照只保留在 RAM。
 +- 每 30 分钟取数，确定键短按手动刷新，最少间隔 15 秒。上／下短按切页。
 +- 确定键长按约半秒进入配网。手机连接屏幕显示的临时 Health-XXXX 网络，然后打开 http://192.168.4.1。
 +- 可填家里 Wi-Fi 和 iPhone 热点；热点需开启“最大兼容性”。候选网络 45 秒内都不能取得 IP 时回滚原设置。
 +- 无按键操作 60 秒关闭背光并暂停 LVGL 定时器，任意功能键只唤醒，下一次按键恢复正常操作。配网页保持亮屏。
-+- 息屏期间后台联网与取数继续，来数据不会自动亮屏；没有启用 CPU 深睡，也没有实测续航小时数。
++- 默认 CPU 80MHz、亮屏背光 45%、按键扫描 20ms，两次扫描去抖约 40ms。息屏期间后台联网与取数继续，来数据不会自动亮屏；没有启用 CPU 深睡，也没有实测续航小时数。
++- 每次只绘制当前页；减少页数主要改善操作，不能据此推算待机功耗或续航增幅。
 +- API OFFLINE／LAST DATA 保留旧快照及其原日期。压力缺测不补零，历史压力始终保留原时间。
 +
 +数据链路为 Apple Health → HealthRelay 服务 → 专用私有 Base 缓存 → 妙笔鉴权只读函数 → 工卡。
@@ -208,10 +210,10 @@ index 0000000..9a0e5a3
 +bool health_idle_update(health_idle_t *idle, uint64_t now_ms, bool setup_active);
 diff --git a/main/health_main.c b/main/health_main.c
 new file mode 100644
-index 0000000..4c057d6
+index 0000000..4f05218
 --- /dev/null
 +++ b/main/health_main.c
-@@ -0,0 +1,499 @@
+@@ -0,0 +1,462 @@
 +/* Health values exist only in RAM; dedicated network credentials are stored in NVS. */
 +#include "health_model.h"
 +#include "health_network.h"
@@ -245,6 +247,7 @@ index 0000000..4c057d6
 +#define COLOR_SLEEP_AWAKE 0xF5BB69
 +#define COLOR_SLEEP_UNKNOWN 0x75838F
 +#define INPUT_QUEUE_DEPTH 8
++#define HEALTH_BACKLIGHT_PERCENT 45
 +
 +static QueueHandle_t s_buttons;
 +static lv_obj_t *s_screen;
@@ -298,36 +301,6 @@ index 0000000..4c057d6
 +}
 +
 +static void overview(const health_snapshot_t *data) {
-+    char value[16], text[40];
-+    lv_obj_t *card = panel(16, 99, 101, 84);
-+    label(card, 8, 8, 88, "PRESSURE", &lv_font_montserrat_14, COLOR_MUTED);
-+    label(card, 8, 30, 88, metric_text(data->pressure, value, sizeof(value)), &lv_font_montserrat_20, COLOR_ACCENT);
-+    label(card, 8, 60, 88, time_text(data->pressure_at), &lv_font_montserrat_14,
-+          data->retained ? COLOR_WARNING : COLOR_MUTED);
-+
-+    card = panel(123, 99, 101, 84);
-+    label(card, 8, 8, 88, "SLEEP", &lv_font_montserrat_14, COLOR_MUTED);
-+    if (data->sleep_minutes == HEALTH_MISSING) snprintf(text, sizeof(text), "--");
-+    else snprintf(text, sizeof(text), "%dh%02dm", data->sleep_minutes / 60, data->sleep_minutes % 60);
-+    label(card, 8, 30, 88, text, &lv_font_montserrat_20, COLOR_TEXT);
-+    snprintf(text, sizeof(text), "Score %s", metric_text(today_sleep_score(data), value, sizeof(value)));
-+    label(card, 8, 60, 88, text, &lv_font_montserrat_14, COLOR_MUTED);
-+
-+    card = panel(16, 191, 101, 84);
-+    label(card, 8, 8, 88, "WORKOUT", &lv_font_montserrat_14, COLOR_MUTED);
-+    if (data->workout_minutes == HEALTH_MISSING) snprintf(text, sizeof(text), "--");
-+    else snprintf(text, sizeof(text), "%dh%02dm", data->workout_minutes / 60, data->workout_minutes % 60);
-+    label(card, 8, 30, 88, text, &lv_font_montserrat_20, COLOR_TEXT);
-+    snprintf(text, sizeof(text), "Count %s", metric_text(data->workout_count, value, sizeof(value)));
-+    label(card, 8, 60, 88, text, &lv_font_montserrat_14, COLOR_MUTED);
-+
-+    card = panel(123, 191, 101, 84);
-+    label(card, 8, 8, 88, "ACTIVITY", &lv_font_montserrat_14, COLOR_MUTED);
-+    label(card, 8, 30, 88, metric_text(data->steps, value, sizeof(value)), &lv_font_montserrat_20, COLOR_TEXT);
-+    label(card, 8, 60, 88, "steps", &lv_font_montserrat_14, COLOR_MUTED);
-+}
-+
-+static void pressure_page(const health_snapshot_t *data) {
 +    char value[16], text[64];
 +    label(s_screen, 18, 97, 207, data->retained ? "LAST PRESSURE" : "PRESSURE", &lv_font_montserrat_20, COLOR_TEXT);
 +    label(s_screen, 16, 121, 119, metric_text(data->pressure, value, sizeof(value)), &lv_font_montserrat_48, COLOR_ACCENT);
@@ -357,11 +330,12 @@ index 0000000..4c057d6
 +    lv_obj_set_style_bg_opa(obj, LV_OPA_COVER, 0);
 +}
 +
-+static void scrolling_text(int x, int y, int width, int height, const char *text, unsigned color) {
++static lv_obj_t *scrolling_text(int x, int y, int width, int height, const char *text, unsigned color) {
 +    lv_obj_t *obj = label(s_screen, x, y, width, text, &lv_font_montserrat_14, color);
 +    lv_obj_set_height(obj, height);
 +    lv_label_set_long_mode(obj, LV_LABEL_LONG_SCROLL_CIRCULAR);
 +    lv_obj_set_style_anim_duration(obj, 6000, 0);
++    return obj;
 +}
 +
 +static void sleep_page(const health_snapshot_t *data) {
@@ -424,22 +398,20 @@ index 0000000..4c057d6
 +    scrolling_text(18, 266, 208, 16, text, COLOR_TEXT);
 +}
 +
-+static void metric_row(int y, const char *name, int value, const char *unit) {
-+    char number[16], text[40];
-+    label(s_screen, 18, y, 207, name, &lv_font_montserrat_14, COLOR_MUTED);
-+    snprintf(text, sizeof(text), "%s %s", metric_text(value, number, sizeof(number)), unit);
-+    label(s_screen, 18, y + 17, 207, text, &lv_font_montserrat_20, COLOR_TEXT);
++static void activity_metric(int x, int y, const char *name, const char *value) {
++    lv_obj_t *card = panel(x, y, 101, 43);
++    label(card, 8, 3, 88, name, &lv_font_montserrat_14, COLOR_MUTED);
++    label(card, 8, 19, 88, value, &lv_font_montserrat_20, COLOR_TEXT);
 +}
 +
-+static void workout_page(const health_snapshot_t *data) {
++static void activity_page(const health_snapshot_t *data) {
 +    char text[512], count[16], minutes[16], energy[16];
-+    label(s_screen, 18, 97, 207, "WORKOUT", &lv_font_montserrat_20, COLOR_TEXT);
++    label(s_screen, 18, 99, 207, "WORKOUT / ACTIVITY", &lv_font_montserrat_14, COLOR_TEXT);
 +    snprintf(text, sizeof(text), "%s sessions   %s min", metric_text(data->workout_count, count, sizeof(count)),
 +        metric_text(data->workout_minutes, minutes, sizeof(minutes)));
-+    label(s_screen, 18, 126, 207, text, &lv_font_montserrat_14, COLOR_TEXT);
-+    snprintf(text, sizeof(text), "Energy %s kcal", metric_text(data->workout_kcal, energy, sizeof(energy)));
-+    label(s_screen, 18, 146, 207, text, &lv_font_montserrat_14, COLOR_MUTED);
-+    label(s_screen, 18, 170, 207, "TYPES", &lv_font_montserrat_14, COLOR_MUTED);
++    label(s_screen, 18, 119, 207, text, &lv_font_montserrat_14, COLOR_TEXT);
++    snprintf(text, sizeof(text), "Workout %s kcal", metric_text(data->workout_kcal, energy, sizeof(energy)));
++    label(s_screen, 18, 137, 207, text, &lv_font_montserrat_14, COLOR_MUTED);
 +    size_t used = 0;
 +    for (unsigned i = 0; i < data->workout_type_count; ++i) {
 +        if (i) text[used++] = '\n';
@@ -456,19 +428,14 @@ index 0000000..4c057d6
 +    text[used] = '\0';
 +    if (!used) snprintf(text, sizeof(text), "%s", data->workout_count == 0 ? "No workouts today" : "Type unavailable");
 +    /* Overflow scrolls vertically through every type; names are never dropped. */
-+    scrolling_text(18, 190, 207, 88, text, COLOR_ACCENT);
-+}
-+
-+static void activity_page(const health_snapshot_t *data) {
-+    char text[40];
-+    label(s_screen, 18, 97, 207, "ACTIVITY", &lv_font_montserrat_20, COLOR_TEXT);
-+    metric_row(124, "STEPS", data->steps, "steps");
-+    metric_row(163, "ACTIVE ENERGY", data->active_kcal, "kcal");
-+    metric_row(202, "EXERCISE", data->exercise_minutes, "min");
-+    label(s_screen, 18, 241, 207, "DISTANCE", &lv_font_montserrat_14, COLOR_MUTED);
-+    if (data->distance_meters == HEALTH_MISSING) snprintf(text, sizeof(text), "-- km");
-+    else snprintf(text, sizeof(text), "%d.%02d km", data->distance_meters / 1000, data->distance_meters % 1000 / 10);
-+    label(s_screen, 18, 260, 207, text, &lv_font_montserrat_20, COLOR_TEXT);
++    lv_obj_t *types = scrolling_text(18, 154, 207, 32, text, COLOR_ACCENT);
++    lv_obj_set_style_anim_duration(types, 12000, 0);
++    activity_metric(16, 188, "STEPS", metric_text(data->steps, count, sizeof(count)));
++    activity_metric(123, 188, "ACTIVE kcal", metric_text(data->active_kcal, count, sizeof(count)));
++    activity_metric(16, 236, "EXER min", metric_text(data->exercise_minutes, count, sizeof(count)));
++    if (data->distance_meters == HEALTH_MISSING) snprintf(text, sizeof(text), "--");
++    else snprintf(text, sizeof(text), "%d.%02d", data->distance_meters / 1000, data->distance_meters % 1000 / 10);
++    activity_metric(123, 236, "DIST km", text);
 +}
 +
 +static const char *network_status(void) {
@@ -544,9 +511,7 @@ index 0000000..4c057d6
 +    if (s_network.status == HEALTH_NET_SETUP) setup_page();
 +    else switch (s_model.page) {
 +        case HEALTH_PAGE_OVERVIEW: overview(&s_model.snapshot); break;
-+        case HEALTH_PAGE_PRESSURE: pressure_page(&s_model.snapshot); break;
 +        case HEALTH_PAGE_SLEEP: sleep_page(&s_model.snapshot); break;
-+        case HEALTH_PAGE_WORKOUT: workout_page(&s_model.snapshot); break;
 +        case HEALTH_PAGE_ACTIVITY: activity_page(&s_model.snapshot); break;
 +        default: break;
 +    }
@@ -554,7 +519,7 @@ index 0000000..4c057d6
 +    else {
 +        snprintf(text, sizeof(text), "SYNC %.5s / 30m", s_last_sync.valid ? s_last_sync.time : "--:--");
 +        label(s_screen, 18, 283, 207, text, &lv_font_montserrat_14, COLOR_MUTED);
-+        snprintf(text, sizeof(text), "%d/5 UP/DOWN  OK: refresh", s_model.page + 1);
++        snprintf(text, sizeof(text), "%d/%d UP/DOWN  OK: refresh", s_model.page + 1, HEALTH_PAGE_COUNT);
 +    }
 +    label(s_screen, 18, 301, 207, text, &lv_font_montserrat_14, COLOR_MUTED);
 +    bsp_lvgl_unlock();
@@ -672,7 +637,7 @@ index 0000000..4c057d6
 +                    dirty = false;
 +                    /* Rebuild using the latest clock/model before lighting up. */
 +                    if (backlight_off) {
-+                        bsp_display_backlight(65);
++                        bsp_display_backlight(HEALTH_BACKLIGHT_PERCENT);
 +                        backlight_off = false;
 +                    }
 +                } else if (!backlight_off && clock_changed) (void)update_clock();
@@ -688,7 +653,7 @@ index 0000000..4c057d6
 +    health_idle_init(&s_idle, (uint64_t)(esp_timer_get_time() / 1000));
 +    health_clock_format((int64_t)time(NULL), &s_clock);
 +    if (bsp_display_init() != ESP_OK || !bsp_lvgl_init()) return;
-+    bsp_display_backlight(65);
++    bsp_display_backlight(HEALTH_BACKLIGHT_PERCENT);
 +    (void)bsp_battery_init();
 +    s_buttons = xQueueCreate(INPUT_QUEUE_DEPTH, sizeof(health_button_event_t));
 +    if (!s_buttons) return;
@@ -1018,10 +983,10 @@ index 0000000..557646b
 +}
 diff --git a/main/health_model.h b/main/health_model.h
 new file mode 100644
-index 0000000..ecb8a70
+index 0000000..ca69577
 --- /dev/null
 +++ b/main/health_model.h
-@@ -0,0 +1,91 @@
+@@ -0,0 +1,89 @@
 +#pragma once
 +
 +#include <stdbool.h>
@@ -1080,9 +1045,7 @@ index 0000000..ecb8a70
 +
 +typedef enum {
 +    HEALTH_PAGE_OVERVIEW,
-+    HEALTH_PAGE_PRESSURE,
 +    HEALTH_PAGE_SLEEP,
-+    HEALTH_PAGE_WORKOUT,
 +    HEALTH_PAGE_ACTIVITY,
 +    HEALTH_PAGE_COUNT,
 +} health_page_t;
@@ -1854,7 +1817,7 @@ index 0000000..d8178ce
 +bool health_http_body_append(health_http_body_t *body, const char *data, size_t length, uint64_t now_ms);
 +bool health_http_body_complete(const health_http_body_t *body, bool complete, int status, uint64_t now_ms);
 diff --git a/sdkconfig.defaults b/sdkconfig.defaults
-index ef36d5d..fd883d7 100644
+index ef36d5d..b6acc7d 100644
 --- a/sdkconfig.defaults
 +++ b/sdkconfig.defaults
 @@ -1,3 +1,6 @@
@@ -1864,7 +1827,7 @@ index ef36d5d..fd883d7 100644
  # --- 目标芯片 ---
  CONFIG_IDF_TARGET="esp32c3"
  # 注:ESP32-C3 无 PSRAM,故不设 CONFIG_SPIRAM。
-@@ -24,21 +27,23 @@ CONFIG_LV_COLOR_DEPTH_16=y
+@@ -24,21 +27,28 @@ CONFIG_LV_COLOR_DEPTH_16=y
  CONFIG_LV_DEF_REFR_PERIOD=20
  CONFIG_LV_FONT_MONTSERRAT_14=y
  CONFIG_LV_FONT_MONTSERRAT_20=y
@@ -1872,11 +1835,16 @@ index ef36d5d..fd883d7 100644
  # LVGL 内置 malloc 池大小(KB)。它是独立静态区、不与系统堆共享,配大了会白白占用 RAM。
 -# 本 demo UI 简单,24KB 足够;若自建复杂界面出现绘制卡死/看门狗,调大此值。
 -CONFIG_LV_MEM_SIZE_KILOBYTES=24
-+# 健康看板使用 32KB，为五页对象、文字和切页分配保留余量。
++# 健康看板使用 32KB，为当前页对象、文字和切页分配保留余量。
 +CONFIG_LV_MEM_SIZE_KILOBYTES=32
  
  # --- 系统 ---
  CONFIG_FREERTOS_HZ=1000
++# Static 80 MHz reduces active CPU work without changing sleep/wake semantics.
++CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_80=y
++# ADC buttons remain available while the screen is off; scan at 50 Hz.
++# With two debounce ticks this requires a normal press of at least 40 ms.
++CONFIG_BUTTON_PERIOD_TIME_MS=20
  
 -# --- Bluetooth LE / NimBLE ---
 -# ESP32-C3 仅支持 BLE；示例只启用单连接 peripheral 所需的最小 host 配置。
@@ -2607,15 +2575,16 @@ index 0000000..43e2064
 +}
 diff --git a/tests/test_health_model.c b/tests/test_health_model.c
 new file mode 100644
-index 0000000..559a128
+index 0000000..9f3b805
 --- /dev/null
 +++ b/tests/test_health_model.c
-@@ -0,0 +1,362 @@
+@@ -0,0 +1,373 @@
 +#include "health_model.h"
 +#include <assert.h>
 +#include <stdio.h>
 +#include <string.h>
 +
++/* Handwritten synthetic fixtures, never a device response capture. */
 +static const char VALID[] =
 +    "{\"v\":1,\"online\":true,\"demo\":true,\"asOf\":\"10/21 18:40\","
 +    "\"pressure\":36,\"retained\":false,\"pressureAt\":\"10/21 18:30\","
@@ -2635,7 +2604,7 @@ index 0000000..559a128
 +
 +static const char WEEKLY[] =
 +    "{\"v\":3,\"online\":true,\"demo\":false,\"asOf\":\"10/21 18:40\","
-+    "\"pressure\":83,\"retained\":true,\"pressureAt\":\"10/20 18:48\","
++    "\"pressure\":58,\"retained\":true,\"pressureAt\":\"10/19 09:15\","
 +    "\"heart\":72,\"heartAt\":\"10/21 18:40\",\"hrv\":41,\"hrvMethod\":\"RMSSD\","
 +    "\"hrvAt\":\"10/21 18:30\",\"sleepScore\":85,\"sleepMinutes\":423,"
 +    "\"sleepDate\":\"2026-10-21\",\"trend\":[null,42,38,51,40,32,36],"
@@ -2655,8 +2624,8 @@ index 0000000..559a128
 +static void test_weekly_packet(void) {
 +    health_snapshot_t snapshot;
 +    assert(health_snapshot_parse(WEEKLY, &snapshot));
-+    assert(snapshot.pressure == 83 && snapshot.retained);
-+    assert(strcmp(snapshot.pressure_at, "10/20 18:48") == 0);
++    assert(snapshot.pressure == 58 && snapshot.retained);
++    assert(strcmp(snapshot.pressure_at, "10/19 09:15") == 0);
 +    assert(snapshot.has_sleep_week);
 +    assert(snapshot.sleep_week[0].total == HEALTH_MISSING);
 +    assert(snapshot.sleep_week[6].deep == 63 && snapshot.sleep_week[6].rem == 120);
@@ -2720,14 +2689,24 @@ index 0000000..559a128
 +static void test_page_wrap_and_disconnect_retains_data(void) {
 +    health_model_t model;
 +    health_model_init(&model);
++    assert(HEALTH_PAGE_COUNT == 3);
 +    health_model_turn_page(&model, -1);
 +    assert(model.page == HEALTH_PAGE_ACTIVITY);
 +    health_model_turn_page(&model, 1);
 +    assert(model.page == HEALTH_PAGE_OVERVIEW);
 +    health_model_turn_page(&model, 1);
-+    assert(model.page == HEALTH_PAGE_PRESSURE);
++    assert(model.page == HEALTH_PAGE_SLEEP);
 +    health_model_turn_page(&model, 0);
-+    assert(model.page == HEALTH_PAGE_PRESSURE);
++    assert(model.page == HEALTH_PAGE_SLEEP);
++    health_model_turn_page(&model, 1);
++    assert(model.page == HEALTH_PAGE_ACTIVITY);
++    health_model_turn_page(&model, 1);
++    assert(model.page == HEALTH_PAGE_OVERVIEW);
++    health_model_turn_page(&model, -1);
++    health_model_turn_page(&model, -1);
++    assert(model.page == HEALTH_PAGE_SLEEP);
++    health_model_turn_page(&model, -1);
++    assert(model.page == HEALTH_PAGE_OVERVIEW);
 +    health_snapshot_t snapshot = { .pressure = 36 };
 +    health_model_accept(&model, &snapshot, 15000);
 +    assert(health_model_connected(&model, 59999));
