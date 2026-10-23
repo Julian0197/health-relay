@@ -42,12 +42,21 @@ final class HealthSignaturePresetTests: XCTestCase {
         }
         let metrics = try XCTUnwrap(tasks.first { $0.data.family == .healthMetrics })
         XCTAssertTrue(Set(metrics.data.selections.map(\.id)).isSuperset(of: [
-            "HKQuantityTypeIdentifierHeartRateVariabilitySDNN", "HKQuantityTypeIdentifierHeartRate",
+            "HKQuantityTypeIdentifierHeartRateVariabilityRMSSD", "HKQuantityTypeIdentifierHeartRate",
             "HKQuantityTypeIdentifierRestingHeartRate", "HKCategoryTypeIdentifierSleepAnalysis",
             "HKQuantityTypeIdentifierStepCount", "HKQuantityTypeIdentifierActiveEnergyBurned"]))
         let workouts = try XCTUnwrap(tasks.first { $0.data.family == .workout })
         XCTAssertEqual(workouts.data.selections.map(\.id), ["HKWorkoutType"])
         XCTAssertNotEqual(workouts.data.workoutOptions?.includeRoutes, true)
+    }
+    func testBothDevicesRequestRecoveryHRVWithoutSubstitutingSDNN() throws {
+        for tasks in [try HealthSignaturePreset.configurations(endpoint: "https://example.com/ingest"),
+                      try HealthSignaturePreset.watchConfigurations(endpoint: "https://example.com/ingest")] {
+            let metrics = try XCTUnwrap(tasks.first { $0.data.family == .healthMetrics })
+            let variability = metrics.data.selections.filter { $0.id.contains("HeartRateVariability") }
+            XCTAssertEqual(variability.map(\.id), ["HKQuantityTypeIdentifierHeartRateVariabilityRMSSD"])
+            XCTAssertEqual(variability.first?.unit, "ms")
+        }
     }
     func testPresetRejectsUnencryptedOrCredentialBearingEndpoints() {
         for endpoint in ["http://192.168.1.2/ingest", "https://user:password@example.com/ingest", "invalid"] {

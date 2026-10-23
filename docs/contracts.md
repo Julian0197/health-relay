@@ -72,6 +72,7 @@ Watch 配置以完整快照同步，最大 60 KiB，携带单调递增 generatio
 | 记录 | payload / 接收语义 |
 | --- | --- |
 | quantity upsert | value、unit；按认证用户、typeIdentifier、recordId 去重 |
+| HeartRate 原生明细 | `quantityCount` 是父样本内实际测量数；大于 1 时附完整 `series=[{start,end,value}]`，明细沿用父 `unit`。仅真实明细参与分钟覆盖，父均值不重复计数；父 UUID 更正或删除同时替换/清除全部派生点。旧无明细记录仍兼容，但不按持续时间补点 |
 | category upsert | 原始枚举 value、起止时间；不伪造数字平均 |
 | correlation upsert | objects 为完整子记录数组，子单位采用目录默认值 |
 | workout upsert | activityType、durationSeconds、events、statistics、totals、activities；启用时包含 routes 与 metrics，见下文 |
@@ -85,7 +86,7 @@ Watch 配置以完整快照同步，最大 60 KiB，携带单调递增 generatio
 
 运动使用稳定的 `HKWorkoutType` 类型键，同时在 payload.nativeTypeIdentifier 保留 HealthKit 原始标识符。routes 保留每个 HKWorkoutRoute 的 UUID、来源和全部 CLLocation 字段；metrics 按数量类型保留 unit、grouping、aggregation、完整 samples 和 data 时间桶。复合数量样本读取全部内部 series，桶按点的开始时间分配；累积值求和，离散值算术平均并保留最小/最大值，不拆分跨桶区间。来源过滤作用于关联样本，完整运动的 HealthKit 统计摘要可能与过滤后时序不相等。
 
-ECG、路线与关联序列必须完整读取后才返回读取页；失败或取消均不推进 anchor。这里的“完整”指本次读取时 HealthKit 可返回的全部详情。路线或关联样本在父运动已确认后才到达时，当前增量路径依赖 HealthKit 是否重新返回父运动；应用没有独立订阅子数据并重导出父记录，该行为尚未真机验收。需要补齐迟到详情时，可新建覆盖该日期范围的补传任务；直接再次运行原任务仍沿用原 anchor，不能保证补回。后续需验证父 anchor 行为，必要时实现详情变更重查。用药注释没有返回时记录 annotationStatus=notReturned，不能解释成药物不存在。空 HealthKit 查询也无法区分无数据、未授权或未同步。
+原生心率复合样本、ECG、路线与关联序列必须完整读取后才返回读取页；失败或取消均不推进 anchor。这里的“完整”指本次读取时 HealthKit 可返回的全部详情。路线或关联样本在父运动已确认后才到达时，当前增量路径依赖 HealthKit 是否重新返回父运动；应用没有独立订阅子数据并重导出父记录，该行为尚未真机验收。需要补齐迟到详情时，可新建覆盖该日期范围的补传任务；直接再次运行原任务仍沿用原 anchor，不能保证补回。后续需验证父 anchor 行为，必要时实现详情变更重查。用药注释没有返回时记录 annotationStatus=notReturned，不能解释成药物不存在。空 HealthKit 查询也无法区分无数据、未授权或未同步。
 
 不能只用日期与指标名覆盖多来源样本。接收端认证决定用户归属，不信任客户端声明的用户 ID。
 

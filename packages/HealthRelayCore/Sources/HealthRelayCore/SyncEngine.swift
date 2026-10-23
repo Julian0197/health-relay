@@ -74,8 +74,9 @@ public struct ReadPage: Sendable {
                 let nextReadIssues = task.executionStartIssues(pending: nil, automatic: automatic)
                 guard nextReadIssues.isEmpty else { throw ConfigurationError(nextReadIssues.joined(separator: "；")) }
             }
-            if state.cycleFingerprint != fingerprint || state.cycleStartedAt == nil {
-                state.cycleStartedAt = started; state.cycleFingerprint = fingerprint; state.nextSelectionID = nil
+            let cycleFingerprint = try SyncIdentity.cycleFingerprint(task)
+            if state.cycleFingerprint != cycleFingerprint || state.cycleStartedAt == nil {
+                state.cycleStartedAt = started; state.cycleFingerprint = cycleFingerprint; state.nextSelectionID = nil
             }
             let queryDate = state.cycleStartedAt ?? started
             state.lastAttempt = started

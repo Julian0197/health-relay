@@ -26,6 +26,52 @@ test('shows the scoring HRV beside every pressure category rather than an unrela
   }
 });
 
+test('labels RMSSD scoring evidence as recovery HRV for current, nightly and retained states', () => {
+  const now = Date.parse('2026-10-21T02:00:00Z');
+  const indices = { ruleVersion: 'rmssd-rule', features: { hrv: { method: 'RMSSD', current: 99 } },
+    pressure: { score: 50, hrvMethod: 'RMSSD', source: 'watch', evidenceAt: now - 60000,
+      evidence: { hrv: 45.56 } } };
+  for (const [score, heading] of [[10, '🌟 状态优秀'], [50, '🌿 状态正常'],
+    [70, '⚡ 注意压力'], [90, '🚨 压力过载']]) {
+    indices.pressure.score = score;
+    assert.match(presentation.renderStatusSignature(indices, now), new RegExp(`^${heading}\\(恢复HRV 45\\.6\\)｜`));
+  }
+  indices.pressure.score = 50; indices.pressure.context = 'nightly';
+  assert.match(presentation.renderStatusSignature(indices, now), /^🌿 夜间状态正常\(恢复HRV 45\.6\)｜/);
+  indices.lastValidPressure = { ruleVersion: 'rmssd-rule', source: 'watch', score: 50,
+    evidenceAt: now - 3600000, hrv: 42.1 };
+  indices.pressure.score = null; indices.pressure.reason = 'expired_hrv';
+  assert.match(presentation.renderStatusSignature(indices, now), /^🌿 上次状态正常\(恢复HRV 42\.1\)｜/);
+});
+test('received recovery HRV remains visible while pressure evidence or baseline is incomplete', () => {
+  const now = Date.parse('2026-10-21T02:00:00Z');
+  const indices = { features: { hrv: { method: 'RMSSD', current: 45.56, measuredAt: now - 60000 } },
+    pressure: { score: null, hrvMethod: 'RMSSD', hrvBaseline: { days: 7 }, heartBaseline: { days: 3 } } };
+  for (const reason of ['missing_or_conflicting_aligned_hr', 'insufficient_samples', 'sleeping', 'short_baseline']) {
+    indices.pressure.reason = reason;
+    const title = presentation.renderStatusSignature(indices, now);
+    assert.match(title, /｜恢复HRV 45\.6｜/);
+    assert.doesNotMatch(title, /状态正常|状态优秀|注意压力|压力过载/);
+  }
+  indices.pressure.reason = 'expired_hrv';
+  indices.features.hrv.measuredAt = now - 90 * 60000;
+  assert.match(presentation.renderStatusSignature(indices, now), /｜上次恢复HRV 45\.6｜/);
+});
+test('unscored recovery HRV does not display invalid, future or ambiguous values', () => {
+  const now = Date.parse('2026-10-21T02:00:00Z');
+  const indices = { features: { hrv: { method: 'RMSSD', measuredAt: now - 60000 } },
+    pressure: { score: null, reason: 'missing_or_conflicting_aligned_hr' } };
+  for (const current of [null, undefined, NaN, Infinity, 0, -1]) {
+    indices.features.hrv.current = current;
+    assert.doesNotMatch(presentation.renderStatusSignature(indices, now), /恢复HRV/);
+  }
+  indices.features.hrv.current = 45;
+  indices.features.hrv.measuredAt = now + 60000;
+  assert.doesNotMatch(presentation.renderStatusSignature(indices, now), /恢复HRV/);
+  indices.features.hrv.measuredAt = now - 60000;
+  indices.pressure.reason = 'source_or_sample_conflict';
+  assert.doesNotMatch(presentation.renderStatusSignature(indices, now), /恢复HRV/);
+});
 test('missing or invalid scoring HRV stays unavailable instead of borrowing a different measurement', () => {
   const now = Date.parse('2026-10-21T02:00:00Z');
   const indices = { features: { hrv: { current: 99 } }, pressure: { score: 50, evidence: {} } };

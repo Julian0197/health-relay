@@ -22,13 +22,28 @@ function normalized(row) {
   const base = { id: row.recordId, source: row.source.id, start, end };
   const type = row.typeIdentifier.replace('HKQuantityTypeIdentifier', '');
   const numeric = () => { if (!Number.isFinite(payload.value) || payload.value < 0) fail('invalid_quantity'); };
-  if (type === 'HeartRateVariabilitySDNN') {
+  if (['HeartRateVariabilitySDNN', 'HeartRateVariabilityRMSSD'].includes(type)) {
     numeric(); if (!['ms', 's'].includes(payload.unit) || payload.value <= 0) fail('invalid_hrv');
-    return { ...base, kind: 'hrv', value: payload.value * (payload.unit === 's' ? 1000 : 1), unit: 'ms', method: 'SDNN' };
+    return { ...base, kind: 'hrv', value: payload.value * (payload.unit === 's' ? 1000 : 1), unit: 'ms',
+      method: type === 'HeartRateVariabilityRMSSD' ? 'RMSSD' : 'SDNN' };
   }
   if (type === 'HeartRate') {
     numeric(); if (!['count/min', 'bpm'].includes(payload.unit) || payload.value <= 0) fail('invalid_heart_rate');
-    return { ...base, kind: 'heart', value: payload.value, unit: 'bpm' };
+    const heart = { ...base, kind: 'heart', value: payload.value, unit: 'bpm' };
+    if (payload.quantityCount !== undefined && (!Number.isSafeInteger(payload.quantityCount) || payload.quantityCount < 1)) fail('invalid_heart_series');
+    if (payload.series === undefined) {
+      if (payload.quantityCount > 1) fail('incomplete_heart_series');
+      return heart;
+    }
+    if (!Array.isArray(payload.series) || !payload.series.length || payload.quantityCount !== payload.series.length) fail('invalid_heart_series');
+    heart.heartSeries = payload.series.map((point, index) => {
+      const pointStart = stamp(point?.start), pointEnd = stamp(point?.end);
+      if (!Number.isFinite(point?.value) || point.value <= 0 || !Number.isFinite(pointStart) || !Number.isFinite(pointEnd) ||
+        pointStart < start || pointEnd < pointStart || pointEnd > end) fail('invalid_heart_series');
+      return { ...base, id: `${base.id}:series:${index}`, kind: 'heart', start: pointStart, end: pointEnd,
+        value: point.value, unit: 'bpm' };
+    });
+    return heart;
   }
   if (row.typeIdentifier === 'HKCategoryTypeIdentifierSleepAnalysis') {
     if (!Number.isInteger(payload.value) || !stages[payload.value] || end <= start || end-start > 48*3600000) fail('invalid_sleep');
@@ -90,8 +105,20 @@ export class NativeStore {
       const writeRecord = this.db.prepare(`INSERT INTO native_records VALUES(?,?,?,?) ON CONFLICT(key)
         DO UPDATE SET body=excluded.body,deleted=excluded.deleted,received_at=excluded.received_at`);
       for (const row of batch.records) {
-        const key = identity(row), encoded = JSON.stringify(row);
+        const key = identity(row);
+        let encoded = JSON.stringify(row);
         const old = findRecord.get(key);
+        if (old && old.body !== encoded && row.op === 'upsert' && row.typeIdentifier === 'HKQuantityTypeIdentifierHeartRate' &&
+          row.payload.quantityCount === undefined && row.payload.series === undefined) {
+          const previous = JSON.parse(old.body);
+          if (previous.op === 'upsert' && Array.isArray(previous.payload?.series) &&
+            stamp(previous.start) === stamp(row.start) && stamp(previous.end) === stamp(row.end) &&
+            previous.source?.id === row.source.id && previous.payload.value === row.payload.value && previous.payload.unit === row.payload.unit) {
+            // An old client cannot strip verified detail from an unchanged parent sample.
+            encoded = JSON.stringify({ ...row, payload: { ...row.payload,
+              quantityCount: previous.payload.quantityCount, series: previous.payload.series } });
+          }
+        }
         if (old?.body === encoded) { duplicates++; continue; }
         writeRecord.run(key, encoded, row.op === 'delete' ? 1 : 0, now);
         accepted++;
@@ -106,6 +133,10 @@ export class NativeStore {
     const result = { hrv: [], heart: [], sleep: [], daily: [], workout: [] }, daily = new Map(), liveHearts = [];
     for (const raw of records) {
       const row = normalized(raw); if (!row || row.end < now-35*DAY) continue;
+      if (row.heartSeries) {
+        for (const point of row.heartSeries) result.heart.push(point);
+        continue;
+      }
       if (row.kind !== 'daily') {
         result[row.kind].push(row);
         if (row.liveHeart) liveHearts.push(row.liveHeart);
@@ -128,7 +159,7 @@ export class NativeStore {
   status(now = Date.now()) {
     const previous = this.state('publishedDecision');
     const records = this.rawRecords(), activity = summarizeNativeActivity(records, now);
-    const indices = evaluateHealthIndices(this.series(now, records), now, previous);
+    const indices = evaluateHealthIndices(this.series(now, records), now, previous, { hrvMethod: 'RMSSD' });
     const last = previous?.pressure;
     indices.lastValidPressure = Number.isFinite(last?.score) ? {
       ruleVersion: previous.ruleVersion, source: last.source, score: last.score,

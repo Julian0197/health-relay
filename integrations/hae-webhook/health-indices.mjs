@@ -7,7 +7,7 @@ const HOUR = 3600000, DAY = 24 * HOUR;
 const RULE_VERSION = 'health-indices-v4-nightly';
 // v6 retires the v5 one-day warmup: a provisional score from a single prior day moved with that day's noise.
 // v4 / v8 include workout and recovery observations in current and baseline scoring.
-const RMSSD_RULE_VERSION = 'health-indices-v8-rmssd-30d';
+const RMSSD_RULE_VERSION = 'health-indices-v9-rmssd-30d';
 // Qualified prior days each baseline needs before a score is produced.
 export const BASELINE_REQUIREMENT = { RMSSD: { hrv: 7, heart: 3 }, SDNN: { hrv: 3, heart: 3 } };
 const RMSSD_WINDOW = 20 * 60000;
@@ -21,6 +21,25 @@ const median = values => {
   return a.length ? a.length % 2 ? a[i] : (a[i - 1] + a[i]) / 2 : null;
 };
 const unique = rows => [...new Map(rows.map(r => [JSON.stringify([r.start, r.end, r.value, r.stage, r.source, r.method]), r])).values()];
+function heartMinuteWindows(rows) {
+  const groups = new Map();
+  for (const row of rows) {
+    const key = JSON.stringify([Math.floor(row.start / 60000), row.source]);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(row);
+  }
+  return [...groups.values()].flatMap(group => {
+    const times = new Map();
+    const conflict = group.some(row => {
+      const previous = times.get(row.start); times.set(row.start, row.value);
+      return previous !== undefined && previous !== row.value;
+    });
+    const start = Math.floor(group[0].start / 60000) * 60000, end = start + 60000;
+    // Keep conflicting values visible to the existing ambiguity checks.
+    return conflict ? group.map(row => ({ ...row, start, end }))
+      : [{ ...group[0], start, end, value: median(group.map(row => row.value)) }];
+  });
+}
 function baseline(rows, current, days, logarithmic = false, rmssdCurrent = current.method === 'RMSSD') {
   const groups = new Map();
   for (const r of rows) {
@@ -70,7 +89,7 @@ function nightlyPressure(sessions, hrv, heart, now, source, method) {
     return [...groups.values()].filter(g => g.every(r => r.source === source && r.value === g[0].value))
       .map(g => g.find(r => r.aggregation === 'minutes') ?? g[0]).sort((a, b) => a.start - b.start);
   };
-  const hv = observations(hrv), hr = observations(heart);
+  const hv = observations(hrv), hr = observations(rmssd ? heart.filter(r => r.source === source) : heart);
   const summarize = session => {
     const values = hv.filter(r => inSleep(r.start, session));
     const windows = hr.filter(r => inSleep(r.start, session) && inSleep(r.end - 1, session));
@@ -144,12 +163,14 @@ export function evaluateHealthIndices(series, now, previous = null, options = {}
   const excluded = t => sessions.some(s => s.start <= t && t < s.end);
   const valid = rows => unique(rows ?? []).filter(r => Number.isFinite(r.value) && r.value > 0 && r.start <= now);
   const allHrv = valid(series.hrv);
-  // Once RMSSD is in use, missing/stale data must not silently select the old SDNN baseline.
-  const method = allHrv.some(r => r.method === 'RMSSD') || previous?.features?.hrv?.method === 'RMSSD' ? 'RMSSD' : 'SDNN';
+  // A configured RMSSD stream must not use the old SDNN baseline, even before its first sample.
+  const method = options.hrvMethod === 'RMSSD' || allHrv.some(r => r.method === 'RMSSD') ||
+    previous?.features?.hrv?.method === 'RMSSD' ? 'RMSSD' : 'SDNN';
   const rmssd = method === 'RMSSD', ruleVersion = rmssd ? RMSSD_RULE_VERSION : RULE_VERSION;
   const freshness = rmssd ? 90 * 60000 : 6 * HOUR, requirement = BASELINE_REQUIREMENT[method];
   const hrv = allHrv.filter(r => r.method === method);
-  const heart = valid(series.heart).filter(r => r.end <= now);
+  const heartSamples = valid(series.heart).filter(r => r.end <= now);
+  const heart = (rmssd ? heartMinuteWindows(heartSamples) : heartSamples).filter(r => r.end <= now);
   // Do not fall back to an older sample when the latest one is sleeping or ambiguous.
   const current = [...hrv].sort((a, b) => b.start - a.start)[0];
   const alignedWindow = current ? heart.filter(r => r.source === current.source && (rmssd
@@ -166,7 +187,9 @@ export function evaluateHealthIndices(series, now, previous = null, options = {}
   };
   const hrvHistory = cleanHistory(hrv).filter(r => !rmssd || (r.aggregation ?? 'raw') === (current?.aggregation ?? 'raw'));
   const hrvBaseline = current ? baseline(hrvHistory, current, 30, true) : { days: 0, median: null };
-  const heartBaseline = current ? baseline(cleanHistory(heart), current, rmssd ? 30 : 7, false, rmssd) : { days: 0, median: null };
+  // Minute normalization must not make another source invalidate this device's baseline.
+  const heartHistory = rmssd && current ? heart.filter(r => r.source === current.source) : heart;
+  const heartBaseline = current ? baseline(cleanHistory(heartHistory), current, rmssd ? 30 : 7, false, rmssd) : { days: 0, median: null };
   const recentHrv = current && rmssd ? hrv.filter(r => r.start > current.start - RMSSD_WINDOW && r.start <= current.start &&
     r.source === current.source && (r.aggregation ?? 'raw') === (current.aggregation ?? 'raw')) : [];
   const windowHrv = cleanHistory(recentHrv).filter(r => !excluded((r.end ?? r.start + 1) - 1));

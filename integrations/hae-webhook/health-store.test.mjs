@@ -130,6 +130,16 @@ test('a cached decision from the workout-exclusion rule is recomputed after upgr
   assert.notEqual(result.pressure.reason, 'sleep_or_workout');
 });
 
+test('cached decisions from before heart-source isolation are recomputed after upgrade', async () => {
+  const f = signatureFixture(undefined, 'health-indices-v1');
+  await detailUpload(f);
+  const state = f.data();
+  state.indicesCache.key = JSON.stringify(['health-indices-cache-v6', f.store.healthProfile]);
+  state.indicesCache.decision.ruleVersion = 'health-indices-v8-rmssd-30d';
+  const result = f.store.currentHealthIndices(state, f.now());
+  assert.equal(result.ruleVersion, 'health-indices-v4-nightly');
+});
+
 test('signature and read-only snapshot use recorded daily pressure while the current pair is missing', async () => {
   const f = signatureFixture(undefined, 'health-indices-v1');
   const ruleVersion = evaluateHealthIndices({ hrv: [], heart: [], sleep: [], workout: [] }, f.now()).ruleVersion;

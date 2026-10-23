@@ -1,6 +1,6 @@
 import Foundation
 
-/// Two independent native streams: health measurements and workout exclusion context.
+/// Two independent native streams: health measurements and workout activity.
 public enum HealthSignaturePreset {
     public static func watchConfigurations(endpoint: String) throws -> [AutomationConfig] {
         try configurations(endpoint: endpoint).map { task in
@@ -15,7 +15,7 @@ public enum HealthSignaturePreset {
         metrics.name = "健康签名 · 指标"
         metrics.range = DateRange(mode: .incremental, bootstrapDays: 30)
         metrics.data.family = .healthMetrics
-        let ids = ["HKQuantityTypeIdentifierHeartRateVariabilitySDNN", "HKQuantityTypeIdentifierHeartRate",
+        let ids = ["HKQuantityTypeIdentifierHeartRateVariabilityRMSSD", "HKQuantityTypeIdentifierHeartRate",
                    "HKQuantityTypeIdentifierRestingHeartRate", "HKCategoryTypeIdentifierSleepAnalysis",
                    "HKQuantityTypeIdentifierStepCount", "HKQuantityTypeIdentifierActiveEnergyBurned"]
         metrics.data.selections = try ids.map { id in

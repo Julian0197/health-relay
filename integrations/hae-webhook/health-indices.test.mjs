@@ -379,7 +379,7 @@ function rmssdFixture() {
 }
 test('RMSSD pressure uses a trailing median and its own baseline, not SDNN or one outlier', () => {
  const s = rmssdFixture(), r = evaluateHealthIndices(s, T + 60000);
- assert.equal(r.ruleVersion, 'health-indices-v8-rmssd-30d');
+ assert.equal(r.ruleVersion, 'health-indices-v9-rmssd-30d');
  assert.deepEqual(r.pressure.baselineRequirement, { hrv: 7, heart: 3 });
  assert.equal(r.features.hrv.method, 'RMSSD');
  assert.equal(r.features.hrv.current, 120);
@@ -393,6 +393,27 @@ test('RMSSD pressure uses a trailing median and its own baseline, not SDNN or on
  assert.match(r.title, /恢复HRV120/);
  s.hrv.filter(r => r.method === 'SDNN').forEach(r => r.value = 999);
  assert.deepEqual(evaluateHealthIndices(s, T + 60000).pressure, r.pressure);
+});
+test('RMSSD heart baselines keep the selected source when another source shares its minutes', () => {
+ const s = rmssdFixture();
+ s.heart = s.heart.filter(r => r.value === 60).map(r => ({ ...r, start: r.start + 5000, end: r.end + 5000 }));
+ const before = evaluateHealthIndices(s, T + 60000);
+ assert.equal(before.pressure.score, 50);
+ for (const row of [...s.heart].filter(r => r.start < T - D / 2))
+  s.heart.push({ ...row, start: row.start + 30000, end: row.end + 30000, source: 'Other', value: 90 });
+ const after = evaluateHealthIndices(s, T + 60000);
+ assert.equal(after.pressure.score, before.pressure.score);
+ assert.equal(after.pressure.heartBaseline.days, before.pressure.heartBaseline.days);
+ assert.equal(after.pressure.heartBaseline.median, 60);
+});
+test('conflicting heart values from the selected source still invalidate its history', () => {
+ const s = rmssdFixture();
+ for (const row of [...s.heart].filter(r => r.value === 60 && r.start < T - D / 2))
+  s.heart.push({ ...row, value: 90 });
+ const result = evaluateHealthIndices(s, T + 60000);
+ assert.equal(result.pressure.score, null);
+ assert.equal(result.pressure.reason, 'short_baseline');
+ assert.equal(result.pressure.heartBaseline.days, 0);
 });
 test('RMSSD baseline counts comparable prior days, excluding other methods, devices and current day', () => {
  const s = rmssdFixture();
@@ -524,7 +545,7 @@ test('RMSSD trend cannot compare scores across HRV methods', () => {
  assert.equal(r.pressure.trend.arrow, '');
  assert.equal(r.pressure.trend.reference, null);
 });
-test('nightly RMSSD needs independent nights and actual coverage for both signals', () => {
+function rmssdNightlyFixture() {
  const s = { hrv: [], heart: [], sleep: [], daily: [], workout: [] }, end = T - 7 * H;
  for (let d = 0; d <= 8; d++) {
   const finish = end - d * D, start = finish - 8 * H;
@@ -534,6 +555,10 @@ test('nightly RMSSD needs independent nights and actual coverage for both signal
   // Production keeps seven days of HR in the scoring read; RMSSD history is longer.
   if (d <= 5) for (let i = 0; i < 480; i++) s.heart.push({ start: start + i * 60000, end: start + (i + 1) * 60000, value: 60, source: 'Watch' });
  }
+ return { s, end };
+}
+test('nightly RMSSD needs independent nights and actual coverage for both signals', () => {
+ const { s, end } = rmssdNightlyFixture();
  const r = evaluateHealthIndices(s, end + 2 * H);
  assert.equal(r.pressure.score, 50); assert.equal(r.pressure.context, 'nightly');
  assert.equal(r.pressure.hrvMethod, 'RMSSD'); assert.equal(r.pressure.hrvBaseline.days, 8);
@@ -544,6 +569,28 @@ test('nightly RMSSD needs independent nights and actual coverage for both signal
  assert.equal(evaluateHealthIndices(sparse, end + 2 * H).pressure.score, null);
  const sparseHeart = structuredClone(s); sparseHeart.heart = sparseHeart.heart.filter(x => x.start < end - 8 * H || x.start >= end - H);
  assert.equal(evaluateHealthIndices(sparseHeart, end + 2 * H).pressure.score, null);
+});
+test('nightly RMSSD keeps selected-source coverage when other sources share current or historical minutes', () => {
+ for (const historical of [true, false]) {
+  const { s, end } = rmssdNightlyFixture();
+  s.heart = s.heart.map(row => ({ ...row, start: row.start + 5000, end: row.end + 5000 }));
+  const before = evaluateHealthIndices(s, end + 2 * H);
+  assert.equal(before.pressure.score, 50);
+  for (const row of [...s.heart].filter(r => historical === (r.start < end - 8 * H)))
+   s.heart.push({ ...row, start: row.start + 30000, end: row.end + 30000, source: 'Other', value: 90 });
+  const after = evaluateHealthIndices(s, end + 2 * H);
+  assert.equal(after.pressure.score, 50);
+  assert.equal(after.pressure.context, 'nightly');
+  assert.equal(after.pressure.heartBaseline.days, before.pressure.heartBaseline.days);
+ }
+});
+test('nightly RMSSD still rejects conflicting selected-source heart evidence', () => {
+ const { s, end } = rmssdNightlyFixture();
+ for (const row of [...s.heart].filter(r => r.start >= end - 8 * H))
+  s.heart.push({ ...row, value: 90 });
+ const result = evaluateHealthIndices(s, end + 2 * H);
+ assert.equal(result.pressure.score, null);
+ assert.equal(result.nightlyEvidence.status, 'unavailable');
 });
 
 

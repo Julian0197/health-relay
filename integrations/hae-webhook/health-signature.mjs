@@ -2,7 +2,7 @@
 const MINUTE = 60000, HOUR = 60 * MINUTE;
 // The signature names only the state; whether it is today's, current or historical is shown on the dashboard.
 export const SIGNATURE_TEXT_VERSION = 'health-signature-text-v1';
-export const STATUS_SIGNATURE_TEXT_VERSION = 'health-status-signature-text-v4';
+export const STATUS_SIGNATURE_TEXT_VERSION = 'health-status-signature-text-v6';
 export const RETAINED_PRESSURE_MS = 7 * 24 * HOUR;
 export const PRESSURE_LABELS = { relaxed: '状态优秀', balanced: '状态正常', elevated: '注意压力', high: '压力过载' };
 const labels = PRESSURE_LABELS;
@@ -65,13 +65,22 @@ export function renderStatusSignature(indices, now, activity = null, syncedAt = 
   const prefix = { nightly: '夜间', retained: '上次' }[headline.basis] ?? '';
   const hrv = headline.basis === 'retained' ? indices.lastValidPressure?.hrv : indices.pressure.evidence?.hrv;
   const hrvText = Number.isFinite(hrv) && hrv > 0 ? Math.round(hrv * 10) / 10 : '暂无';
+  const hrvLabel = (indices.features.hrv.method ?? indices.pressure.hrvMethod) === 'RMSSD' ? '恢复HRV' : 'HRV';
   const heading = headline.basis === 'building_baseline' ? '⏳ 状态数据积累中'
-    : headline.basis === 'missing' ? '❔ 状态暂无' : `${statusEmojis[headline.state]} ${prefix}${headline.label}(HRV ${hrvText})`;
+    : headline.basis === 'missing' ? '❔ 状态暂无' : `${statusEmojis[headline.state]} ${prefix}${headline.label}(${hrvLabel} ${hrvText})`;
   const sleep = indices.sleep;
   const todaySleep = sleep?.date === dateKey(now) && Number.isFinite(sleep.score) && sleep.score >= 0 && sleep.score <= 100;
   const sleepLabels = { excellent: '优秀', good: '良好', fair: '一般', rest_needed: '待改善' };
   const sleepPresentation = scorePresentation('sleep', sleep?.score);
-  const parts = [heading, todaySleep ? `${statusEmojis[sleepPresentation.state]} 睡眠${sleepLabels[sleepPresentation.state]}(${Math.round(sleep.score)}分)` : '🛏️ 睡眠暂无'];
+  const parts = [heading];
+  const rawHrv = indices.features.hrv;
+  if (['missing', 'building_baseline'].includes(headline.basis) && rawHrv.method === 'RMSSD' &&
+      indices.pressure.reason !== 'source_or_sample_conflict' && Number.isFinite(rawHrv.current) && rawHrv.current > 0 &&
+      Number.isFinite(rawHrv.measuredAt) && rawHrv.measuredAt <= now) {
+    const previous = now - rawHrv.measuredAt >= 90 * MINUTE ? '上次' : '';
+    parts.push(`${previous}恢复HRV ${Math.round(rawHrv.current * 10) / 10}`);
+  }
+  parts.push(todaySleep ? `${statusEmojis[sleepPresentation.state]} 睡眠${sleepLabels[sleepPresentation.state]}(${Math.round(sleep.score)}分)` : '🛏️ 睡眠暂无');
   if (activity) {
     const h = indices.displayedHeart;
     if (h && Number.isFinite(h.value) && Number.isFinite(h.measuredAt) && h.measuredAt <= now) {
