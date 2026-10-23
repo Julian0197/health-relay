@@ -5,7 +5,11 @@ import HealthRelayCore
 @MainActor final class HealthKitReader: HealthDataReader, AggregateSource {
     let health = HKHealthStore()
     let workoutQueries: WorkoutQueries?
-    init(workoutQueries: WorkoutQueries? = nil) { self.workoutQueries = workoutQueries }
+    // Native tests supply details for the already-read parent without querying HealthKit.
+    let quantityData: ((HKQuantitySample) -> WorkoutQuantityData)?
+    init(workoutQueries: WorkoutQueries? = nil, quantityData: ((HKQuantitySample) -> WorkoutQuantityData)? = nil) {
+        self.workoutQueries = workoutQueries; self.quantityData = quantityData
+    }
 
     func sampleType(_ id: String) throws -> HKSampleType {
         guard let metric = MetricCatalog.bundled.metric(id) else {
@@ -120,6 +124,30 @@ import HealthRelayCore
             if let workout = sample as? HKWorkout { records.append(try await WorkoutReader.read(workout, reader: self, task: task, selection: selection)) }
             else {
                 var value = try record(sample, unit: selection.unit)
+                if task.export.mode == .raw, task.export.format == "healthrelay.v1", let quantity = sample as? HKQuantitySample,
+                   quantity.quantityType.identifier == HKQuantityTypeIdentifier.heartRate.rawValue {
+                    let data = quantityData?(quantity) ?? WorkoutQuantityData(sample: quantity, count: quantity.count, series: {
+                        let descriptor = HKQuantitySeriesSampleQueryDescriptor(predicate: .quantitySample(type: quantity.quantityType, predicate: HKQuery.predicateForObject(with: quantity.uuid)))
+                        var points: [WorkoutQuantityPoint] = []
+                        for try await point in descriptor.results(for: self.health) {
+                            try Task.checkCancellation()
+                            points.append(WorkoutQuantityPoint(quantity: point.quantity, interval: point.dateInterval))
+                        }
+                        return points
+                    })
+                    value.payload?["quantityCount"] = .number(Double(data.count))
+                    if data.count > 1 {
+                        guard case .string(let code)? = value.payload?["unit"] else { throw ConfigurationError("心率指标缺少单位") }
+                        let unit = try Self.unit(code)
+                        let points = try await data.series()
+                        try Task.checkCancellation()
+                        guard points.count == data.count else { throw ConfigurationError("心率序列未完整读取，请重试") }
+                        value.payload?["series"] = .array(try points.map { point in
+                            guard point.quantity.is(compatibleWith: unit) else { throw ConfigurationError("心率序列单位与所选单位不兼容") }
+                            return .object(["start": .string(Self.date(point.interval.start)), "end": .string(Self.date(point.interval.end)), "value": try WorkoutReader.number(point.quantity.doubleValue(for: unit))])
+                        })
+                    }
+                }
                 if let ecg = sample as? HKElectrocardiogram {
                     value.payload?.merge(try await SpecializedHealthReader.readECG(ecg, reader: self)) { _, new in new }
                 } else if let category = sample as? HKCategorySample, SpecializedHealthReader.notificationIDs.contains(category.sampleType.identifier) {

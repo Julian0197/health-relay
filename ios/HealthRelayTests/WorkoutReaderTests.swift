@@ -37,6 +37,149 @@ import HealthRelayCore
         XCTAssertEqual(record.payload?["metadata"], .object(["sensor": .string("test")]))
     }
 
+    func testProductionHeartRatePageKeepsScalarAndParentDeletionIdentity() async throws {
+        let sample = HKQuantitySample(type: HKQuantityType(.heartRate), quantity: HKQuantity(unit: HKUnit.count().unitDivided(by: .minute()), doubleValue: 72), start: start, end: start)
+        var task = AutomationConfig.newTask()
+        task.data.selections = [MetricSelection(typeIdentifier: sample.quantityType.identifier, unit: "count/min")]
+        let deletedID = UUID()
+        let page = try await HealthKitReader().makePage(samples: [sample], deletedIDs: [deletedID], anchor: Data([3]), hasMore: false, end: nil, task: task, selection: task.data.selections[0])
+        XCTAssertEqual(page.records.map(\.recordId), [sample.uuid.uuidString.lowercased(), deletedID.uuidString.lowercased()])
+        XCTAssertEqual(page.records.map(\.op), [.upsert, .delete])
+        XCTAssertEqual(page.records.first?.payload?["value"], .number(72))
+        XCTAssertEqual(page.records.first?.payload?["quantityCount"], .number(1))
+        XCTAssertNil(page.records.first?.payload?["series"])
+        XCTAssertEqual(page.anchor, Data([3]))
+    }
+
+    private func heartRateTask() -> AutomationConfig {
+        var task = AutomationConfig.newTask()
+        task.data.selections = [MetricSelection(typeIdentifier: HKQuantityTypeIdentifier.heartRate.rawValue, unit: "count/min")]
+        return task
+    }
+
+    func testProductionHeartRatePageExportsRealSeriesUnderParentIdentity() async throws {
+        let unit = HKUnit.count().unitDivided(by: .minute())
+        let sample = HKQuantitySample(type: HKQuantityType(.heartRate), quantity: HKQuantity(unit: unit, doubleValue: 90), start: start, end: start.addingTimeInterval(620), metadata: ["sensor": "test"])
+        let points = [
+            WorkoutQuantityPoint(quantity: HKQuantity(unit: unit, doubleValue: 60), interval: DateInterval(start: start.addingTimeInterval(5), duration: 2)),
+            WorkoutQuantityPoint(quantity: HKQuantity(unit: HKUnit.count().unitDivided(by: .second()), doubleValue: 1.5), interval: DateInterval(start: start.addingTimeInterval(70), duration: 0)),
+            WorkoutQuantityPoint(quantity: HKQuantity(unit: unit, doubleValue: 120), interval: DateInterval(start: start.addingTimeInterval(610), duration: 1))]
+        var reads = 0
+        let reader = HealthKitReader(quantityData: { parent in
+            XCTAssertEqual(parent.uuid, sample.uuid)
+            return WorkoutQuantityData(sample: parent, count: points.count, series: { reads += 1; return points })
+        })
+        let task = heartRateTask()
+        let page = try await reader.makePage(samples: [sample], deletedIDs: [], anchor: Data([7]), hasMore: true, end: nil, task: task, selection: task.data.selections[0])
+        let record = try XCTUnwrap(page.records.first)
+        XCTAssertEqual(page.records.count, 1)
+        XCTAssertEqual(record.recordId, sample.uuid.uuidString.lowercased())
+        XCTAssertEqual(record.source?.id, sample.sourceRevision.source.bundleIdentifier)
+        XCTAssertEqual(record.payload?["metadata"], .object(["sensor": .string("test")]))
+        XCTAssertEqual(record.payload?["quantityCount"], .number(3))
+        XCTAssertEqual(record.payload?["series"], .array(points.enumerated().map { index, point in
+            .object(["start": .string(HealthKitReader.date(point.interval.start)), "end": .string(HealthKitReader.date(point.interval.end)), "value": .number([60, 90, 120][index])])
+        }))
+        XCTAssertEqual(reads, 1)
+        XCTAssertEqual(page.anchor, Data([7])); XCTAssertTrue(page.hasMore)
+    }
+
+    func testProductionScalarAndExcludedHeartRateDoNotReadSeries() async throws {
+        let sample = HKQuantitySample(type: HKQuantityType(.heartRate), quantity: HKQuantity(unit: HKUnit.count().unitDivided(by: .minute()), doubleValue: 72), start: start, end: start)
+        let reader = HealthKitReader(quantityData: { parent in
+            WorkoutQuantityData(sample: parent, count: 1, series: { XCTFail("Scalar sample must not query a series"); return [] })
+        })
+        var task = heartRateTask()
+        let page = try await reader.makePage(samples: [sample], deletedIDs: [], anchor: Data([1]), hasMore: false, end: nil, task: task, selection: task.data.selections[0])
+        XCTAssertNil(page.records.first?.payload?["series"])
+        task.data.excludedSources = [sample.sourceRevision.source.bundleIdentifier]
+        let excludedReader = HealthKitReader(quantityData: { parent in
+            XCTFail("Excluded sample must not load quantity details")
+            return WorkoutQuantityData(sample: parent, count: 2, series: { [] })
+        })
+        let excluded = try await excludedReader.makePage(samples: [sample], deletedIDs: [], anchor: Data([2]), hasMore: true, end: nil, task: task, selection: task.data.selections[0])
+        XCTAssertTrue(excluded.records.isEmpty); XCTAssertEqual(excluded.anchor, Data([2]))
+    }
+
+    func testHEAHeartRatePageDoesNotReadNativeSeries() async throws {
+        let sample = HKQuantitySample(type: HKQuantityType(.heartRate), quantity: HKQuantity(unit: HKUnit.count().unitDivided(by: .minute()), doubleValue: 72), start: start, end: start.addingTimeInterval(60))
+        let reader = HealthKitReader(quantityData: { parent in
+            XCTFail("HEA exports must keep their scalar query path")
+            return WorkoutQuantityData(sample: parent, count: 2, series: { [] })
+        })
+        var task = heartRateTask(); task.export.format = "hea.v2"
+        let page = try await reader.makePage(samples: [sample], deletedIDs: [], anchor: Data([4]), hasMore: false, end: nil, task: task, selection: task.data.selections[0])
+        XCTAssertEqual(page.records.first?.payload?["value"], .number(72))
+        XCTAssertNil(page.records.first?.payload?["series"])
+        XCTAssertNil(page.records.first?.payload?["quantityCount"])
+    }
+
+    func testAggregateHeartRatePageDoesNotReadNativeSeries() async throws {
+        let sample = HKQuantitySample(type: HKQuantityType(.heartRate), quantity: HKQuantity(unit: HKUnit.count().unitDivided(by: .minute()), doubleValue: 72), start: start, end: start.addingTimeInterval(60))
+        let reader = HealthKitReader(quantityData: { parent in
+            XCTFail("Aggregate exports must keep their existing quantity query path")
+            return WorkoutQuantityData(sample: parent, count: 2, series: { [] })
+        })
+        var task = heartRateTask(); task.export.mode = .aggregate; task.export.grouping = .minutes; task.export.statistics = [.average]
+        let page = try await reader.makePage(samples: [sample], deletedIDs: [], anchor: Data([5]), hasMore: false, end: nil, task: task, selection: task.data.selections[0])
+        XCTAssertEqual(page.records.first?.payload?["value"], .number(72))
+        XCTAssertNil(page.records.first?.payload?["series"])
+        XCTAssertNil(page.records.first?.payload?["quantityCount"])
+    }
+
+    func testFailedHeartRateSeriesPreventsPartialPageAndAnchorReturn() async {
+        let unit = HKUnit.count().unitDivided(by: .minute())
+        let first = HKQuantitySample(type: HKQuantityType(.heartRate), quantity: HKQuantity(unit: unit, doubleValue: 70), start: start, end: start)
+        let second = HKQuantitySample(type: HKQuantityType(.heartRate), quantity: HKQuantity(unit: unit, doubleValue: 80), start: start, end: start.addingTimeInterval(60))
+        let reader = HealthKitReader(quantityData: { sample in
+            WorkoutQuantityData(sample: sample, count: sample.uuid == first.uuid ? 1 : 2, series: { throw ConfigurationError("heart rate series failed") })
+        })
+        let task = heartRateTask()
+        var page: ReadPage?
+        do { page = try await reader.makePage(samples: [first, second], deletedIDs: [UUID()], anchor: Data([99]), hasMore: false, end: nil, task: task, selection: task.data.selections[0]); XCTFail("Failed series must prevent page") }
+        catch { XCTAssertEqual(error.localizedDescription, "heart rate series failed") }
+        XCTAssertNil(page)
+    }
+
+    func testIncompleteHeartRateSeriesPreventsPageAndAnchorReturn() async {
+        let quantity = HKQuantity(unit: HKUnit.count().unitDivided(by: .minute()), doubleValue: 80)
+        let sample = HKQuantitySample(type: HKQuantityType(.heartRate), quantity: quantity, start: start, end: start.addingTimeInterval(60))
+        let reader = HealthKitReader(quantityData: { parent in
+            WorkoutQuantityData(sample: parent, count: 2, series: { [WorkoutQuantityPoint(quantity: quantity, interval: DateInterval(start: self.start, duration: 1))] })
+        })
+        let task = heartRateTask()
+        do { _ = try await reader.makePage(samples: [sample], deletedIDs: [], anchor: Data([99]), hasMore: false, end: nil, task: task, selection: task.data.selections[0]); XCTFail("Incomplete series must prevent page") }
+        catch { XCTAssertEqual(error.localizedDescription, "心率序列未完整读取，请重试") }
+    }
+
+    func testCancelledHeartRateSeriesPreventsPageAndAnchorReturn() async {
+        let quantity = HKQuantity(unit: HKUnit.count().unitDivided(by: .minute()), doubleValue: 80)
+        let sample = HKQuantitySample(type: HKQuantityType(.heartRate), quantity: quantity, start: start, end: start.addingTimeInterval(60))
+        let reader = HealthKitReader(quantityData: { parent in
+            WorkoutQuantityData(sample: parent, count: 2, series: {
+                withUnsafeCurrentTask { $0?.cancel() }
+                return [WorkoutQuantityPoint(quantity: quantity, interval: DateInterval(start: self.start, duration: 1)), WorkoutQuantityPoint(quantity: quantity, interval: DateInterval(start: self.start.addingTimeInterval(30), duration: 1))]
+            })
+        })
+        let config = heartRateTask()
+        let task = Task { try await reader.makePage(samples: [sample], deletedIDs: [], anchor: Data([99]), hasMore: false, end: nil, task: config, selection: config.data.selections[0]) }
+        do { _ = try await task.value; XCTFail("Cancelled series must prevent page") }
+        catch { XCTAssertTrue(error is CancellationError) }
+    }
+
+    func testHeartRateSeriesRejectsIncompatibleUnitsAndNonfiniteValues() async {
+        let unit = HKUnit.count().unitDivided(by: .minute())
+        let sample = HKQuantitySample(type: HKQuantityType(.heartRate), quantity: HKQuantity(unit: unit, doubleValue: 80), start: start, end: start.addingTimeInterval(60))
+        let task = heartRateTask()
+        for invalid in [HKQuantity(unit: .meter(), doubleValue: 2), HKQuantity(unit: unit, doubleValue: .infinity)] {
+            let reader = HealthKitReader(quantityData: { parent in
+                WorkoutQuantityData(sample: parent, count: 2, series: { [WorkoutQuantityPoint(quantity: invalid, interval: DateInterval(start: self.start, duration: 1)), WorkoutQuantityPoint(quantity: invalid, interval: DateInterval(start: self.start.addingTimeInterval(30), duration: 1))] })
+            })
+            do { _ = try await reader.makePage(samples: [sample], deletedIDs: [], anchor: Data([99]), hasMore: false, end: nil, task: task, selection: task.data.selections[0]); XCTFail("Invalid quantity must prevent page") }
+            catch { XCTAssertTrue(error is ConfigurationError) }
+        }
+    }
+
     func testActivityConfigurationAndMetadataSurvive() throws {
         let config = HKWorkoutConfiguration(); config.activityType = .swimming; config.locationType = .indoor
         config.swimmingLocationType = .pool; config.lapLength = HKQuantity(unit: .meter(), doubleValue: 25)

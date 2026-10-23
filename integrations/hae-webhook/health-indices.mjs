@@ -7,7 +7,7 @@ const HOUR = 3600000, DAY = 24 * HOUR;
 const RULE_VERSION = 'health-indices-v4-nightly';
 // v6 retires the v5 one-day warmup: a provisional score from a single prior day moved with that day's noise.
 // v4 / v8 include workout and recovery observations in current and baseline scoring.
-const RMSSD_RULE_VERSION = 'health-indices-v8-rmssd-30d';
+const RMSSD_RULE_VERSION = 'health-indices-v9-rmssd-30d';
 // Qualified prior days each baseline needs before a score is produced.
 export const BASELINE_REQUIREMENT = { RMSSD: { hrv: 7, heart: 3 }, SDNN: { hrv: 3, heart: 3 } };
 const RMSSD_WINDOW = 20 * 60000;
@@ -89,7 +89,7 @@ function nightlyPressure(sessions, hrv, heart, now, source, method) {
     return [...groups.values()].filter(g => g.every(r => r.source === source && r.value === g[0].value))
       .map(g => g.find(r => r.aggregation === 'minutes') ?? g[0]).sort((a, b) => a.start - b.start);
   };
-  const hv = observations(hrv), hr = observations(heart);
+  const hv = observations(hrv), hr = observations(rmssd ? heart.filter(r => r.source === source) : heart);
   const summarize = session => {
     const values = hv.filter(r => inSleep(r.start, session));
     const windows = hr.filter(r => inSleep(r.start, session) && inSleep(r.end - 1, session));
@@ -187,7 +187,9 @@ export function evaluateHealthIndices(series, now, previous = null, options = {}
   };
   const hrvHistory = cleanHistory(hrv).filter(r => !rmssd || (r.aggregation ?? 'raw') === (current?.aggregation ?? 'raw'));
   const hrvBaseline = current ? baseline(hrvHistory, current, 30, true) : { days: 0, median: null };
-  const heartBaseline = current ? baseline(cleanHistory(heart), current, rmssd ? 30 : 7, false, rmssd) : { days: 0, median: null };
+  // Minute normalization must not make another source invalidate this device's baseline.
+  const heartHistory = rmssd && current ? heart.filter(r => r.source === current.source) : heart;
+  const heartBaseline = current ? baseline(cleanHistory(heartHistory), current, rmssd ? 30 : 7, false, rmssd) : { days: 0, median: null };
   const recentHrv = current && rmssd ? hrv.filter(r => r.start > current.start - RMSSD_WINDOW && r.start <= current.start &&
     r.source === current.source && (r.aggregation ?? 'raw') === (current.aggregation ?? 'raw')) : [];
   const windowHrv = cleanHistory(recentHrv).filter(r => !excluded((r.end ?? r.start + 1) - 1));

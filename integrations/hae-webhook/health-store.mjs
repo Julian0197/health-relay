@@ -22,7 +22,7 @@ const DASHBOARD_CACHE_THROTTLE_MS = 2 * 60000;
 // With no changed data, retain the published snapshot until its actual expiry or midnight.
 const PRESSURE_REPLAY_BATCH = 24;
 const PRESSURE_REPLAY_INTERVAL_MS = 1000;
-const INDICES_CACHE_VERSION = 'health-indices-cache-v6';
+const INDICES_CACHE_VERSION = 'health-indices-cache-v7';
 const initialDelivery = () => ({ pending: false, lastSentAt: null, sentContent: null, dueAt: null, attempts: 0, error: null });
 const reply = data => Response.json(data, { headers: { 'Cache-Control': 'no-store' } });
 const nextMidnight = now => Math.floor((now + 8 * HOUR) / (24 * HOUR)) * 24 * HOUR + 16 * HOUR;

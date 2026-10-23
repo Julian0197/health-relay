@@ -191,10 +191,21 @@ public struct SyncState: Codable, Sendable {
     }
 }
 public enum SyncIdentity {
+    private static let heartSeriesGeneration = "heart-series-v1"
     private struct QueryIdentity: Encodable { var data: DataSelection; var range: DateRange; var export: ExportSettings }
     private struct RequestIdentity: Encodable { var query: QueryIdentity; var destination: HTTPDestination; var device: ExecutionDevice? }
     public static func fingerprint(_ task: AutomationConfig) throws -> String {
         try digest(RequestIdentity(query: QueryIdentity(data: task.data, range: task.range, export: task.export), destination: task.destination, device: task.device == .watch ? .watch : nil))
+    }
+    // Reader upgrades must revisit confirmed samples without changing a frozen outbox's identity.
+    static func cycleFingerprint(_ task: AutomationConfig) throws -> String {
+        let request = try fingerprint(task)
+        return task.data.selections.contains { usesHeartSeries(task, selection: $0) }
+            ? request + ":" + heartSeriesGeneration : request
+    }
+    private static func usesHeartSeries(_ task: AutomationConfig, selection: MetricSelection) -> Bool {
+        task.export.format == "healthrelay.v1" && task.export.mode == .raw &&
+            selection.id == "HKQuantityTypeIdentifierHeartRate"
     }
     public static func key(_ task: AutomationConfig, selection: MetricSelection, now: Date) throws -> (String, TypeCheckpoint) {
         var calendar = Calendar(identifier: .gregorian); calendar.timeZone = TimeZone(identifier: task.export.timeZone)!
@@ -212,7 +223,8 @@ public enum SyncIdentity {
         let query = try digest(QueryIdentity(data: task.data, range: task.range, export: task.export))
         // An incremental lower bound is frozen in the saved checkpoint, never slid on a later run.
         let window = task.range.mode == .incremental ? "incremental" : "\(start.ISO8601Format())/\(end!.ISO8601Format())"
-        return (query + ":" + selection.id + ":" + window, TypeCheckpoint(start: start, end: end))
+        let generation = usesHeartSeries(task, selection: selection) ? ":" + heartSeriesGeneration : ""
+        return (query + ":" + selection.id + ":" + window + generation, TypeCheckpoint(start: start, end: end))
     }
     private static func digest<T: Encodable>(_ value: T) throws -> String {
         let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
