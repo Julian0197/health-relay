@@ -178,7 +178,7 @@ node integrations/hae-webhook/local-service.mjs /absolute/private-data/service-c
 
 妙笔运行应用需要该签名 Base 的阅读权限（通过运行时确认应用 ID，再为此表添加 `view` 协作者；不要开放公开分享）。`91403` 表示当前身份无文档权限。SDK 的 `base_records_search` 返回 `data.items`，文本字段可能是富文本数组；预览会提取文字，只展示绑定记录的标题。
 
-最终个人签名使用短链接 `https://magic.solutionsuite.cn/r?fid=YOUR_FUNCTION_ID&u=ENCODED_TARGET_URL`。`u` 明确控制浏览器跳转；只配置 Base 的 `url` 不能作为已验证的浏览器跳转依据。先确认函数 HTTP 200 的 `inline.i18n_title.zh_cn` 与 Base 一致，再验证 `/r` 重定向目标，最后在个人名片验证签名渲染与刷新。不要把聊天中的链接展开等同于已保存的个人签名。
+个人签名短链接格式示例为 `https://reader.example.com/r?fid=YOUR_FUNCTION_ID&u=ENCODED_TARGET_URL`，实际主机在私有配置中替换；示例地址不提供线上服务。`u` 明确控制浏览器跳转；只配置 Base 的 `url` 不能作为已验证的浏览器跳转依据。先确认函数 HTTP 200 的 `inline.i18n_title.zh_cn` 与 Base 一致，再验证 `/r` 重定向目标，最后在个人名片验证签名渲染与刷新。不要把聊天中的链接展开等同于已保存的个人签名。
 
 
 ## Apple Watch 日常与运动同步

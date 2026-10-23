@@ -41,7 +41,7 @@ export default { fetch(request, env) {
 let cacheWrites = 0, cached;
 const modules = ['worker', 'health-card', 'overview-card', 'health-state', 'health-store', 'sql-usage', 'workouts', 'delivery', 'series', 'analysis',
   'signature', 'physiology', 'health-indices', 'health-profile', 'health-signature', 'dashboard',
-  'pressure-history', 'dashboard-auth', 'dashboard-cache', 'signature-phrases', 'signature-holidays', 'miaobi'];
+  'pressure-history', 'dashboard-auth', 'dashboard-cache', 'signature-phrases', 'signature-holidays', 'miaobi', 'badge', 'badge-cache-publisher'];
 const options = { cf: false, resourcePersistencePath: storagePath, workers: [{
   name: 'hae-event-refresh-test', modules: [{ type: 'ESModule',
     path: fileURLToPath(new URL('./event-refresh-probe.mjs', import.meta.url)), contents: probe },

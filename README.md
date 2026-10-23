@@ -4,7 +4,7 @@
 
 项目先在 iPhone 上跑通「配置任务 → 读取 Apple 健康 → 导出上传 → 失败重试」，逐项对齐 Health Auto Export（下文简称 HAE）的常用流程，再把适合的任务交给 Watch：在手表获得 HealthKit 数据变化通知或系统执行机会时，读取本机数据并直接上报，减少等待数据同步到手机的时间。
 
-你可以选择指标、来源、时间范围、汇总粒度、执行条件和 HTTPS 接口。仓库也提供一套从 `watch_monitor` 迁入的下游服务：**Cloudflare 存储与计算 → 飞书动态签名 / 群消息 → HTML 健康看板**。
+你可以选择指标、来源、时间范围、汇总粒度、执行条件和 HTTPS 接口。仓库也提供一套从 `watch_monitor` 迁入的下游服务：**Cloudflare 存储与计算 → 飞书动态签名 / 群消息 → HTML 健康看板与 Wi-Fi 工卡**。
 
 ### iOS 界面
 
@@ -21,6 +21,7 @@
 - **iPhone**：任务配置、AI 配置参考、JSON 粘贴／批量导入与校验、脱敏导出、HealthKit 读取、原生 JSON / CSV / Markdown、部分 HAE JSON / CSV、历史补传、持久重试和快捷指令入口已有实现。先在 iPhone 完成所需指标的实际对照，再切换执行设备。
 - **Watch**：已实现配置同步、本机授权与认证、数据读取、后台文件上传和回执处理；真机配对、自然唤醒与长期可靠性仍待验收。
 - **下游服务**：五流接收、SQLite 存储、确定性状态算法、签名发布、加签群卡和 HTML 看板已迁入；群卡支持四项健康指标、最近锻炼及 7 天消耗图，与看板评分同源；附五份可导入的 HealthRelay 配置及完整五流配置说明。
+- **AI Passport 工卡**：三页看板：首页放大时钟、突出压力主卡和心率／HRV 双卡，保留各自测量时间；另两页展示七晚睡眠分期与当天得分、合并运动和活动指标。双 Wi-Fi 配网、每 30 分钟更新、60 秒自动息屏和按键唤醒。默认 CPU 80MHz、背光 45%、按键扫描 20ms；续航尚未实测。源码、私有缓存读取链路和本地合成调试已集成，见[工卡说明](docs/ai-passport-health.md)。
 
 目前尚未完整替代 HAE。锻炼与扩展 HAE JSON 已实现；本轮按实机文件修正了中文健康指标 CSV 宽表（106 项数量指标与睡眠），并保留旧待发送批次的重试入口。真实运动数据行、CSV 跨指标整包与 REST 传输、两端自然后台连续运行仍待验收，详见[HEA 对照记录](docs/implementation-hea.md)。30 分钟等配置表示期望最小执行间隔，实际后台时机由系统决定。详见[能力表](docs/capabilities.md)和[迁移验收](docs/service-migration.md)。
 
@@ -39,6 +40,9 @@ flowchart TD
     Store --> Card[加签 webhook → 绑定的飞书群]
     Store --> Display[独立展示 Base：24h / 7d 快照]
     Display --> HTML[HTML 看板：React / ECharts]
+    Score --> BadgeCache[专用私有 Base：工卡摘要]
+    BadgeCache --> BadgeReader[妙笔：鉴权只读 HTTP FaaS]
+    BadgeReader --> Badge[AI Passport：Wi-Fi / C / LVGL]
 ```
 
 下图为迁入 HTML 看板的本地合成预览：
@@ -52,6 +56,7 @@ packages/HealthRelayCore/       配置、编码、增量游标、重试与回执
 shared/                        两端复用的 HealthKit 与后台生命周期逻辑
 ios/                           iPhone App、Xcode 工程与原生测试
 watch/                         Watch companion
+integrations/ai-passport-health/ 固件应用补丁、初始化工具、妙笔读取器
 integrations/hae-webhook/       Cloudflare 接收、存储、算法与飞书发布
   dashboard-app/               HTML 模板、前端、构建和脱敏预览
 examples/watch-monitor/        迁移后的五流说明与五份可导入配置
@@ -70,6 +75,7 @@ docs/                          架构、使用、调试和实现记录
 | 部署 Cloudflare、绑定群 webhook、启用签名 | [服务部署与飞书接入](docs/services.md) |
 | 理解自动签名、压力与睡眠计算 | [算法与发布规则](docs/signature-algorithm.md) |
 | 生成、预览、发布 HTML 看板 | [看板开发说明](integrations/hae-webhook/dashboard-app/README.md) |
+| 部署 Wi-Fi 健康工卡、在本地调试数据流 | [AI Passport 工卡](docs/ai-passport-health.md) |
 | 用 iPhone Use 调试真机 | [iPhone Use 调试](docs/debugging-iphone-use.md) |
 | 查看协议、实现记录与尚未验收的能力 | [完整文档目录](docs/README.md) |
 
@@ -101,6 +107,10 @@ npm --prefix integrations/hae-webhook test
 npm --prefix integrations/hae-webhook run test:contract  # 需要 Swift
 npm --prefix integrations/hae-webhook run test:runtime
 
+# Wi-Fi 工卡：本地 workerd + 合成数据，所有外部发布均被 Mock 拦截
+npm --prefix integrations/hae-webhook run dev:badge
+# 另一个终端：curl -H 'X-API-Key: synthetic-device-key' http://127.0.0.1:8788/badge
+
 # HTML 看板：本地预览不需要飞书账号
 npm --prefix integrations/hae-webhook/dashboard-app ci --ignore-scripts
 npm --prefix integrations/hae-webhook/dashboard-app run preview
@@ -110,8 +120,8 @@ npm --prefix integrations/hae-webhook/dashboard-app run preview
 
 ## 隐私与开源
 
-公开仓库只保存代码、脱敏配置和合成数据。API key、webhook、签名 secret、Base / 文档资源 ID、Magic 授权码及健康导出保留在本机忽略文件或 Cloudflare Secrets；发布后的带授权 HTML 也不得提交。提交前运行 `python3 scripts/check_public_artifacts.py`，并人工检查截图和暂存内容。
+公开仓库只保存代码、脱敏配置和合成数据。工卡托管读取主机使用 `reader.example.com` 占位，实际主机只在私有源码／工具副本中替换后构建和初始化。API key、webhook、签名 secret、Base / 文档资源 ID、Magic 授权码及健康导出保留在本机忽略文件或 Cloudflare Secrets；发布后的带授权 HTML 也不得提交。提交前运行 `python3 scripts/check_public_artifacts.py`，并人工检查截图和暂存内容。
 
 本次迁移复制了可运行的服务代码与任务规则；原生产服务、云端数据和真实群绑定未被切换。[迁移记录](docs/service-migration.md)列出来源、验证与差距。
 
-MIT License。HealthRelay 与 Health Auto Export / HealthyApps 无隶属关系，不包含其二进制、反编译实现或素材。
+MIT License；工卡固件基于 FoloToy AI Passport，保留[上游版权声明](integrations/ai-passport-health/LICENSE.firmware)。HealthRelay 与 Health Auto Export / HealthyApps 无隶属关系，不包含其二进制、反编译实现或素材。

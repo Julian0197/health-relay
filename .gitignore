@@ -27,3 +27,7 @@ wrangler.local.jsonc
 *.deploy.html
 *.release.html
 *.payload.json
+
+# Python helper bytecode
+__pycache__/
+*.py[cod]

@@ -24,7 +24,8 @@ class PublicArtifactsTests(unittest.TestCase):
         value = "NotAnActualCredential9A72"
         for key in ("HAE_API_KEY", "ANALYSIS_API_KEY", "FEISHU_SIGN_SECRET",
                     "FEISHU_APP_SECRET", "MAGIC_INIT_CODE", "initCode",
-                    "SIGNATURE_BASE_TOKEN", "DASHBOARD_CACHE_BASE_TOKEN"):
+                    "SIGNATURE_BASE_TOKEN", "DASHBOARD_CACHE_BASE_TOKEN", "BADGE_API_KEY",
+                    "BADGE_CACHE_BASE_TOKEN", "BADGE_CACHE_TABLE_ID", "BADGE_CACHE_RECORD_ID"):
             for line in (f'{key}={value}', f'"{key}": "{value}"', f"const {key} = '{value}';"):
                 with self.subTest(key=key, syntax=line.split(value)[0]):
                     (self.root / "config.txt").write_text(line)
