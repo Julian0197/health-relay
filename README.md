@@ -41,6 +41,25 @@ flowchart TD
     Display --> HTML[HTML 看板：React / ECharts]
 ```
 
+原生 SDNN 链路使用独立的 `native-worker.mjs`：iPhone / Apple Watch 通过 HTTPS 上传原生 JSON，Cloudflare 的 SQLite Durable Object 保存明细和回执、完成计算，并由 Alarm 调度发布。签名 Base 只保存固定记录的 `title`；独立展示 Base 保存 `24h / 7d` JSON 快照，供飞书文档中的 Magic SDK 消费。原始明细和评分均在 Cloudflare，运行时无需 Mac，也无需群通知。
+
+| 脚本 | 运行位置与职责 |
+| --- | --- |
+| `native-worker.mjs` / `native-health-store.mjs` | Cloudflare：鉴权、入库、受保护的诊断接口、Alarm 与发布重试 |
+| `native-domain.mjs` / `native-repository.mjs` / `native-projection.mjs` | 云端原生校验、SDNN 归一化、事务回执、增量缓存及指标投影；Node SQLite 测试适配器验证相同逻辑 |
+| `health-indices.mjs` / `native-activity.mjs` / `health-signature.mjs` | Cloudflare：现有 SDNN 压力、睡眠、活动汇总及签名文案 |
+| `dashboard.mjs` / `dashboard-cache.mjs` / `miaobi.mjs` | Cloudflare：同一计算结果生成展示快照，调用飞书应用 API 写表并读回校验 |
+| `magic-preview.cjs` / `dashboard-app` | 飞书云端：妙笔读取签名 `title`；HTMLBox 读取独立展示 Base |
+| `local-service.mjs` / `native-store.mjs` / `bake-release.mjs` | Mac：现有本地接收与 RMSSD 服务 / 构建发布工具，不参与云端任务日常运行 |
+
+原生协议、固定增量起点、部署与回滚见 [原生 SDNN 云端服务](docs/native-cloud.md)。上图保留整体架构；群卡和五流接收属于另一套可选 HAE 服务，不是原生 SDNN 上传的前置条件。
+
+云端 SDNN 入口需要显式选择 SDNN 的设备任务。此变更保留现有客户端预设、本地 RMSSD 接收器和心率明细支持，不要求重新打包 App；客户端固定起点支持属于独立变更。
+
+2026-10-26 切换验收：原生云端服务已部署，iPhone 已切换独立增量任务；停止 Mac 服务后再次上传并确认回执，飞书签名与私有文档看板随后自动更新。旧任务和数据库已保留。
+
+同日按需追加历史补传：已从 iPhone HealthKit 补传 9 月 21 日起的睡眠、HRV（SDNN）及现有其他指标，使用独立补传进度，日常增量任务保持不变。
+
 下图为迁入 HTML 看板的本地合成预览：
 
 <img src="docs/images/dashboard-demo.jpg" width="900" alt="合成数据健康看板预览">

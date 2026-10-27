@@ -6,6 +6,7 @@
 | --- | --- |
 | [架构与边界](architecture.md) | iPhone / Watch、同步确认、Cloudflare、飞书和 HTML 数据流 |
 | [自动化配置迁移](automation-profile.md) | 原五流规则、五份可导入配置、HAE 对照与切换条件 |
+| [原生 SDNN 云端服务](native-cloud.md) | 固定增量起点、原生 JSON / 事务回执、Alarm、独立展示 Base 与回滚 |
 | [服务部署与飞书接入](services.md) | Cloudflare Secrets、群机器人、Base 签名和展示副本 |
 | [算法与发布规则](signature-algorithm.md) | 压力、睡眠、文案选择与 webhook HMAC |
 | [iPhone Use 调试](debugging-iphone-use.md) | PUA setup / READY、UI 测试和后台证据 |

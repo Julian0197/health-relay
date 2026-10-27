@@ -38,7 +38,7 @@ export default { fetch(request, env) {
   return handleRequest(request, env);
 } };
 `;
-let cacheWrites = 0, cached;
+let cacheWrites = 0, cached, cacheFields;
 const modules = ['worker', 'health-card', 'overview-card', 'health-state', 'health-store', 'sql-usage', 'workouts', 'delivery', 'series', 'analysis',
   'signature', 'physiology', 'health-indices', 'health-profile', 'health-signature', 'dashboard',
   'pressure-history', 'dashboard-auth', 'dashboard-cache', 'signature-phrases', 'signature-holidays', 'miaobi'];
@@ -56,8 +56,10 @@ const options = { cf: false, resourcePersistencePath: storagePath, workers: [{
     const path = new URL(request.url).pathname;
     if (path === '/open-apis/auth/v3/tenant_access_token/internal') return Response.json({ code: 0, tenant_access_token: 'fixture', expire: 7200 });
     if (path === '/open-apis/bitable/v1/apps/base/tables/cache/records/cache') {
+      if (request.method === 'GET') return Response.json({ code: 0, data: { record: { record_id: 'cache', fields: cacheFields } } });
       assert.equal(request.method, 'PUT');
       const { fields } = await request.json();
+      cacheFields = fields;
       cached = JSON.parse(fields.payload_24h); cacheWrites++;
       return Response.json({ code: 0, data: { record: { record_id: 'cache', fields } } });
     }

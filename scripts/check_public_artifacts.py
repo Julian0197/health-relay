@@ -19,7 +19,7 @@ patterns = {
     "live webhook": r"/open-apis/bot/v2/hook/[a-f0-9]{8}-[a-f0-9-]{27,}",
     "access token": r"\b(?:ghp_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,})\b",
 }
-credential_keys = r"(?:HAE_API_KEY|ANALYSIS_API_KEY|FEISHU_SIGN_SECRET|FEISHU_APP_SECRET|SIGNATURE_BASE_TOKEN|DASHBOARD_CACHE_BASE_TOKEN|MAGIC_INIT_CODE|initCode)"
+credential_keys = r"(?:HAE_API_KEY|NATIVE_API_KEY|ANALYSIS_API_KEY|FEISHU_SIGN_SECRET|FEISHU_APP_SECRET|SIGNATURE_BASE_TOKEN|DASHBOARD_CACHE_BASE_TOKEN|MAGIC_INIT_CODE|initCode)"
 credential_assignments = [
     re.compile(r"\b" + credential_keys + r"[\"']?\s*[:=]\s*(?P<quote>[\"'])(?P<value>[^\"']+)(?P=quote)"),
     re.compile(r"^\s*(?:export\s+)?" + credential_keys + r"=(?P<value>[^\s\"'#;]+)\s*(?:#.*)?$"),

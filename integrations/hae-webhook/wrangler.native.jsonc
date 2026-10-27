@@ -1,0 +1,11 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "healthrelay-native",
+  "main": "native-worker.mjs",
+  "compatibility_date": "2026-09-01",
+  "workers_dev": true,
+  "observability": { "enabled": false },
+  "durable_objects": { "bindings": [{ "name": "NATIVE_STORE", "class_name": "NativeHealthStore" }] },
+  "migrations": [{ "tag": "native-v1", "new_sqlite_classes": ["NativeHealthStore"] }],
+  "vars": { "SIGNATURE_ENABLED": "false" }
+}

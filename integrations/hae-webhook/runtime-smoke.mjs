@@ -22,6 +22,7 @@ const options = { cf: false, resourcePersistencePath: storagePath, workers: [{
     const path = new URL(request.url).pathname;
     if (path === '/open-apis/auth/v3/tenant_access_token/internal') return Response.json({ code: 0, tenant_access_token: 'fixture', expire: 7200 });
     if (path === '/open-apis/bitable/v1/apps/base/tables/cachtable/records/cachrec') {
+      if (request.method === 'GET') return Response.json({ code: 0, data: { record: { record_id: 'cachrec', fields: cacheFields } } });
       assert.equal(request.method, 'PUT');
       const body = await request.json();
       assert.deepEqual(Object.keys(body.fields), ['payload_24h', 'payload_7d', 'generated_at']);

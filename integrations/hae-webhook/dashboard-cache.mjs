@@ -6,7 +6,25 @@
 // base token defaults to SIGNATURE_BASE_TOKEN (same private Base), overridden by
 // DASHBOARD_CACHE_BASE_TOKEN. The Worker's Feishu app needs edit access to the record.
 import { MiaobiPublisher } from './miaobi.mjs';
-import { dashboardForReaders } from './dashboard.mjs';
+import { dashboardForReaders, bucketHeartPoints, contentHash } from './dashboard.mjs';
+
+// Leave room below the text-cell limit, including JSON string escaping. In live
+// Base writes, an oversized encoded value can be echoed but leave the cell old.
+const MAX_CELL_BYTES = 99000;
+function readerPayload(payload) {
+  const view = dashboardForReaders(JSON.parse(payload));
+  let bucketMs = (view.heart?.bucketMinutes ?? 1) * 60000;
+  for (;;) {
+    const text = JSON.stringify(view);
+    if (new TextEncoder().encode(JSON.stringify(text)).length <= MAX_CELL_BYTES) return text;
+    if (!view.heart?.points?.length || view.heart.points.length <= 1) return null;
+    bucketMs *= 2;
+    view.heart = { ...view.heart, points: bucketHeartPoints(view.heart.points, bucketMs), bucketMinutes: bucketMs / 60000 };
+    delete view.contentHash;
+    view.contentHash = contentHash(view);
+  }
+}
+const fieldText = value => Array.isArray(value) ? value.map(part => part.text ?? '').join('') : value;
 
 // 7d minute windows would overflow a text cell; 10-min buckets keep it well under 100k chars
 // while staying far above the ~640px chart resolution for a week. Bucketing happens inside
@@ -21,8 +39,9 @@ export const dashboardCacheEnabled = env =>
 
 export class DashboardCachePublisher extends MiaobiPublisher {
   async publish({ payload24h, payload7d, generatedAt }) {
-    const reader24h = JSON.stringify(dashboardForReaders(JSON.parse(payload24h)));
-    const reader7d = JSON.stringify(dashboardForReaders(JSON.parse(payload7d)));
+    const reader24h = readerPayload(payload24h);
+    const reader7d = readerPayload(payload7d);
+    if (reader24h === null || reader7d === null) return { ok: false, error: { reason: 'dashboard_payload_too_large' } };
     const base = encodeURIComponent(this.env.DASHBOARD_CACHE_BASE_TOKEN || this.env.SIGNATURE_BASE_TOKEN);
     const table = encodeURIComponent(this.env.DASHBOARD_CACHE_TABLE_ID);
     const expectedRecordId = this.env.DASHBOARD_CACHE_RECORD_ID;
@@ -40,6 +59,16 @@ export class DashboardCachePublisher extends MiaobiPublisher {
       const fields = result.data.data.record.fields;
       const mismatched = ['payload_24h', 'payload_7d'].filter(key => fields?.[key] !== (key === 'payload_24h' ? reader24h : reader7d));
       if (mismatched.length) return { ok: false, error: { reason: 'partial_record_response', fields: mismatched } };
+      const read = await this.request(
+        `bitable/v1/apps/${base}/tables/${table}/records/${encodeURIComponent(expectedRecordId)}`, 'GET', undefined, token,
+      );
+      if (!read.ok) return read;
+      const record = read.data.data?.record;
+      const stale = ['payload_24h', 'payload_7d'].filter(key =>
+        fieldText(record?.fields?.[key]) !== (key === 'payload_24h' ? reader24h : reader7d));
+      if (record?.record_id !== expectedRecordId || stale.length) {
+        return { ok: false, error: { reason: 'record_readback_mismatch', fields: stale } };
+      }
       return { ok: true };
     });
   }

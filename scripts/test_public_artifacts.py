@@ -22,7 +22,7 @@ class PublicArtifactsTests(unittest.TestCase):
 
     def test_rejects_credential_assignments_without_printing_values(self):
         value = "NotAnActualCredential9A72"
-        for key in ("HAE_API_KEY", "ANALYSIS_API_KEY", "FEISHU_SIGN_SECRET",
+        for key in ("HAE_API_KEY", "NATIVE_API_KEY", "ANALYSIS_API_KEY", "FEISHU_SIGN_SECRET",
                     "FEISHU_APP_SECRET", "MAGIC_INIT_CODE", "initCode",
                     "SIGNATURE_BASE_TOKEN", "DASHBOARD_CACHE_BASE_TOKEN"):
             for line in (f'{key}={value}', f'"{key}": "{value}"', f"const {key} = '{value}';"):

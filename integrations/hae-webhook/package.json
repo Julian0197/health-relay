@@ -11,6 +11,9 @@
     "test:refresh": "node event-refresh-runtime.mjs node_modules/miniflare/dist/src/index.js",
     "test:replay": "node pressure-replay-runtime.mjs node_modules/miniflare/dist/src/index.js",
     "test:read-budget": "node read-budget-runtime.mjs node_modules/miniflare/dist/src/index.js",
+    "test:native": "node native-runtime.mjs node_modules/miniflare/dist/src/index.js",
+    "test:native-budget": "node native-free-budget-runtime.mjs node_modules/miniflare/dist/src/index.js",
+    "check:native": "wrangler deploy --config wrangler.native.jsonc --dry-run --outdir dist/native",
     "bench": "node bench-runtime.mjs node_modules/miniflare/dist/src/index.js",
     "dev": "wrangler dev --local",
     "check:deploy": "wrangler deploy --dry-run --outdir dist/worker"
