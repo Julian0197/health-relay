@@ -63,6 +63,7 @@ export default { fetch(request, env) {
 const { readdirSync } = await import('node:fs');
 const modules = readdirSync(root).filter(name => name.endsWith('.mjs') && !/\.test\.mjs$|-runtime\.mjs$|runtime-smoke|healthrelay-contract|sql-test-helper|gateway|signature-replay/.test(name));
 const published = { signature: [], cache: [] };
+let cacheFields;
 let failNextSignature = false;
 const options = { cf: false, resourcePersistencePath: storagePath, workers: [{
   name: 'hae-bench', compatibilityDate: '2026-09-01',
@@ -78,7 +79,9 @@ const options = { cf: false, resourcePersistencePath: storagePath, workers: [{
     const path = new URL(request.url).pathname;
     if (path.endsWith('/tenant_access_token/internal')) return Response.json({ code: 0, tenant_access_token: 'fixture', expire: 7200 });
     if (path.endsWith('/tables/cache/records/cache')) {
+      if (request.method === 'GET') return Response.json({ code: 0, data: { record: { record_id: 'cache', fields: cacheFields } } });
       const { fields } = await request.json();
+      cacheFields = fields;
       if (process.env.BENCH_TRACE) console.error('cache write', JSON.parse(fields.payload_24h).generatedAt - began, JSON.parse(fields.payload_24h).publication?.pending);
       published.cache.push({ payload24hChars: fields.payload_24h.length, payload7dChars: fields.payload_7d.length,
         publication: JSON.parse(fields.payload_24h).publication,
