@@ -43,7 +43,8 @@ export class NativeHealthStore {
   async fetch(request) {
     const url = new URL(request.url), now = this.clock();
     try {
-      if (request.method === 'GET' && url.pathname === '/status') return reply(this.status(now));
+      if (request.method === 'GET' && url.pathname === '/status') return reply({ ...this.status(now),
+        scheduledAlarmAt: await this.storage.getAlarm() });
       if (request.method === 'GET' && url.pathname === '/dashboard') {
         const range = dashboardRange(url.searchParams.get('range') ?? '24h');
         if (!range) return reply({ error: 'invalid_range' }, 400);
@@ -86,7 +87,10 @@ export class NativeHealthStore {
     const existing = await this.storage.getAlarm();
     if (times.length) {
       const at = Math.max(now+1000, Math.min(...times));
-      if (existing !== at && (!keepEarlier || existing === null || existing > at)) await this.storage.setAlarm(at);
+      // Platform retries are finite. A stale alarm after a long quota/storage outage
+      // needs a new setAlarm call; preserve healthy, briefly overdue alarms.
+      const stale = Number.isFinite(existing) && existing <= now-PUBLISH_INTERVAL;
+      if (existing !== at && (stale || !keepEarlier || existing === null || existing > at)) await this.storage.setAlarm(at);
     } else if (existing !== null) await this.storage.deleteAlarm();
   }
   async publishTitle(title) {

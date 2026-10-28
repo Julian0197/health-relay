@@ -161,6 +161,37 @@ test('new uploads do not postpone an overdue publication alarm', async t => {
   assert.match(f.title, /心率80/);
 });
 
+test('new ingestion rearms an alarm left stale by a long storage outage', async t => {
+  const f = fixture(t);
+  await f.ingest('first', [sample('HeartRate', 'heart', 72, 'count/min')]);
+  const recovered = f.alarm+86400000;
+  f.setClock(recovered);
+  const response = await f.ingest('after-quota-reset', [sample('HeartRate', 'heart', 81, 'count/min', recovered)]);
+  assert.equal(response.status, 200);
+  assert.equal(f.alarm, recovered+1000, 'an expired alarm must be set again after platform retries are exhausted');
+  assert.equal(f.sends, 0, 'ingestion still acknowledges without waiting for publication');
+  f.setClock(f.alarm); await f.store.alarm();
+  assert.match(f.title, /心率81/);
+  assert.equal((await f.status()).signatureDelivery.dueAt, null);
+});
+
+test('retrying a committed batch also repairs stale scheduling without adding data', async t => {
+  const f = fixture(t), records = [sample('HeartRate', 'heart', 72, 'count/min')];
+  const receipt = await (await f.ingest('same', records)).json();
+  const recovered = f.alarm+6*60000;
+  f.setClock(recovered);
+  assert.deepEqual(await (await f.ingest('same', records)).json(), receipt);
+  assert.equal(f.alarm, recovered+1000);
+  const status = await f.status();
+  assert.equal(status.recordCount, 1); assert.equal(status.batchCount, 1);
+});
+
+test('diagnostic status reports the platform alarm separately from logical due dates', async t => {
+  const f = fixture(t);
+  await f.ingest('first', [sample('HeartRate', 'heart', 72, 'count/min')]);
+  assert.equal((await f.status()).scheduledAlarmAt, f.alarm);
+});
+
 test('a minute-by-minute upload burst coalesces publication while retaining the newest facts', async t => {
   const f = fixture(t);
   for (let minute = 0; minute < 60; minute++) {
