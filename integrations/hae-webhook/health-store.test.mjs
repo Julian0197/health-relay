@@ -140,39 +140,49 @@ test('cached decisions from before heart-source isolation are recomputed after u
   assert.equal(result.ruleVersion, 'health-indices-v4-nightly');
 });
 
-test('signature and read-only snapshot use recorded daily pressure while the current pair is missing', async () => {
+test('signature uses the latest observation rather than the daily median when current pressure is missing', async () => {
   const f = signatureFixture(undefined, 'health-indices-v1');
   const ruleVersion = evaluateHealthIndices({ hrv: [], heart: [], sleep: [], workout: [] }, f.now()).ruleVersion;
   for (let hours = 1; hours <= 3; hours++) f.store.pressureHistory.record({ ruleVersion,
-    pressure: { context: 'awake_sample', evidenceAt: f.now() - hours * 3600000, source: 'Watch', score: 45 } }, f.now());
+    pressure: { context: 'awake_sample', evidenceAt: f.now() - hours * 3600000, source: 'Watch', score: 45 + hours * 10 } }, f.now());
   await detailUpload(f);
   assert.equal(f.data().signatureCandidate.pressure.score, null);
-  assert.match(f.data().signatureDelivery.desiredTitle, /^🔵 状态正常/);
+  assert.match(f.data().signatureDelivery.desiredTitle, /^🔵 状态正常 /);
+  assert.equal(f.data().signatureCandidate.headline.score, 55);
+  assert.equal(f.store.pressureHistory.view(f.now(), '24h').days.at(-1).median, 65);
+  const dashboard = await (await f.store.fetch(new Request('https://store/dashboard?range=24h'))).json();
+  assert.equal(dashboard.healthIndices.headline.basis, 'retained');
+  assert.equal(dashboard.healthIndices.headline.score, 55);
+  assert.equal(dashboard.healthIndices.pressure.reason, f.data().signatureCandidate.pressure.reason);
   const before = f.store.pressureHistory.view(f.now(), '24h').points.length;
   const snapshot = await (await f.store.fetch(new Request('https://store/snapshot'))).json();
   assert.equal(snapshot.healthIndices.title, f.data().signatureDelivery.desiredTitle);
   assert.equal(f.store.pressureHistory.view(f.now(), '24h').points.length, before, 'reads do not create observations');
 });
 
-test('signature refresh and restart display a retained score without recording it as current', async () => {
+test('refresh and restart display the newest recorded pressure without changing current scoring', async () => {
   const f = signatureFixture(undefined, 'health-indices-v1');
   await detailUpload(f);
   const indices = f.data().signatureCandidate, at = f.now() - 26 * 3600000;
-  f.store.pressureHistory.record({ ruleVersion: indices.ruleVersion, pressure: {
-    source: indices.pressure.source, evidenceAt: at, score: 45, context: 'awake_sample',
-  } }, f.now());
+  for (const [evidenceAt, score] of [[at - 3600000, 83], [at, 45]]) {
+    f.store.pressureHistory.record({ ruleVersion: indices.ruleVersion, pressure: {
+      source: indices.pressure.source, evidenceAt, score, context: 'awake_sample',
+    } }, f.now());
+  }
   const count = f.store.storage.sql.exec('SELECT COUNT(*) AS n FROM pressure_observations').one().n;
   await f.store.fetch(new Request('https://store/signature/refresh', { method: 'POST' }));
-  // The signature names the state only; the dashboard headline records that it is historical.
-  assert.match(f.data().signatureDelivery.desiredTitle, /^🔵 状态正常 睡眠 - ｜/);
+  assert.ok(f.data().signatureDelivery.desiredTitle.startsWith('🔵 状态正常 '));
   assert.equal(f.data().signatureCandidate.headline.basis, 'retained');
-  assert.equal(f.data().signatureCandidate.headline.evidenceAt, at);
+  assert.equal(f.data().signatureCandidate.headline.score, 45);
   assert.equal(f.data().signatureCandidate.pressure.score, null);
-  assert.equal(f.data().signatureCandidate.lastValidPressure.evidenceAt, at);
   const restarted = new HealthStore({ storage: f.storage }, f.store.env, undefined, f.now);
   const snapshot = await (await restarted.fetch(new Request('https://store/snapshot'))).json();
-  assert.match(snapshot.healthIndices.title, /^🔵 状态正常 睡眠 - ｜/);
-  assert.equal(snapshot.healthIndices.lastValidPressure.score, 45);
+  assert.equal(snapshot.healthIndices.title, f.data().signatureDelivery.desiredTitle);
+  const dto = await (await restarted.fetch(new Request('https://store/dashboard?range=7d'))).json();
+  assert.equal(dto.healthIndices.pressure.score, 45);
+  assert.equal(dto.healthIndices.pressure.evidenceAt, at);
+  assert.equal(dto.healthIndices.pressure.retained, true);
+  assert.ok(dto.pressureHistory.points.some(point => point.t === at && point.score === 45));
   assert.equal(f.store.storage.sql.exec('SELECT COUNT(*) AS n FROM pressure_observations').one().n, count);
 });
 
@@ -447,7 +457,8 @@ test('explicit rebuild recovers delayed qualified windows without making the spa
   const snapshot = await (await f.store.fetch(new Request('https://store/snapshot'))).json();
   assert.equal(snapshot.healthIndices.pressure.score, null);
   assert.equal(snapshot.healthIndices.pressure.reason, 'insufficient_samples');
-  assert.match(snapshot.healthIndices.title, /^🔵 状态正常/);
+  assert.match(snapshot.healthIndices.title, /🔵 状态正常 /);
+  assert.equal(snapshot.healthIndices.headline.evidenceAt, history.points.at(-1).t);
   assert.equal(JSON.stringify(f.store.pressureHistory.view(f.now(), '24h').points), before, 'read-only snapshots do not rebuild');
 });
 
@@ -955,7 +966,7 @@ test('numeric signature mode publishes via durable alarm and repeated uploads do
   f.advance(60000); await f.store.alarm();
   assert.equal(f.writes.length, 1);
   assert.match(f.writes[0], /HRV/);
-  assert.match(f.writes[0], /压力暂无/);
+  assert.match(f.writes[0], /压力未判定/);
   assert.match(f.writes[0], /睡眠 - /);
   assert.doesNotMatch(f.writes[0], /待评估|待更新|—/);
   assert.equal(f.data().signatureDelivery.publishedDecision.mode, 'health-indices-v1');
@@ -1338,7 +1349,7 @@ test('the private dashboard shows the cached decision the signature uses, withou
   const dto = await (await f.store.fetch(new Request('https://store/dashboard?range=24h'))).json();
   assert.equal(evaluations, 0, 'a current cached decision is reused');
   assert.deepEqual(dto.healthIndices.headline, f.data().signatureCandidate.headline);
-  assert.equal(dto.healthIndices.textVersion, 'health-signature-text-v1');
+  assert.equal(dto.healthIndices.textVersion, 'health-signature-text-v4');
   assert.equal(dto.receivedAt, f.data().lastReceivedAt);
   assert.deepEqual(f.data(), before);
   assert.equal(f.store.storage.sql.exec('SELECT COUNT(*) AS n FROM pressure_observations').one().n, observations);
@@ -1401,3 +1412,20 @@ test('numeric group card shares dashboard scores, sends native chart and suppres
   assert.equal(cards.length, 1);
   assert.equal(f.data().delivery.sentContent, fingerprint);
 });
+
+for (const previousCache of ['health-indices-cache-v7', 'health-indices-cache-v9-plain-pressure']) {
+  test(`refresh unexpired pressure decision from ${previousCache}`, async () => {
+    const f = signatureFixture(undefined, 'health-indices-v1');
+    await detailUpload(f);
+    const state = f.data();
+    state.indicesCache.key = JSON.stringify([previousCache, f.store.healthProfile]);
+    state.indicesCache.decision.headline = { basis: 'retained', score: 83, label: '压力过载' };
+    state.indicesCache.decision.title = '🔴 压力过载';
+    await f.storage.put('state', state);
+    const restarted = new HealthStore({ storage: f.storage }, f.store.env, undefined, f.now);
+    const dto = await (await restarted.fetch(new Request('https://store/dashboard?range=24h'))).json();
+    assert.equal(dto.healthIndices.headline.score, null);
+    assert.equal(dto.healthIndices.pressure.score, null);
+    assert.equal(dto.healthIndices.textVersion, 'health-signature-text-v4');
+  });
+}
