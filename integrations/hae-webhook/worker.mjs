@@ -77,7 +77,7 @@ export async function handleRequest(request, env) {
   const path = new URL(request.url).pathname;
   if (path === '/healthz' && request.method === 'GET') return reply(200, { ok: true });
   const stream = ({ '/ingest': 'legacy', '/ingest/health': 'health', '/ingest/sleep': 'sleep', '/ingest/workouts': 'workouts', '/ingest/hrv': 'hrv', '/ingest/heart': 'heart', '/ingest/sleep-segments': 'sleep-segments' })[path];
-  const read = ['/status', '/card', '/analysis', '/snapshot', '/dashboard'].includes(path);
+  const read = ['/status', '/card', '/analysis', '/snapshot', '/dashboard', '/badge'].includes(path);
   const refresh = path === '/signature/refresh' || path === '/dashboard-cache/refresh';
   if (!stream && !read && !refresh) return reply(404, { error: 'not_found' });
   // Browser preflight carries no credentials; answer it before auth checks.
@@ -90,7 +90,8 @@ export async function handleRequest(request, env) {
   const cors = path === '/dashboard' ? dashboardCorsHeaders(env, request) : null;
   const apiKey = request.headers.get('X-API-Key');
   let authorized = timingSafeEqual(apiKey, env.HAE_API_KEY) ||
-    (read && Boolean(env.ANALYSIS_API_KEY) && timingSafeEqual(apiKey, env.ANALYSIS_API_KEY));
+    (read && Boolean(env.ANALYSIS_API_KEY) && timingSafeEqual(apiKey, env.ANALYSIS_API_KEY)) ||
+    (path === '/badge' && Boolean(env.BADGE_API_KEY) && timingSafeEqual(apiKey, env.BADGE_API_KEY));
   // The dashboard additionally accepts short-lived HMAC viewer assertions minted by the Miaobi FaaS.
   if (!authorized && path === '/dashboard') {
     const authHeader = request.headers.get('Authorization') ?? '';

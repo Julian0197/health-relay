@@ -14,6 +14,13 @@ SIGNATURE_RECORD_ID=""
 DASHBOARD_CACHE_BASE_TOKEN=""
 DASHBOARD_CACHE_TABLE_ID=""
 DASHBOARD_CACHE_RECORD_ID=""
+# Optional badge-only read credential and a separate private cache Base record.
+# Do not reuse the upload/analysis key or the publicly shared HTML dashboard record.
+# The Worker writes payload + credential_sha256; the badge reader only reads this record.
+BADGE_API_KEY=""
+BADGE_CACHE_BASE_TOKEN=""
+BADGE_CACHE_TABLE_ID=""
+BADGE_CACHE_RECORD_ID=""
 # Optional single-source scoring profile: configure ALL THREE together, or leave empty.
 HEALTH_DEVICE_PROFILE=""
 HEALTH_DEVICE_EPOCH_START=""

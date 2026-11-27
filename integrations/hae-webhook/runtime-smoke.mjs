@@ -5,16 +5,17 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { verifyBadgeBootstrap } from './badge-bootstrap-smoke.mjs';
 const { Miniflare, convertV4MiniflareOptions } = await import(pathToFileURL(process.argv[2]).href);
 const signatureMode = process.argv[3] ?? 'sync-status-v1';
 const storagePath = await mkdtemp(join(tmpdir(), 'hae-runtime-'));
 let sends = 0, sentCard, signatureWrites = 0, cacheWrites = 0, cacheFields = null;
 const options = { cf: false, resourcePersistencePath: storagePath, workers: [{
   name: 'hae-runtime-test',
-  modules: ['worker', 'health-card', 'overview-card', 'health-state', 'health-store', 'delivery', 'series', 'sql-usage', 'workouts', 'analysis', 'signature', 'physiology', 'health-indices', 'health-profile', 'health-signature', 'dashboard', 'pressure-history', 'dashboard-auth', 'dashboard-cache', 'signature-phrases', 'signature-holidays', 'miaobi'].map(name => ({ type: 'ESModule', path: fileURLToPath(new URL(`./${name}.mjs`, import.meta.url)) })),
+  modules: ['worker', 'health-card', 'overview-card', 'health-state', 'health-store', 'delivery', 'series', 'sql-usage', 'workouts', 'analysis', 'signature', 'physiology', 'health-indices', 'health-profile', 'health-signature', 'dashboard', 'pressure-history', 'dashboard-auth', 'dashboard-cache', 'signature-phrases', 'signature-holidays', 'miaobi', 'badge', 'badge-cache-publisher'].map(name => ({ type: 'ESModule', path: fileURLToPath(new URL(`./${name}.mjs`, import.meta.url)) })),
   compatibilityDate: '2026-09-01',
   durableObjects: { HEALTH_STORE: { className: 'HealthStore', useSQLite: true } },
-  bindings: { HAE_API_KEY: 'fixture', FEISHU_SIGN_SECRET: 'fixture', FEISHU_WEBHOOK_URL: 'https://open.larkoffice.com/open-apis/bot/v2/hook/fixture',
+  bindings: { HAE_API_KEY: 'fixture', BADGE_API_KEY: 'fixture-badge-only', FEISHU_SIGN_SECRET: 'fixture', FEISHU_WEBHOOK_URL: 'https://open.larkoffice.com/open-apis/bot/v2/hook/fixture',
     SIGNATURE_ENABLED: 'true', SIGNATURE_MODE: signatureMode, FEISHU_APP_ID: 'fixture', FEISHU_APP_SECRET: 'fixture',
     SIGNATURE_BASE_TOKEN: 'base', SIGNATURE_TABLE_ID: 'table', SIGNATURE_RECORD_ID: 'record',
     DASHBOARD_CACHE_TABLE_ID: 'cachtable', DASHBOARD_CACHE_RECORD_ID: 'cachrec' },
@@ -46,6 +47,7 @@ const options = { cf: false, resourcePersistencePath: storagePath, workers: [{
     return Response.json({ code: 0 });
   },
 }] };
+await verifyBadgeBootstrap(Miniflare, convertV4MiniflareOptions, options);
 let mf = new Miniflare(convertV4MiniflareOptions(options));
 const headers = { 'X-API-Key': 'fixture', 'X-HAE-Aggregation': 'days' };
 const date = new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10);
@@ -101,6 +103,23 @@ try {
   assert.equal(cached7d.heart.bucketMinutes, 10, '7d cache must bucket at build time');
   assert.equal(cached7d.heart.truncated, false);
   assert.ok(cached7d.heart.points.length <= 145, '1440 minutes bucket into ~144 ten-minute buckets');
+
+  const badgeHeaders = { 'X-API-Key': 'fixture-badge-only' };
+  const badgeResponse = await mf.dispatchFetch('http://local/badge', { headers: badgeHeaders });
+  assert.equal(badgeResponse.status, 200);
+  assert.equal(badgeResponse.headers.get('Cache-Control'), 'no-store');
+  const badge = await badgeResponse.json();
+  assert.equal(badge.v, 3); assert.equal(badge.steps, 1235);
+  assert.equal(badge.sleepWeek.length, 7); assert.deepEqual(badge.workoutTypes, ['Running']);
+  const badgeStatusBefore = await (await mf.dispatchFetch('http://local/status', { headers })).json();
+  for (let i = 0; i < 10; i++) {
+    assert.deepEqual(await (await mf.dispatchFetch('http://local/badge', { headers: badgeHeaders })).json(), badge);
+  }
+  const badgeStatusAfter = await (await mf.dispatchFetch('http://local/status', { headers })).json();
+  assert.equal(badgeStatusAfter.seriesReadStats.rowsRead, badgeStatusBefore.seriesReadStats.rowsRead,
+    'device polls must not reload history');
+  assert.equal(cacheWrites, 1); assert.equal(sends, 1);
+
   if (signatureMode === 'health-indices-v1') {
     assert.equal(sentCard.header.title.content, '健康速览');
     assert.match(JSON.stringify(sentCard), /跑步/);

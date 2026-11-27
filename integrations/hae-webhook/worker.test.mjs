@@ -298,12 +298,12 @@ test('dashboard accepts an HMAC viewer assertion without exposing API keys', asy
 
 test('dashboard preflight and CORS headers are origin-scoped', async () => {
   const authEnv = { ...env, DASHBOARD_VIEWER_SECRET: 's', DASHBOARD_VIEWER_OPENIDS: 'ou_owner',
-    DASHBOARD_VIEWER_ORIGINS: 'https://magic.solutionsuite.cn' };
+    DASHBOARD_VIEWER_ORIGINS: 'https://reader.example.com' };
   const preflight = await handleRequest(new Request('https://demo.test/dashboard', {
-    method: 'OPTIONS', headers: { Origin: 'https://magic.solutionsuite.cn' },
+    method: 'OPTIONS', headers: { Origin: 'https://reader.example.com' },
   }), authEnv);
   assert.equal(preflight.status, 204);
-  assert.equal(preflight.headers.get('Access-Control-Allow-Origin'), 'https://magic.solutionsuite.cn');
+  assert.equal(preflight.headers.get('Access-Control-Allow-Origin'), 'https://reader.example.com');
   assert.match(preflight.headers.get('Access-Control-Allow-Headers'), /If-None-Match/i);
   assert.match(preflight.headers.get('Access-Control-Expose-Headers'), /ETag/i);
   const foreign = await handleRequest(new Request('https://demo.test/dashboard', {
@@ -317,7 +317,7 @@ test('CORS is fail-closed with no configured origin, never a guessed platform de
   const authEnv = { ...env, DASHBOARD_VIEWER_SECRET: 's', DASHBOARD_VIEWER_OPENIDS: 'ou_owner' };
   // Even the former hard-coded default must not pass before it is observed and configured.
   const preflight = await handleRequest(new Request('https://demo.test/dashboard', {
-    method: 'OPTIONS', headers: { Origin: 'https://magic.solutionsuite.cn' },
+    method: 'OPTIONS', headers: { Origin: 'https://reader.example.com' },
   }), authEnv);
   assert.equal(preflight.status, 403);
   assert.equal(preflight.headers.get('Access-Control-Allow-Origin'), null);
@@ -356,4 +356,30 @@ test('workout batches may exceed the one-MiB general limit; other streams may no
   const rejected = await handleRequest(req('/ingest/health', metrics), env);
   assert.equal(rejected.status, 413);
   assert.equal((await rejected.json()).error, 'body_too_large');
+});
+
+
+test('device credential reads only /badge and is accepted only in the API key header', async () => {
+  let calls = 0;
+  const badgeEnv = { ...env, BADGE_API_KEY: 'fixture-device-only',
+    HEALTH_STORE: { idFromName: () => 'personal', get: () => ({ fetch: async request => {
+      calls++; assert.equal(new URL(request.url).pathname, '/badge');
+      return Response.json({ v: 3, pressure: null });
+    } }) } };
+  const headers = { 'X-API-Key': badgeEnv.BADGE_API_KEY };
+  const response = await handleRequest(new Request('https://demo.test/badge', { headers }), badgeEnv);
+  assert.equal(response.status, 200); assert.equal(calls, 1);
+  for (const path of ['/status', '/card', '/analysis', '/snapshot', '/dashboard']) {
+    assert.equal((await handleRequest(new Request(`https://demo.test${path}`, { headers }), badgeEnv)).status, 401);
+  }
+  for (const path of ['/ingest', '/signature/refresh', '/dashboard-cache/refresh']) {
+    assert.equal((await handleRequest(new Request(`https://demo.test${path}`, { method: 'POST', headers, body: '{}' }), badgeEnv)).status, 401);
+  }
+  for (const request of [new Request('https://demo.test/badge'),
+    new Request('https://demo.test/badge?key=fixture-device-only'),
+    new Request('https://demo.test/badge', { headers: { Authorization: 'Bearer fixture-device-only' } })]) {
+    assert.equal((await handleRequest(request, badgeEnv)).status, 401);
+  }
+  assert.equal((await handleRequest(new Request('https://demo.test/badge', { method: 'POST', headers }), badgeEnv)).status, 405);
+  assert.equal(calls, 1);
 });
