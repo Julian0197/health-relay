@@ -1,9 +1,75 @@
+diff --git a/components/bsp/CMakeLists.txt b/components/bsp/CMakeLists.txt
+index d1e6af6..e670c3a 100644
+--- a/components/bsp/CMakeLists.txt
++++ b/components/bsp/CMakeLists.txt
+@@ -1,6 +1,7 @@
+ idf_component_register(
+     SRCS "src/bsp_i2c.c"
+          "src/bsp_display.c"
++         "src/bsp_display_sleep.c"
+          "src/bsp_display_lvgl.c"
+          "src/bsp_display_rounding.c"
+          "src/bsp_button.c"
+diff --git a/components/bsp/include/bsp_display.h b/components/bsp/include/bsp_display.h
+index 229eb90..40b37d0 100644
+--- a/components/bsp/include/bsp_display.h
++++ b/components/bsp/include/bsp_display.h
+@@ -24,6 +24,10 @@ esp_lcd_panel_io_handle_t bsp_display_io(void);
+ // 背光亮度 0..100(%)。LEDC PWM,0=全灭。
+ void bsp_display_backlight(uint8_t percent);
+ 
++// Reversible LCD sleep. Pause LVGL and hold its lock before calling.
++// The caller controls backlight brightness and redraws before waking it.
++esp_err_t bsp_display_sleep(bool asleep);
++
+ // deep sleep 专用：关闭显示、让 ST7789 进入 Sleep In，停止背光 PWM，
+ // 将 CS/SCLK/MOSI/DC/背光设为安全电平并在 deep sleep 中保持。调用时必须
+ // 已阻止 LVGL 刷屏，调用后必须立即进入 deep sleep 或重启。
+diff --git a/components/bsp/src/bsp_display.c b/components/bsp/src/bsp_display.c
+index 1109397..4ca51a8 100644
+--- a/components/bsp/src/bsp_display.c
++++ b/components/bsp/src/bsp_display.c
+@@ -106,7 +106,7 @@ static esp_err_t backlight_init(void) {
+         .timer_num       = BSP_BL_LEDC_TIMER,
+         .duty_resolution = BSP_BL_LEDC_RES,
+         .freq_hz         = BSP_BL_LEDC_FREQ_HZ,
+-        .clk_cfg         = LEDC_AUTO_CLK,
++        .clk_cfg         = LEDC_USE_XTAL_CLK,
+     };
+     esp_err_t e = ledc_timer_config(&t);
+     if (e != ESP_OK) { ESP_LOGE(TAG, "ledc_timer_config 失败: %s", esp_err_to_name(e)); return e; }
+diff --git a/components/bsp/src/bsp_display_sleep.c b/components/bsp/src/bsp_display_sleep.c
+new file mode 100644
+index 0000000..875d87e
+--- /dev/null
++++ b/components/bsp/src/bsp_display_sleep.c
+@@ -0,0 +1,18 @@
++#include "bsp_display.h"
++#include "esp_lcd_panel_ops.h"
++
++/* Caller pauses LVGL and holds its lock; the panel driver supplies the required
++ * Sleep In/Out delay. No deep-sleep GPIO holds or panel reinitialization. */
++esp_err_t bsp_display_sleep(bool asleep) {
++    esp_lcd_panel_handle_t panel = bsp_display_panel();
++    if (!panel) return ESP_ERR_INVALID_STATE;
++    esp_err_t err;
++    if (asleep) {
++        err = esp_lcd_panel_disp_on_off(panel, false);
++        if (err != ESP_OK) return err;
++        return esp_lcd_panel_disp_sleep(panel, true);
++    }
++    err = esp_lcd_panel_disp_sleep(panel, false);
++    if (err != ESP_OK) return err;
++    return esp_lcd_panel_disp_on_off(panel, true);
++}
 diff --git a/docs/apps/health-dashboard.md b/docs/apps/health-dashboard.md
 new file mode 100644
-index 0000000..6256932
+index 0000000..f030010
 --- /dev/null
 +++ b/docs/apps/health-dashboard.md
-@@ -0,0 +1,31 @@
+@@ -0,0 +1,47 @@
++[简体中文](health-dashboard.zh_CN.md) · English
++
 +# Wi-Fi health dashboard
 +
 +A dedicated 240×320 LVGL application for the ESP32-C3 / 8 MB FoloToy AI Passport.
@@ -16,7 +82,21 @@ index 0000000..6256932
 +- Hold OK for about half a second to configure Wi-Fi. Join the displayed Health-XXXX network and open http://192.168.4.1.
 +- Configure home Wi-Fi and an iPhone hotspot; enable Maximum Compatibility on the hotspot. Failed candidate profiles roll back after 45 seconds.
 +- After 60 idle seconds, turn the backlight off and stop LVGL timers. Any function key only wakes; a subsequent gesture acts normally. Setup stays awake.
-+- Defaults: 80MHz CPU, 45% backlight, 20ms button scans and two debounce ticks (about 40ms). Network updates continue with the screen off and never wake it. CPU deep sleep is not enabled. Battery runtime has not been measured.
++- Defaults: 40–80MHz dynamic CPU frequency, 45% backlight, 20ms button scans and two debounce ticks (about 40ms). After screen-off, LVGL pauses and the LCD enters reversible sleep before releasing the display's CPU-sleep lock. Network updates continue every 30 minutes without lighting the display. All three ADC keys retain their polling and consumed first-wake gesture.
++- Automatic CPU light sleep uses tickless idle and Wi-Fi minimum modem sleep while keeping the association. An attached USB host intentionally holds the SDK sleep lock, preserving maintenance access; unplugging permits sleep again. No deep sleep or settings migration is used.
++- Failed network attempts alternate profiles and back off from 15 seconds to at most five minutes. A successful connection resets backoff. Manual refresh can expedite reconnection once 15 seconds have passed.
++
++## Private operating diagnostics
++
++Run the reader with the badge connected to USB:
++
++```sh
++python3 tools/badge_diagnostics.py --port /dev/cu.usbmodem... --output /private/path/badge-diagnostics
++```
++
++The read-only request is {"diagnostic":true}. A JSON record and SDK PM statistics expose battery percentage/mV, link/RSSI, connection/disconnection and fetch counters, reset reason, free heap, screen/panel state and PM configuration errors. No endpoint, Wi-Fi name/password, token or health measurements are exported. Disconnect counters include intentional profile switches. Sensor failures remain null. A record is also emitted every 30 seconds while a USB host is attached; unplugged operation makes no diagnostic USB writes.
++
++USB deliberately prevents actual CPU sleep. To verify it, note the SDK sleep count, unplug for at least 90 seconds, then reconnect and read the cumulative count without rebooting. A configured PM flag alone is not sleep evidence. Battery current, usable capacity and runtime require separate measurements; USB charging current is not battery discharge current.
 +- Only the selected page is rendered. Fewer pages simplify navigation without establishing an improvement in standby power or runtime.
 +- API OFFLINE / LAST DATA retains the original snapshot date. Missing values are not zero; retained pressure keeps its original time.
 +
@@ -37,10 +117,12 @@ index 0000000..6256932
 +Report build, host tests and device observations separately. Verify extended reconnect, unplugged polling and battery discharge on your own hardware.
 diff --git a/docs/apps/health-dashboard.zh_CN.md b/docs/apps/health-dashboard.zh_CN.md
 new file mode 100644
-index 0000000..e3c47e0
+index 0000000..4a6c586
 --- /dev/null
 +++ b/docs/apps/health-dashboard.zh_CN.md
-@@ -0,0 +1,31 @@
+@@ -0,0 +1,47 @@
++[English](health-dashboard.md) · 简体中文
++
 +# Wi-Fi 健康看板
 +
 +以专用的 240×320 本地 LVGL 看板替代头像和名牌，适用于 ESP32-C3、8MB Flash 的 FoloToy AI Passport。
@@ -53,7 +135,21 @@ index 0000000..e3c47e0
 +- 确定键长按约半秒进入配网。手机连接屏幕显示的临时 Health-XXXX 网络，然后打开 http://192.168.4.1。
 +- 可填家里 Wi-Fi 和 iPhone 热点；热点需开启“最大兼容性”。候选网络 45 秒内都不能取得 IP 时回滚原设置。
 +- 无按键操作 60 秒关闭背光并暂停 LVGL 定时器，任意功能键只唤醒，下一次按键恢复正常操作。配网页保持亮屏。
-+- 默认 CPU 80MHz、亮屏背光 45%、按键扫描 20ms，两次扫描去抖约 40ms。息屏期间后台联网与取数继续，来数据不会自动亮屏；没有启用 CPU 深睡，也没有实测续航小时数。
++- 默认 CPU 在 40–80MHz 间动态调频，亮屏背光 45%、按键扫描 20ms，两次去抖约 40ms。息屏后先暂停 LVGL、让 LCD 可逆休眠，再释放显示模块的 CPU 休眠锁；后台仍每 30 分钟更新，来数据不亮屏。三枚 ADC 按键继续扫描，首次唤醒按键只唤醒。
++- 自动浅睡眠使用 tickless idle 和 Wi-Fi 最小 modem sleep，保留原连接。连接 USB 主机时，SDK 有意持有休眠锁以保留维护通道；拔线后才允许浅睡眠。不启用深睡，不迁移或擦除配置。
++- 网络失败时交替尝试两个配置，间隔从 15 秒逐步退避到最多五分钟；连接成功后恢复初始间隔。手动刷新可在距离上次尝试满 15 秒后提前重连。
++
++## 私有运行诊断
++
++将工卡连接 USB 后运行：
++
++```sh
++python3 tools/badge_diagnostics.py --port /dev/cu.usbmodem... --output /private/path/badge-diagnostics
++```
++
++只读请求为 {"diagnostic":true}。JSON 与 SDK 电源统计提供电量百分比／mV、电平连接／RSSI、连接和断开及取数计数、重启原因、空闲堆、屏幕／面板状态和电源配置错误码。不会输出接口地址、Wi-Fi 名称／密码、凭据或健康数值。断开计数包含主动切换网络；传感器读取失败保持 null。USB 主机连接时每 30 秒也输出一条；拔线后不写诊断串口。
++
++USB 连接会阻止 CPU 真正浅睡眠。验证时先记下 SDK 休眠计数，拔线至少 90 秒，再接回读取累计计数，期间不要重启；只有电源配置标志不能证明睡眠发生。实际电池电流、可用容量和续航需要另行测量，USB 充电电流不等于电池放电电流。
 +- 每次只绘制当前页；减少页数主要改善操作，不能据此推算待机功耗或续航增幅。
 +- API OFFLINE／LAST DATA 保留旧快照及其原日期。压力缺测不补零，历史压力始终保留原时间。
 +
@@ -73,12 +169,12 @@ index 0000000..e3c47e0
 +首次刷入使用验证过的完整镜像；保留设置的应用分区更新必须先验证新旧分区表一致，应用镜像不能写到 0x0。不要整片擦除。
 +编译、宿主机测试和实机观察分别报告。长时间离线重连、拔线自动更新与完整放电仍应在自己的设备验证。
 diff --git a/main/CMakeLists.txt b/main/CMakeLists.txt
-index d39c848..3ad0720 100644
+index d39c848..4e6b244 100644
 --- a/main/CMakeLists.txt
 +++ b/main/CMakeLists.txt
 @@ -1,16 +1,27 @@
 +if(CONFIG_HEALTH_BADGE)
-+    set(application_sources "health_main.c" "health_model.c" "health_network.c" "health_network_model.c" "health_idle.c")
++    set(application_sources "health_main.c" "health_model.c" "health_network.c" "health_network_model.c" "health_idle.c" "health_power.c" "health_diagnostics.c")
 +else()
 +    set(application_sources
 +        "main.c"
@@ -115,7 +211,7 @@ index d39c848..3ad0720 100644
      INCLUDE_DIRS "."
 -    REQUIRES bsp bt esp_event esp_hw_support esp_netif esp_timer esp_wifi nvs_flash
 +    REQUIRES bsp bt esp_driver_usb_serial_jtag esp_event esp_hw_support esp_netif esp_lvgl_port
-+             esp_timer esp_wifi json nvs_flash esp_http_client esp_http_server mbedtls
++             esp_timer esp_wifi json nvs_flash esp_http_client esp_http_server mbedtls esp_pm
  )
 diff --git a/main/Kconfig.projbuild b/main/Kconfig.projbuild
 new file mode 100644
@@ -137,6 +233,75 @@ index 0000000..be3480f
 +        remain disabled.
 +
 +endmenu
+diff --git a/main/health_diagnostics.c b/main/health_diagnostics.c
+new file mode 100644
+index 0000000..16b5962
+--- /dev/null
++++ b/main/health_diagnostics.c
+@@ -0,0 +1,43 @@
++#include "health_diagnostics.h"
++#include "cJSON.h"
++#include <inttypes.h>
++#include <stdio.h>
++#include <string.h>
++
++bool health_diagnostic_request(const char *json) {
++    if (!json || strlen(json) > 64) return false;
++    cJSON *root = cJSON_ParseWithOpts(json, NULL, true);
++    bool valid = cJSON_IsObject(root) && cJSON_GetArraySize(root) == 1 &&
++        cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(root, "diagnostic"));
++    cJSON_Delete(root);
++    return valid;
++}
++
++static const char *number_or_null(int value, bool valid, char buffer[16]) {
++    if (!valid) return "null";
++    snprintf(buffer, 16, "%d", value);
++    return buffer;
++}
++
++bool health_diagnostic_format(const health_diagnostics_t *d, char *out, size_t capacity) {
++    if (!d || !out || !capacity) return false;
++    char pct[16], mv[16], rssi[16];
++    int length = snprintf(out, capacity,
++        "{\"event\":\"diagnostic\",\"v\":1,\"uptime_ms\":%" PRIu64
++        ",\"battery_pct\":%s,\"battery_mv\":%s,\"rssi_dbm\":%s"
++        ",\"pm_enabled\":%s,\"screen_locked\":%s,\"screen_off\":%s,\"panel_asleep\":%s"
++        ",\"usb_host\":%s,\"wifi_link\":%s,\"network_state\":%d"
++        ",\"wifi_attempts\":%" PRIu32 ",\"wifi_disconnects\":%" PRIu32
++        ",\"fetch_attempts\":%" PRIu32 ",\"fetch_failures\":%" PRIu32
++        ",\"pm_error\":%d,\"panel_error\":%d,\"reset_reason\":%d,\"free_heap\":%" PRIu32 "}\n",
++        d->uptime_ms, number_or_null(d->battery_pct, d->battery_pct >= 0, pct),
++        number_or_null(d->battery_mv, d->battery_mv >= 0, mv),
++        number_or_null(d->rssi_dbm, d->wifi_link, rssi),
++        d->pm_enabled ? "true" : "false", d->screen_locked ? "true" : "false",
++        d->screen_off ? "true" : "false", d->panel_asleep ? "true" : "false",
++        d->usb_host ? "true" : "false", d->wifi_link ? "true" : "false", d->network_state,
++        d->wifi_attempts, d->wifi_disconnects, d->fetch_attempts, d->fetch_failures,
++        d->pm_error, d->panel_error, d->reset_reason, d->free_heap);
++    if (length < 0 || (size_t)length >= capacity) { out[0] = 0; return false; }
++    return true;
++}
+diff --git a/main/health_diagnostics.h b/main/health_diagnostics.h
+new file mode 100644
+index 0000000..2869830
+--- /dev/null
++++ b/main/health_diagnostics.h
+@@ -0,0 +1,14 @@
++#pragma once
++#include <stdbool.h>
++#include <stddef.h>
++#include <stdint.h>
++
++typedef struct {
++    int battery_pct, battery_mv, rssi_dbm, network_state, pm_error, panel_error, reset_reason;
++    bool pm_enabled, screen_locked, screen_off, panel_asleep, usb_host, wifi_link;
++    uint32_t wifi_attempts, wifi_disconnects, fetch_attempts, fetch_failures, free_heap;
++    uint64_t uptime_ms;
++} health_diagnostics_t;
++
++bool health_diagnostic_request(const char *json);
++bool health_diagnostic_format(const health_diagnostics_t *data, char *out, size_t capacity);
 diff --git a/main/health_idle.c b/main/health_idle.c
 new file mode 100644
 index 0000000..edecce7
@@ -216,21 +381,26 @@ index 0000000..9a0e5a3
 +bool health_idle_update(health_idle_t *idle, uint64_t now_ms, bool setup_active);
 diff --git a/main/health_main.c b/main/health_main.c
 new file mode 100644
-index 0000000..011843d
+index 0000000..8f370c9
 --- /dev/null
 +++ b/main/health_main.c
-@@ -0,0 +1,473 @@
+@@ -0,0 +1,537 @@
 +/* Health values exist only in RAM; dedicated network credentials are stored in NVS. */
 +#include "health_model.h"
 +#include "health_network.h"
 +#include "health_idle.h"
++#include "health_power.h"
++#include "health_diagnostics.h"
 +#include "bsp_battery.h"
 +#include "bsp_button.h"
 +#include "bsp_display.h"
 +#include "driver/usb_serial_jtag.h"
++#include "driver/usb_serial_jtag_vfs.h"
 +#include "esp_log.h"
 +#include "esp_lvgl_port.h"
 +#include "esp_timer.h"
++#include "esp_system.h"
++#include "esp_wifi.h"
 +#include "freertos/FreeRTOS.h"
 +#include "freertos/queue.h"
 +#include "freertos/task.h"
@@ -265,6 +435,8 @@ index 0000000..011843d
 +static health_network_event_t s_network;
 +static bool s_network_ready;
 +static health_idle_t s_idle;
++static esp_err_t s_pm_error, s_panel_error;
++static bool s_panel_asleep;
 +typedef struct { bsp_btn_t button; bsp_btn_ev_t event; } health_button_event_t;
 +
 +static lv_obj_t *label(lv_obj_t *parent, int x, int y, int width,
@@ -559,11 +731,46 @@ index 0000000..011843d
 +    (void)xQueueSend(s_buttons, &input, 0);
 +}
 +
++/* Diagnostics contain device-operating metrics only. No Wi-Fi identifiers,
++ * endpoint, credentials or health snapshot fields enter this record. */
++static void diagnostic_emit(uint64_t now_ms, bool display_paused) {
++    if (!s_usb_ready || !usb_serial_jtag_is_connected()) return;
++    wifi_ap_record_t ap;
++    bool linked = esp_wifi_sta_get_ap_info(&ap) == ESP_OK;
++    health_diagnostics_t d = {
++        .battery_pct = bsp_battery_soc(), .battery_mv = bsp_battery_mv(),
++        .rssi_dbm = linked ? ap.rssi : 0, .wifi_link = linked,
++        .network_state = s_network.status, .pm_error = s_pm_error,
++        .panel_error = s_panel_error, .reset_reason = esp_reset_reason(),
++        .pm_enabled = health_power_enabled(), .screen_locked = health_power_display_locked(),
++        .screen_off = display_paused, .panel_asleep = s_panel_asleep,
++        .usb_host = true, .uptime_ms = now_ms,
++        .wifi_attempts = s_network.wifi_attempts, .wifi_disconnects = s_network.wifi_disconnects,
++        .fetch_attempts = s_network.fetch_attempts, .fetch_failures = s_network.fetch_failures,
++        .free_heap = esp_get_free_heap_size(),
++    };
++    char output[768];
++    if (health_diagnostic_format(&d, output, sizeof(output))) {
++        (void)usb_serial_jtag_write_bytes(output, strlen(output), pdMS_TO_TICKS(100));
++        health_power_dump(stdout);
++        fflush(stdout);
++    }
++}
++
++static bool panel_sleep(bool asleep) {
++    if (!bsp_lvgl_lock(200)) return false;
++    s_panel_error = bsp_display_sleep(asleep);
++    if (s_panel_error == ESP_OK) s_panel_asleep = asleep;
++    bsp_lvgl_unlock();
++    return s_panel_error == ESP_OK;
++}
++
 +static void health_worker(void *arg) {
 +    (void)arg;
 +    unsigned char bytes[128];
 +    int battery = -1;
 +    uint64_t next_battery_ms = 0;
++    uint64_t next_diagnostic_ms = 0;
 +    bool dirty = true;
 +    bool was_connected = false;
 +    bool display_paused = false;
@@ -574,7 +781,7 @@ index 0000000..011843d
 +            int reading = bsp_battery_soc();
 +            if (reading != battery) dirty = true;
 +            battery = reading;
-+            next_battery_ms = now_ms + 10000;
++            next_battery_ms = now_ms + (s_idle.asleep ? 60000 : 10000);
 +        }
 +        health_network_event_t network;
 +        while (health_network_poll(&network)) {
@@ -608,13 +815,16 @@ index 0000000..011843d
 +            }
 +        }
 +        int count = 0;
-+        if (s_usb_ready) count = usb_serial_jtag_read_bytes(bytes, sizeof(bytes), pdMS_TO_TICKS(100));
-+        else vTaskDelay(pdMS_TO_TICKS(100));
++        bool usb_host = s_usb_ready && usb_serial_jtag_is_connected();
++        if (usb_host) count = usb_serial_jtag_read_bytes(bytes, sizeof(bytes), pdMS_TO_TICKS(100));
++        else (void)xQueuePeek(s_buttons, &input, pdMS_TO_TICKS(s_idle.asleep ? 250 : 100));
 +        for (int i = 0; i < count; ++i) {
 +            if (!health_line_push(&s_line, bytes[i])) continue;
 +            health_snapshot_t snapshot;
 +            health_endpoint_t endpoint;
-+            if (health_endpoint_parse(s_line.data, &endpoint)) {
++            if (health_diagnostic_request(s_line.data)) {
++                diagnostic_emit(now_ms, display_paused);
++            } else if (health_endpoint_parse(s_line.data, &endpoint)) {
 +                if (!health_network_configure(&endpoint)) {
 +                    static const char fail[] = "{\"event\":\"configured\",\"ok\":false}\n";
 +                    (void)usb_serial_jtag_write_bytes(fail, sizeof(fail) - 1, pdMS_TO_TICKS(20));
@@ -644,10 +854,23 @@ index 0000000..011843d
 +                bsp_display_backlight(0);
 +                backlight_off = true;
 +            }
++            if (display_paused) {
++                if (!s_panel_asleep) (void)panel_sleep(true);
++                if (s_panel_asleep && health_power_enabled())
++                    s_pm_error = health_power_screen_off(true);
++            }
 +        } else {
-+            if (display_paused && display_refresh_paused(false)) {
-+                display_paused = false;
-+                dirty = true;
++            if (display_paused) {
++                bool awake = true;
++                if (health_power_enabled()) {
++                    s_pm_error = health_power_screen_off(false);
++                    awake = s_pm_error == ESP_OK;
++                }
++                if (awake && panel_sleep(false) && display_refresh_paused(false)) {
++                    display_paused = false;
++                    dirty = true;
++                    next_battery_ms = 0;
++                }
 +            }
 +            if (!display_paused) {
 +                if ((dirty || backlight_off) && render(now_ms, battery)) {
@@ -660,6 +883,10 @@ index 0000000..011843d
 +                } else if (!backlight_off && clock_changed) (void)update_clock();
 +            }
 +        }
++        if (usb_host && now_ms >= next_diagnostic_ms) {
++            diagnostic_emit(now_ms, display_paused);
++            next_diagnostic_ms = now_ms + 30000;
++        } else if (!usb_host) next_diagnostic_ms = 0;
 +        /* Allow idle/watchdog work even if a host continuously floods RX. */
 +        vTaskDelay(pdMS_TO_TICKS(1));
 +    }
@@ -676,15 +903,17 @@ index 0000000..011843d
 +    if (!s_buttons) return;
 +    usb_serial_jtag_driver_config_t usb = {
 +        .rx_buffer_size = HEALTH_LINE_CAPACITY,
-+        .tx_buffer_size = 256,
++        .tx_buffer_size = 2048,
 +    };
 +    s_usb_ready = usb_serial_jtag_driver_install(&usb) == ESP_OK;
++    if (s_usb_ready) usb_serial_jtag_vfs_use_driver();
 +    /* No protocol payload, credentials, or health content is ever logged. */
 +    esp_log_level_set("*", ESP_LOG_WARN);
 +    /* HTTP debug/error output may include URLs. The UI reports only safe states. */
 +    esp_log_level_set("HTTP_CLIENT", ESP_LOG_NONE);
 +    esp_log_level_set("esp-tls", ESP_LOG_NONE);
 +    esp_log_level_set("mbedtls", ESP_LOG_NONE);
++    s_pm_error = health_power_init();
 +    s_network_ready = health_network_start();
 +    if (xTaskCreate(health_worker, "health_usb", 8192, NULL, 4, NULL) != pdPASS) {
 +        ESP_LOGE("health", "USB worker allocation failed");
@@ -1095,10 +1324,10 @@ index 0000000..ca69577
 +bool health_snapshot_is_today(const health_snapshot_t *data, const health_clock_t *clock);
 diff --git a/main/health_network.c b/main/health_network.c
 new file mode 100644
-index 0000000..6e6de7f
+index 0000000..e4d3ffc
 --- /dev/null
 +++ b/main/health_network.c
-@@ -0,0 +1,419 @@
+@@ -0,0 +1,428 @@
 +/* Network/storage work stays here; only the UI worker owns LVGL and its model. */
 +#include "health_network.h"
 +#include "esp_crt_bundle.h"
@@ -1184,7 +1413,7 @@ index 0000000..6e6de7f
 +        esp_wifi_set_mode(WIFI_MODE_STA) != ESP_OK) return false;
 +    if (esp_event_handler_register(WIFI_EVENT, WIFI_EVENT_STA_DISCONNECTED, wifi_event, NULL) != ESP_OK ||
 +        esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, wifi_event, NULL) != ESP_OK) return false;
-+    return esp_wifi_start() == ESP_OK;
++    return esp_wifi_set_ps(WIFI_PS_MIN_MODEM) == ESP_OK && esp_wifi_start() == ESP_OK;
 +}
 +
 +static esp_err_t form_page(httpd_req_t *request) {
@@ -1424,7 +1653,10 @@ index 0000000..6e6de7f
 +                    memset(&retry, 0, sizeof(retry));
 +                    refresh.fetched = false;
 +                } else publish(HEALTH_NET_ERROR);
-+            } else if (command.kind == COMMAND_REFRESH) manual = true;
++            } else if (command.kind == COMMAND_REFRESH) {
++                manual = true;
++                if (!s_has_ip) (void)health_retry_request(&retry, now_ms());
++            }
 +            memset(&command, 0, sizeof(command));
 +        }
 +        uint64_t now = now_ms();
@@ -1438,13 +1670,12 @@ index 0000000..6e6de7f
 +        }
 +        int wifi;
 +        while (xQueueReceive(s_wifi_events, &wifi, 0) == pdTRUE) {
-+            (void)wifi;
-+            bool was_connected = s_has_ip;
++            if (wifi == 0) ++s_state.wifi_disconnects;
 +            /* Delayed GOT_IP/disconnect events can outlive a mode/profile switch.
 +             * Query the current association and live netif rather than trusting
 +             * the queued event as evidence for candidate credential persistence. */
 +            s_has_ip = current_connection_verified(current_profile);
-+            if (was_connected && !s_has_ip) publish(HEALTH_NET_WIFI_OFFLINE);
++            if (!s_has_ip) publish(HEALTH_NET_WIFI_OFFLINE);
 +            if (s_has_ip) {
 +                if (candidate.pending) {
 +                    if (persist("profiles", &s_profiles, sizeof(s_profiles))) health_candidate_commit(&candidate);
@@ -1456,6 +1687,7 @@ index 0000000..6e6de7f
 +                    }
 +                }
 +                health_retry_connected(&retry, current_profile);
++                s_state.next_retry_ms = 0;
 +                refresh.fetched = false;
 +                time_deadline = now + 30000;
 +            }
@@ -1469,6 +1701,8 @@ index 0000000..6e6de7f
 +            int index = health_retry_profile(&retry, s_profiles.count, now);
 +            if (index >= 0) {
 +                current_profile = (unsigned)index;
++                ++s_state.wifi_attempts;
++                s_state.next_retry_ms = retry.next_ms;
 +                publish(connect_profile(current_profile) ? HEALTH_NET_CONNECTING : HEALTH_NET_WIFI_OFFLINE);
 +            }
 +        } else if (!s_has_endpoint) {
@@ -1479,15 +1713,19 @@ index 0000000..6e6de7f
 +        } else if (health_refresh_due(&refresh, now, manual)) {
 +            manual = false;
 +            publish(HEALTH_NET_FETCHING);
++            ++s_state.fetch_attempts;
 +            health_snapshot_t snapshot;
 +            if (fetch_snapshot(&snapshot)) {
 +                s_state.status = snapshot.online ? HEALTH_NET_ONLINE : HEALTH_NET_API_OFFLINE;
 +                s_state.has_snapshot = true;
 +                s_state.snapshot = snapshot;
 +                (void)xQueueOverwrite(s_events, &s_state);
-+            } else publish(HEALTH_NET_API_OFFLINE);
++            } else {
++                ++s_state.fetch_failures;
++                publish(HEALTH_NET_API_OFFLINE);
++            }
 +        } else manual = false;
-+        vTaskDelay(pdMS_TO_TICKS(100));
++        (void)xQueuePeek(s_commands, &command, pdMS_TO_TICKS(250));
 +    }
 +}
 +
@@ -1520,10 +1758,10 @@ index 0000000..6e6de7f
 +void health_network_clear_wifi(void) { send_command(COMMAND_CLEAR); }
 diff --git a/main/health_network.h b/main/health_network.h
 new file mode 100644
-index 0000000..9acbee8
+index 0000000..fecac66
 --- /dev/null
 +++ b/main/health_network.h
-@@ -0,0 +1,29 @@
+@@ -0,0 +1,31 @@
 +#pragma once
 +#include "health_model.h"
 +#include "health_network_model.h"
@@ -1542,6 +1780,8 @@ index 0000000..9acbee8
 +    bool configuration_ack;
 +    bool configuration_ok;
 +    bool setup_failed;
++    uint32_t wifi_attempts, wifi_disconnects, fetch_attempts, fetch_failures;
++    uint64_t next_retry_ms;
 +    health_snapshot_t snapshot;
 +    char setup_ssid[24];
 +    char setup_password[13];
@@ -1555,10 +1795,10 @@ index 0000000..9acbee8
 +void health_network_clear_wifi(void);
 diff --git a/main/health_network_model.c b/main/health_network_model.c
 new file mode 100644
-index 0000000..2ed7541
+index 0000000..6ac49ea
 --- /dev/null
 +++ b/main/health_network_model.c
-@@ -0,0 +1,226 @@
+@@ -0,0 +1,238 @@
 +#include "health_network_model.h"
 +#include "cJSON.h"
 +#include <string.h>
@@ -1719,13 +1959,25 @@ index 0000000..2ed7541
 +    if (!count || count > HEALTH_PROFILE_COUNT || (retry->attempted && now_ms < retry->next_ms)) return -1;
 +    unsigned profile = retry->next_profile % count;
 +    retry->next_profile = (profile + 1) % count;
-+    retry->next_ms = now_ms + HEALTH_CONNECT_TIMEOUT_MS;
++    unsigned round = retry->attempts / count;
++    if (retry->attempts < 32) ++retry->attempts;
++    uint64_t delay = (uint64_t)HEALTH_CONNECT_TIMEOUT_MS << (round < 5 ? round : 5);
++    if (delay > 300000) delay = 300000;
++    retry->last_ms = now_ms;
++    retry->next_ms = now_ms + delay;
 +    retry->attempted = true;
 +    return (int)profile;
 +}
 +
 +void health_retry_connected(health_retry_t *retry, unsigned profile) {
-+    retry->next_profile = profile;
++    *retry = (health_retry_t){.next_profile = profile};
++}
++
++bool health_retry_request(health_retry_t *retry, uint64_t now_ms) {
++    if (retry->attempted && (now_ms < retry->last_ms || now_ms - retry->last_ms < HEALTH_CONNECT_TIMEOUT_MS))
++        return false;
++    retry->next_ms = now_ms;
++    return true;
 +}
 +
 +bool health_refresh_due(health_refresh_t *refresh, uint64_t now_ms, bool manual) {
@@ -1787,10 +2039,10 @@ index 0000000..2ed7541
 +}
 diff --git a/main/health_network_model.h b/main/health_network_model.h
 new file mode 100644
-index 0000000..d8178ce
+index 0000000..5cb1e2c
 --- /dev/null
 +++ b/main/health_network_model.h
-@@ -0,0 +1,42 @@
+@@ -0,0 +1,43 @@
 +#pragma once
 +#include <stdbool.h>
 +#include <stddef.h>
@@ -1810,7 +2062,7 @@ index 0000000..d8178ce
 +typedef struct { char url[HEALTH_URL_CAPACITY]; char token[HEALTH_TOKEN_CAPACITY]; } health_endpoint_t;
 +typedef struct { char ssid[33]; char password[64]; } health_profile_t;
 +typedef struct { health_profile_t profile[HEALTH_PROFILE_COUNT]; unsigned count; } health_profiles_t;
-+typedef struct { uint64_t next_ms; unsigned next_profile; bool attempted; } health_retry_t;
++typedef struct { uint64_t next_ms, last_ms; unsigned next_profile, attempts; bool attempted; } health_retry_t;
 +typedef struct { uint64_t last_ms; bool fetched; } health_refresh_t;
 +typedef struct { health_profiles_t previous; uint64_t deadline; bool pending; } health_candidate_t;
 +typedef struct { char data[4096]; size_t length; uint64_t deadline; bool failed; } health_http_body_t;
@@ -1822,6 +2074,7 @@ index 0000000..d8178ce
 +bool health_profiles_parse(const char *form, health_profiles_t *output);
 +int health_retry_profile(health_retry_t *retry, unsigned count, uint64_t now_ms);
 +void health_retry_connected(health_retry_t *retry, unsigned profile);
++bool health_retry_request(health_retry_t *retry, uint64_t now_ms);
 +bool health_refresh_due(health_refresh_t *refresh, uint64_t now_ms, bool manual);
 +bool health_candidate_begin(health_candidate_t *candidate, health_profiles_t *active,
 +                            const health_profiles_t *replacement, uint64_t now_ms);
@@ -1833,8 +2086,71 @@ index 0000000..d8178ce
 +void health_http_body_init(health_http_body_t *body, uint64_t now_ms);
 +bool health_http_body_append(health_http_body_t *body, const char *data, size_t length, uint64_t now_ms);
 +bool health_http_body_complete(const health_http_body_t *body, bool complete, int status, uint64_t now_ms);
+diff --git a/main/health_power.c b/main/health_power.c
+new file mode 100644
+index 0000000..05ae874
+--- /dev/null
++++ b/main/health_power.c
+@@ -0,0 +1,40 @@
++#include "health_power.h"
++#include "esp_pm.h"
++
++static esp_pm_lock_handle_t s_display_lock;
++static bool s_enabled, s_screen_off;
++
++esp_err_t health_power_init(void) {
++    esp_err_t err = esp_pm_lock_create(ESP_PM_NO_LIGHT_SLEEP, 0, "health_display", &s_display_lock);
++    if (err != ESP_OK) return err;
++    err = esp_pm_lock_acquire(s_display_lock);
++    if (err != ESP_OK) {
++        esp_pm_lock_delete(s_display_lock);
++        s_display_lock = NULL;
++        return err;
++    }
++    const esp_pm_config_t config = {
++        .max_freq_mhz = 80, .min_freq_mhz = 40, .light_sleep_enable = true,
++    };
++    err = esp_pm_configure(&config);
++    if (err != ESP_OK) {
++        esp_pm_lock_release(s_display_lock);
++        esp_pm_lock_delete(s_display_lock);
++        s_display_lock = NULL;
++        return err;
++    }
++    s_enabled = true;
++    return ESP_OK;
++}
++
++esp_err_t health_power_screen_off(bool screen_off) {
++    if (!s_enabled) return ESP_ERR_INVALID_STATE;
++    if (screen_off == s_screen_off) return ESP_OK;
++    esp_err_t err = screen_off ? esp_pm_lock_release(s_display_lock) : esp_pm_lock_acquire(s_display_lock);
++    if (err == ESP_OK) s_screen_off = screen_off;
++    return err;
++}
++
++bool health_power_enabled(void) { return s_enabled; }
++bool health_power_display_locked(void) { return s_enabled && !s_screen_off; }
++void health_power_dump(FILE *stream) { if (s_enabled) (void)esp_pm_dump_locks(stream); }
+diff --git a/main/health_power.h b/main/health_power.h
+new file mode 100644
+index 0000000..5bf3456
+--- /dev/null
++++ b/main/health_power.h
+@@ -0,0 +1,11 @@
++#pragma once
++#include <stdbool.h>
++#include <stdio.h>
++#include "esp_err.h"
++
++/* Called by the health worker; SDK USB/Wi-Fi locks remain independent. */
++esp_err_t health_power_init(void);
++esp_err_t health_power_screen_off(bool screen_off);
++bool health_power_enabled(void);
++bool health_power_display_locked(void);
++void health_power_dump(FILE *stream);
 diff --git a/sdkconfig.defaults b/sdkconfig.defaults
-index ef36d5d..6b28f27 100644
+index ef36d5d..4d262f0 100644
 --- a/sdkconfig.defaults
 +++ b/sdkconfig.defaults
 @@ -1,3 +1,6 @@
@@ -1844,7 +2160,7 @@ index ef36d5d..6b28f27 100644
  # --- 目标芯片 ---
  CONFIG_IDF_TARGET="esp32c3"
  # 注:ESP32-C3 无 PSRAM,故不设 CONFIG_SPIRAM。
-@@ -24,21 +27,29 @@ CONFIG_LV_COLOR_DEPTH_16=y
+@@ -24,21 +27,34 @@ CONFIG_LV_COLOR_DEPTH_16=y
  CONFIG_LV_DEF_REFR_PERIOD=20
  CONFIG_LV_FONT_MONTSERRAT_14=y
  CONFIG_LV_FONT_MONTSERRAT_20=y
@@ -1858,8 +2174,13 @@ index ef36d5d..6b28f27 100644
  
  # --- 系统 ---
  CONFIG_FREERTOS_HZ=1000
-+# Static 80 MHz reduces active CPU work without changing sleep/wake semantics.
++# Keep the active ceiling; PM lowers the clock to 40 MHz while idle.
 +CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_80=y
++CONFIG_PM_ENABLE=y
++CONFIG_PM_PROFILING=y
++CONFIG_FREERTOS_USE_TICKLESS_IDLE=y
++# Keep USB available while attached; automatic sleep resumes after unplugging.
++CONFIG_USJ_NO_AUTO_LS_ON_CONNECTION=y
 +# ADC buttons remain available while the screen is off; scan at 50 Hz.
 +# With two debounce ticks this requires a normal press of at least 40 ms.
 +CONFIG_BUTTON_PERIOD_TIME_MS=20
@@ -1887,6 +2208,117 @@ index ef36d5d..6b28f27 100644
 +CONFIG_ESP_WIFI_DYNAMIC_TX_BUFFER_NUM=8
 +CONFIG_ESP_WIFI_AMPDU_RX_ENABLED=n
 +CONFIG_ESP_WIFI_AMPDU_TX_ENABLED=n
+diff --git a/tests/power_stubs/esp_err.h b/tests/power_stubs/esp_err.h
+new file mode 100644
+index 0000000..2db04b2
+--- /dev/null
++++ b/tests/power_stubs/esp_err.h
+@@ -0,0 +1,6 @@
++#pragma once
++typedef int esp_err_t;
++#define ESP_OK 0
++#define ESP_FAIL -1
++#define ESP_ERR_NO_MEM 0x101
++#define ESP_ERR_INVALID_STATE 0x103
+diff --git a/tests/power_stubs/esp_lcd_panel_ops.h b/tests/power_stubs/esp_lcd_panel_ops.h
+new file mode 100644
+index 0000000..b2bf424
+--- /dev/null
++++ b/tests/power_stubs/esp_lcd_panel_ops.h
+@@ -0,0 +1,6 @@
++#pragma once
++#include <stdbool.h>
++#include "esp_err.h"
++#include "esp_lcd_types.h"
++esp_err_t esp_lcd_panel_disp_on_off(esp_lcd_panel_handle_t panel, bool on);
++esp_err_t esp_lcd_panel_disp_sleep(esp_lcd_panel_handle_t panel, bool asleep);
+diff --git a/tests/power_stubs/esp_pm.h b/tests/power_stubs/esp_pm.h
+new file mode 100644
+index 0000000..ddcc3fe
+--- /dev/null
++++ b/tests/power_stubs/esp_pm.h
+@@ -0,0 +1,13 @@
++#pragma once
++#include <stdbool.h>
++#include <stdio.h>
++#include "esp_err.h"
++typedef void *esp_pm_lock_handle_t;
++typedef enum { ESP_PM_NO_LIGHT_SLEEP } esp_pm_lock_type_t;
++typedef struct { int max_freq_mhz; int min_freq_mhz; bool light_sleep_enable; } esp_pm_config_t;
++esp_err_t esp_pm_lock_create(esp_pm_lock_type_t type, int arg, const char *name, esp_pm_lock_handle_t *out);
++esp_err_t esp_pm_lock_acquire(esp_pm_lock_handle_t lock);
++esp_err_t esp_pm_lock_release(esp_pm_lock_handle_t lock);
++esp_err_t esp_pm_lock_delete(esp_pm_lock_handle_t lock);
++esp_err_t esp_pm_configure(const void *config);
++esp_err_t esp_pm_dump_locks(FILE *stream);
+diff --git a/tests/test_badge_diagnostics.py b/tests/test_badge_diagnostics.py
+new file mode 100644
+index 0000000..03c48b4
+--- /dev/null
++++ b/tests/test_badge_diagnostics.py
+@@ -0,0 +1,27 @@
++import json
++from pathlib import Path
++import sys
++import unittest
++
++sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
++from badge_diagnostics import summarize
++
++
++class DiagnosticsReaderTest(unittest.TestCase):
++    def test_filters_unknown_fields_and_reads_sdk_counters(self):
++        raw = (b'{"event":"diagnostic","v":1,"battery_mv":3700,"token":"private","free_heap":"invalid"}\n'
++               b'light_sleep_counts:123  light_sleep_reject_counts:4\n')
++        summary = summarize(raw)
++        self.assertEqual(summary["sdk_sleep_count"], 123)
++        self.assertEqual(summary["sdk_sleep_reject_count"], 4)
++        self.assertEqual(summary["latest"], {"v": 1, "battery_mv": 3700})
++        self.assertNotIn("private", json.dumps(summary))
++
++    def test_silence_or_other_protocol_frames_do_not_prove_diagnostics(self):
++        result = summarize(b'{"event":"configured","ok":true}\nnot-json\n')
++        self.assertIsNone(result["latest"])
++        self.assertIsNone(result["sdk_sleep_count"])
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff --git a/tests/test_bsp_display_sleep.c b/tests/test_bsp_display_sleep.c
+new file mode 100644
+index 0000000..517b2be
+--- /dev/null
++++ b/tests/test_bsp_display_sleep.c
+@@ -0,0 +1,29 @@
++#include <assert.h>
++#include <stdio.h>
++#include "bsp_display.h"
++#include "esp_lcd_panel_ops.h"
++static int token, present = 1, step, fail_step;
++static bool sleeping;
++esp_lcd_panel_handle_t bsp_display_panel(void) { return present ? &token : NULL; }
++esp_err_t esp_lcd_panel_disp_on_off(esp_lcd_panel_handle_t panel, bool on) {
++    assert(panel == &token);
++    assert((sleeping && step == 0 && !on) || (!sleeping && step == 1 && on));
++    return ++step == fail_step ? ESP_FAIL : ESP_OK;
++}
++esp_err_t esp_lcd_panel_disp_sleep(esp_lcd_panel_handle_t panel, bool asleep) {
++    assert(panel == &token && asleep == sleeping);
++    assert(step == (sleeping ? 1 : 0));
++    return ++step == fail_step ? ESP_FAIL : ESP_OK;
++}
++int main(void) {
++    present = 0; assert(bsp_display_sleep(true) == ESP_ERR_INVALID_STATE); present = 1;
++    for (int direction = 0; direction < 2; ++direction) {
++        sleeping = direction != 0;
++        for (int fault = 0; fault < 3; ++fault) {
++            step = 0; fail_step = fault;
++            assert(bsp_display_sleep(sleeping) == (fault ? ESP_FAIL : ESP_OK));
++            assert(step == (fault ? fault : 2));
++        }
++    }
++    puts("BSP reversible display sleep: PASS");
++}
 diff --git a/tests/test_configure_wifi.py b/tests/test_configure_wifi.py
 new file mode 100644
 index 0000000..e0df639
@@ -2471,6 +2903,48 @@ index 0000000..e9f7df8
 +
 +if __name__ == "__main__":
 +    unittest.main()
+diff --git a/tests/test_health_diagnostics.c b/tests/test_health_diagnostics.c
+new file mode 100644
+index 0000000..c5dee76
+--- /dev/null
++++ b/tests/test_health_diagnostics.c
+@@ -0,0 +1,36 @@
++#include <assert.h>
++#include <stdio.h>
++#include <string.h>
++#include "health_diagnostics.h"
++#include "cJSON.h"
++int main(void) {
++    assert(health_diagnostic_request("{\"diagnostic\":true}"));
++    assert(health_diagnostic_request(" { \"diagnostic\" : true } "));
++    const char *invalid[] = {"{}", "[]", "{\"diagnostic\":false}", "{\"diagnostic\":1}",
++        "{\"diagnostic\":true,\"extra\":1}", "{\"diagnostic\":true}x",
++        "{\"diagnostic\":true,\"diagnostic\":true}"};
++    for (unsigned i = 0; i < sizeof(invalid)/sizeof(invalid[0]); ++i)
++        assert(!health_diagnostic_request(invalid[i]));
++    health_diagnostics_t d = {.battery_pct = -1, .battery_mv = -1, .rssi_dbm = 0,
++        .pm_enabled = true, .usb_host = true, .screen_off = true, .panel_asleep = true,
++        .wifi_attempts = 4000000000u, .uptime_ms = 1234567890123ULL};
++    char buffer[768];
++    assert(health_diagnostic_format(&d, buffer, sizeof(buffer)));
++    cJSON *j = cJSON_Parse(buffer); assert(j);
++    assert(cJSON_IsNull(cJSON_GetObjectItem(j, "battery_pct")));
++    assert(cJSON_IsNull(cJSON_GetObjectItem(j, "battery_mv")));
++    assert(cJSON_IsNull(cJSON_GetObjectItem(j, "rssi_dbm")));
++    assert(cJSON_IsTrue(cJSON_GetObjectItem(j, "pm_enabled")));
++    assert(cJSON_GetObjectItem(j, "wifi_attempts")->valuedouble == 4000000000.0);
++    assert(cJSON_GetObjectItem(j, "uptime_ms")->valuedouble == 1234567890123.0);
++    assert(!cJSON_GetObjectItem(j, "ssid") && !cJSON_GetObjectItem(j, "token"));
++    cJSON_Delete(j);
++    d.battery_pct = 18; d.battery_mv = 3700; d.wifi_link = true; d.rssi_dbm = -77;
++    assert(health_diagnostic_format(&d, buffer, sizeof(buffer)));
++    j = cJSON_Parse(buffer); assert(j);
++    assert(cJSON_GetObjectItem(j, "battery_mv")->valueint == 3700);
++    assert(cJSON_GetObjectItem(j, "rssi_dbm")->valueint == -77);
++    cJSON_Delete(j);
++    assert(!health_diagnostic_format(&d, buffer, 8) && buffer[0] == 0);
++    puts("health_diagnostics: PASS");
++}
 diff --git a/tests/test_health_idle.c b/tests/test_health_idle.c
 new file mode 100644
 index 0000000..43e2064
@@ -2972,10 +3446,10 @@ index 0000000..9f3b805
 +}
 diff --git a/tests/test_health_network_model.c b/tests/test_health_network_model.c
 new file mode 100644
-index 0000000..a2141e3
+index 0000000..46d15e5
 --- /dev/null
 +++ b/tests/test_health_network_model.c
-@@ -0,0 +1,173 @@
+@@ -0,0 +1,197 @@
 +#include "health_network_model.h"
 +#include <assert.h>
 +#include <stdio.h>
@@ -3085,6 +3559,29 @@ index 0000000..a2141e3
 +    assert(health_refresh_due(&refresh, 1815000, false));
 +}
 +
++static void repeated_failures_back_off_and_success_resets(void) {
++    health_retry_t retry = {0};
++    assert(health_retry_profile(&retry, 2, 0) == 0);
++    assert(health_retry_profile(&retry, 2, 15000) == 1);
++    assert(health_retry_profile(&retry, 2, 30000) == 0);
++    assert(health_retry_profile(&retry, 2, 45000) == -1);
++    uint64_t previous_delay = 0;
++    for (unsigned i = 0; i < 30; ++i) {
++        uint64_t now = retry.next_ms;
++        assert(health_retry_profile(&retry, 2, now) >= 0);
++        uint64_t delay = retry.next_ms - now;
++        assert(delay >= previous_delay && delay <= 300000);
++        previous_delay = delay;
++    }
++    assert(previous_delay == 300000);
++    assert(!health_retry_request(&retry, retry.last_ms + 14999));
++    assert(health_retry_request(&retry, retry.last_ms + 15000));
++    assert(health_retry_profile(&retry, 2, retry.last_ms + 15000) >= 0);
++    health_retry_connected(&retry, 1);
++    assert(health_retry_profile(&retry, 2, 99999999) == 1);
++    assert(retry.next_ms == 99999999 + 15000);
++}
++
 +static void candidate_networks_commit_only_after_connection(void) {
 +    health_profiles_t active = {0}, replacement = {0};
 +    assert(health_profiles_parse("ssid1=old&password1=12345678&ssid2=&password2=", &active));
@@ -3144,11 +3641,159 @@ index 0000000..a2141e3
 +    endpoint_supports_only_the_miaobi_function_route();
 +    two_profile_form_validates_before_replacing();
 +    retry_and_refresh_are_bounded();
++    repeated_failures_back_off_and_success_resets();
 +    candidate_networks_commit_only_after_connection();
 +    got_ip_must_belong_to_current_candidate_attempt();
 +    http_body_is_bounded_and_requires_complete_success();
 +    puts("health_network_model: PASS");
 +}
+diff --git a/tests/test_health_power.c b/tests/test_health_power.c
+new file mode 100644
+index 0000000..5fe1a26
+--- /dev/null
++++ b/tests/test_health_power.c
+@@ -0,0 +1,49 @@
++#include <assert.h>
++#include <stdio.h>
++#include "health_power.h"
++#include "esp_pm.h"
++
++static int token, held, deleted, dumped, fail_create, fail_acquire, fail_config;
++esp_err_t esp_pm_lock_create(esp_pm_lock_type_t type, int arg, const char *name, esp_pm_lock_handle_t *out) {
++    assert(type == ESP_PM_NO_LIGHT_SLEEP && arg == 0 && name);
++    if (fail_create) return ESP_ERR_NO_MEM;
++    *out = &token; return ESP_OK;
++}
++esp_err_t esp_pm_lock_acquire(esp_pm_lock_handle_t lock) {
++    assert(lock == &token);
++    if (fail_acquire) return ESP_FAIL;
++    assert(!held); held = 1; return ESP_OK;
++}
++esp_err_t esp_pm_lock_release(esp_pm_lock_handle_t lock) {
++    assert(lock == &token && held); held = 0; return ESP_OK;
++}
++esp_err_t esp_pm_lock_delete(esp_pm_lock_handle_t lock) {
++    assert(lock == &token && !held); ++deleted; return ESP_OK;
++}
++esp_err_t esp_pm_configure(const void *value) {
++    const esp_pm_config_t *config = value;
++    assert(held && config->max_freq_mhz == 80 && config->min_freq_mhz == 40 && config->light_sleep_enable);
++    return fail_config ? ESP_FAIL : ESP_OK;
++}
++esp_err_t esp_pm_dump_locks(FILE *stream) { assert(stream); ++dumped; return ESP_OK; }
++int main(void) {
++    assert(!health_power_enabled());
++    assert(health_power_screen_off(true) == ESP_ERR_INVALID_STATE);
++    fail_create = 1; assert(health_power_init() == ESP_ERR_NO_MEM); fail_create = 0;
++    fail_acquire = 1; assert(health_power_init() == ESP_FAIL); fail_acquire = 0;
++    assert(deleted == 1 && !held && !health_power_enabled());
++    fail_config = 1; assert(health_power_init() == ESP_FAIL); fail_config = 0;
++    assert(deleted == 2 && !held && !health_power_enabled());
++    assert(health_power_init() == ESP_OK && held && health_power_enabled());
++    assert(health_power_display_locked());
++    assert(health_power_screen_off(false) == ESP_OK && held);
++    assert(health_power_screen_off(true) == ESP_OK && !held);
++    assert(health_power_screen_off(true) == ESP_OK && !held);
++    assert(!health_power_display_locked());
++    fail_acquire = 1;
++    assert(health_power_screen_off(false) == ESP_FAIL && !held && !health_power_display_locked());
++    fail_acquire = 0;
++    assert(health_power_screen_off(false) == ESP_OK && held);
++    health_power_dump(stdout); assert(dumped == 1);
++    puts("health_power: PASS");
++}
+diff --git a/tools/badge_diagnostics.py b/tools/badge_diagnostics.py
+new file mode 100755
+index 0000000..484e771
+--- /dev/null
++++ b/tools/badge_diagnostics.py
+@@ -0,0 +1,86 @@
++#!/usr/bin/env python3
++"""Read operating diagnostics without resetting the badge or writing settings."""
++import argparse
++import json
++import os
++from pathlib import Path
++import re
++import select
++import time
++
++from health_bridge import SerialLink, encode_frame, write_all
++
++FIELDS = frozenset((
++    "v", "uptime_ms", "battery_pct", "battery_mv", "rssi_dbm", "pm_enabled",
++    "screen_locked", "screen_off", "panel_asleep", "usb_host", "wifi_link",
++    "network_state", "wifi_attempts", "wifi_disconnects", "fetch_attempts",
++    "fetch_failures", "pm_error", "panel_error", "reset_reason", "free_heap",
++))
++
++
++def summarize(raw):
++    text = raw.decode("utf-8", errors="replace")
++    records = []
++    for line in text.splitlines():
++        try:
++            item = json.loads(line)
++        except ValueError:
++            continue
++        if isinstance(item, dict) and item.get("event") == "diagnostic" and item.get("v") == 1:
++            records.append({key: value for key, value in item.items()
++                            if key in FIELDS and (value is None or isinstance(value, (bool, int)))})
++    stats = re.findall(r"light_sleep_counts:(\d+)\s+light_sleep_reject_counts:(\d+)", text)
++    return {
++        "records": records, "latest": records[-1] if records else None,
++        "sdk_sleep_count": int(stats[-1][0]) if stats else None,
++        "sdk_sleep_reject_count": int(stats[-1][1]) if stats else None,
++        "crash_marker_seen": bool(re.search(r"Guru Meditation|Backtrace:|assert failed|Task watchdog got triggered", text)),
++    }
++
++
++def capture(port, seconds):
++    link = SerialLink(port)
++    data = bytearray()
++    started = time.monotonic()
++    next_request = 0
++    try:
++        link.connect()
++        if link.fd is None:
++            raise OSError("serial_unavailable")
++        while time.monotonic() - started < seconds:
++            now = time.monotonic()
++            if now >= next_request:
++                write_all(link.fd, encode_frame({"diagnostic": True}))
++                next_request = now + 10
++            if select.select([link.fd], [], [], 0.2)[0]:
++                chunk = os.read(link.fd, 4096)
++                if not chunk:
++                    raise OSError("serial_disconnected")
++                data.extend(chunk)
++    finally:
++        link.close()
++    return bytes(data)
++
++
++def main():
++    parser = argparse.ArgumentParser(description=__doc__)
++    parser.add_argument("--port", required=True)
++    parser.add_argument("--seconds", type=int, default=15, choices=range(1, 61))
++    parser.add_argument("--output", type=Path, required=True, help="private output directory")
++    args = parser.parse_args()
++    os.umask(0o077)
++    args.output.mkdir(parents=True, exist_ok=True)
++    try:
++        raw = capture(args.port, args.seconds)
++    except (OSError, ValueError) as error:
++        print(json.dumps({"error": type(error).__name__}))
++        return 1
++    summary = summarize(raw)
++    (args.output / "diagnostics.private.log").write_bytes(raw)
++    (args.output / "diagnostics.json").write_text(json.dumps(summary, indent=2) + "\n")
++    print(json.dumps(summary))
++    return 0 if summary["latest"] else 2
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
 diff --git a/tools/configure_wifi.py b/tools/configure_wifi.py
 new file mode 100644
 index 0000000..f5fb4c0
@@ -3796,7 +4441,7 @@ index 0000000..29ef0d4
 +if __name__ == "__main__":
 +    sys.exit(main())
 diff --git a/tools/validate.sh b/tools/validate.sh
-index fd2608b..bebcb09 100755
+index fd2608b..f023afe 100755
 --- a/tools/validate.sh
 +++ b/tools/validate.sh
 @@ -11,6 +11,10 @@ usage() {
@@ -3810,7 +4455,22 @@ index fd2608b..bebcb09 100755
  
      python3 tools/check_repo.py
  
-@@ -60,7 +64,7 @@ run_static_checks() {
+@@ -52,6 +56,14 @@ run_static_checks() {
+         tests/test_bsp_lvgl_init.c components/bsp/src/bsp_display_rounding.c \
+         -o "${test_dir}/test_bsp_lvgl_init"
+     "${test_dir}/test_bsp_lvgl_init"
++    "${CC:-cc}" -std=c11 -Wall -Wextra -Werror \
++        -Itests/power_stubs -Itests/bsp_stubs -Icomponents/bsp/include \
++        tests/test_bsp_display_sleep.c components/bsp/src/bsp_display_sleep.c \
++        -o "${test_dir}/test_bsp_display_sleep"
++    "${test_dir}/test_bsp_display_sleep"
++    "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -Imain -Itests/power_stubs \
++        tests/test_health_power.c main/health_power.c -o "${test_dir}/test_health_power"
++    "${test_dir}/test_health_power"
+     "${CC:-cc}" -std=c11 -Wall -Wextra -Werror \
+         -Itests/audio_stubs -Icomponents/bsp/include -Icomponents/bsp/src \
+         tests/test_bsp_audio_recovery.c components/bsp/src/bsp_es8311_sleep_check.c \
+@@ -60,7 +72,7 @@ run_static_checks() {
      for demo in audio low_power ble wifi; do
          "${CC:-cc}" -std=c11 -Wall -Wextra -Werror \
              -ffunction-sections -fdata-sections -Itests/demo_stubs -Imain \
@@ -3819,12 +4479,13 @@ index fd2608b..bebcb09 100755
              -o "${test_dir}/test_demo_${demo}_runtime"
          "${test_dir}/test_demo_${demo}_runtime"
      done
-@@ -70,10 +74,34 @@ run_static_checks() {
+@@ -70,10 +82,35 @@ run_static_checks() {
      PYTHONDONTWRITEBYTECODE=1 python3 tests/test_verify_firmware.py
      PYTHONDONTWRITEBYTECODE=1 python3 tests/test_archive_firmware.py
      PYTHONDONTWRITEBYTECODE=1 python3 tests/test_install_passport_skills.py
 +    PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -p test_health_bridge.py
 +    PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -p test_configure_wifi.py
++    PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -p test_badge_diagnostics.py
      rm -rf "${test_dir}"
      echo "Host tests: PASS"
  }
@@ -3837,7 +4498,7 @@ index fd2608b..bebcb09 100755
 +    "${CC:-cc}" -std=c11 -Wno-deprecated-declarations -fsanitize=address,undefined \
 +        -I"${IDF_PATH}/components/json/cJSON" \
 +        -c "${IDF_PATH}/components/json/cJSON/cJSON.c" -o "${health_test_dir}/cJSON.o"
-+    for model in health_model health_network_model; do
++    for model in health_model health_network_model health_diagnostics; do
 +        "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined \
 +            -Imain -I"${IDF_PATH}/components/json/cJSON" \
 +            "tests/test_${model}.c" "main/${model}.c" "${health_test_dir}/cJSON.o" \
@@ -3854,7 +4515,7 @@ index fd2608b..bebcb09 100755
  run_firmware_checks() (
      local validation_build_dir
  
-@@ -104,6 +132,7 @@ cd "${repo_root}"
+@@ -104,6 +141,7 @@ cd "${repo_root}"
  case "${mode}" in
      --all)
          run_static_checks

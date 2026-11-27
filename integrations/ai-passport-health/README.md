@@ -12,6 +12,7 @@
 | --- | --- |
 | `prepare_firmware.py` + `firmware.patch` | 从固定上游 commit 重建完整可构建固件源码，包含三页 LVGL、Wi-Fi、配网和息屏 |
 | `tools/configure_wifi.py` | 从本机私有 JSON 经 USB 初始化 HTTPS 读取地址与独立设备凭据 |
+| `tools/badge_diagnostics.py` | 经 USB 读取电池、休眠和连接状态，在指定的私有目录保存诊断 |
 | `tools/health_bridge.py` | 可选 USB 兼容桥接和合成演示；Wi-Fi 初始化后不承担持续同步 |
 | `miaobi/badge-cache-reader.cjs` | 妙笔 HTTP FaaS 模板：鉴权后只读一条固定的私有 Base 缓存记录 |
 | `miaobi/prepare_reader.py` | 从私有部署坐标文件生成可发布的 FaaS 源码，不把个人资源 ID 写入公开模板 |
@@ -30,6 +31,6 @@ python3 -m unittest discover -s integrations/ai-passport-health/miaobi -p 'test_
 node --test integrations/ai-passport-health/miaobi/badge-cache-reader.test.mjs
 ```
 
-`firmware.patch` 的 `main/health_*.c` 是应用实现；`components/bsp` 来自固定上游版本。屏幕用 C/LVGL 本地绘制，通过 SPI 输出，不下载 HTML、图片或浏览器页面。
+`firmware.patch` 的 `main/health_*.c` 是应用实现；补丁也扩展了上游 `components/bsp` 的 LCD 休眠与唤醒。屏幕用 C/LVGL 本地绘制，通过 SPI 输出，不下载 HTML、图片或浏览器页面。
 
-默认 CPU 80MHz、背光 45%、按键扫描 20ms（两次扫描去抖约 40ms）。60 秒自动息屏、按键唤醒和每 30 分钟同步保持不变。固件只绘制当前页，减少页数主要改善操作；本版未测平均电流或完整放电，不承诺续航增幅。
+CPU 在 40–80 MHz 间调频。无操作 60 秒后，固件暂停 LVGL、让 LCD 休眠并释放显示锁。按键可以唤醒，Wi-Fi 保持关联，每 30 分钟更新。USB 主机连接期间 SDK 会持有休眠锁。验证实际浅睡眠请参考[诊断步骤](../../docs/ai-passport-health.md#usb-诊断)。
