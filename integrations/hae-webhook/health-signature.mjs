@@ -1,7 +1,7 @@
 // Presentation only. Scores and daily aggregates are supplied by the scorer/store.
 const MINUTE = 60000, HOUR = 60 * MINUTE;
-// The signature names only the state; whether it is today's, current or historical is shown on the dashboard.
-export const SIGNATURE_TEXT_VERSION = 'health-signature-text-v1';
+// The signature displays the state; the API keeps the result basis and measurement time.
+export const SIGNATURE_TEXT_VERSION = 'health-signature-text-v4';
 export const STATUS_SIGNATURE_TEXT_VERSION = 'health-status-signature-text-v6';
 export const RETAINED_PRESSURE_MS = 7 * 24 * HOUR;
 export const PRESSURE_LABELS = { relaxed: '状态优秀', balanced: '状态正常', elevated: '注意压力', high: '压力过载' };
@@ -35,33 +35,25 @@ export function retainedPressure(indices, now) {
   return last.evidenceAt !== p.evidenceAt || p.reason === 'expired_hrv' ? last : null;
 }
 
-// Which pressure result is shown, shared by the signature and the dashboard headline:
-// today's aggregate > the current result (or last night's) > a retained historical result >
-// baseline still building > missing. Each keeps its own measurement time.
-export function pressureHeadline(indices, now, history = null, { today = true } = {}) {
-  const p = indices.pressure, method = indices.features.hrv.method ?? p.hrvMethod ?? 'SDNN';
-  const todayRow = today ? history?.days.find(d =>
-    d.date === dateKey(now) && d.status === 'available' &&
-    d.ruleVersion === indices.ruleVersion && Number.isFinite(d.median) &&
-    (!d.method || d.method === method) && (!d.deviceEpoch || d.deviceEpoch === p.deviceEpoch) &&
-    (p.deviceEpoch ? d.sourceScope === `hae-profile:${p.deviceEpoch}` : !d.sourceScope)) : null;
+// Display the latest valid observation; daily aggregates stay in pressureHistory.
+export function pressureHeadline(indices, now) {
+  const p = indices.pressure;
   const result = (basis, score, fields) => {
     const presentation = scorePresentation('pressure', score);
     return { version: SIGNATURE_TEXT_VERSION, basis, score, state: presentation.state, color: presentation.color,
       label: labels[presentation.state], evidenceAt: null, date: null, reason: null, ...fields };
   };
-  if (todayRow) return result('today_median', todayRow.median, { date: todayRow.date, count: todayRow.count });
   if (Number.isFinite(p.score)) return result(p.context === 'nightly' ? 'nightly' : 'current', p.score, { evidenceAt: p.evidenceAt });
   const last = retainedPressure(indices, now);
   if (last) return result('retained', last.score, { evidenceAt: last.evidenceAt, context: last.context, reason: p.reason });
   const buildingBaseline = p.reason === 'short_baseline' || (['expired_hrv', 'insufficient_samples'].includes(p.reason) &&
     (p.hrvBaseline.days < (p.baselineRequirement?.hrv ?? 3) || p.heartBaseline.days < (p.baselineRequirement?.heart ?? 3)));
-  return { ...result(buildingBaseline ? 'building_baseline' : 'missing', null, { reason: p.reason }), label: null };
+  return { ...result(buildingBaseline ? 'building_baseline' : 'missing', null, { reason: p.reason, evidenceAt: p.evidenceAt }), label: null };
 }
 
 // Public LAN signature: state words with their scoring HRV, sleep score, activity and committed-sync time.
 export function renderStatusSignature(indices, now, activity = null, syncedAt = null) {
-  const headline = pressureHeadline(indices, now, null, { today: false });
+  const headline = pressureHeadline(indices, now);
   const prefix = { nightly: '夜间', retained: '上次' }[headline.basis] ?? '';
   const hrv = headline.basis === 'retained' ? indices.lastValidPressure?.hrv : indices.pressure.evidence?.hrv;
   const hrvText = Number.isFinite(hrv) && hrv > 0 ? Math.round(hrv * 10) / 10 : '暂无';
@@ -98,12 +90,11 @@ export function renderStatusSignature(indices, now, activity = null, syncedAt = 
   return [...parts, '详情 ↗'].join('｜');
 }
 
-export function renderHealthSignature(indices, now, history = null) {
+export function renderHealthSignature(indices, now) {
   const p = indices.pressure, sleep = indices.sleep, hrv = indices.features.hrv;
   const method = hrv.method ?? p.hrvMethod ?? 'SDNN';
-  // The signature names the most recent result only; the daily aggregate stays on the dashboard.
-  const headline = pressureHeadline(indices, now, history, { today: false });
-  const heading = headline.basis === 'building_baseline' ? '压力积累中' : headline.basis === 'missing' ? '压力暂无'
+  const headline = pressureHeadline(indices, now);
+  const heading = headline.basis === 'building_baseline' ? '压力积累中' : headline.basis === 'missing' ? '压力未判定'
     : `${headline.color} ${({ nightly: '昨夜' })[headline.basis] ?? ''}${headline.label}`;
   const todaySleep = sleep.date === dateKey(now) && Number.isFinite(sleep.score);
   const sleepText = todaySleep
@@ -119,6 +110,6 @@ export function renderHealthSignature(indices, now, history = null) {
   const states = [heading, sleepText].filter(Boolean).join(' ');
   const measurements = [hrvText, heartText].filter(Boolean).join(' ');
   const content = [states, measurements].filter(Boolean).join('｜');
-  // One clock shows the latest displayed measurement; per-metric times remain in the API.
+  // The trailing clock belongs to the latest displayed measurement; pressure time stays in the API.
   return `${content}${Number.isFinite(indices.asOfAt) ? `｜${stamp(indices.asOfAt)}` : ''}｜详情 ↗`;
 }

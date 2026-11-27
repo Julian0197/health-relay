@@ -27,7 +27,7 @@ const options = { cf: false, resourcePersistencePath: storagePath, workers: [{
     assert.equal(path, '/open-apis/bitable/v1/apps/base/tables/table/records/record');
     assert.equal(request.method, 'PUT');
     const { fields } = await request.json();
-    assert.match(fields.title, /压力暂无|状态正常/);
+    assert.match(fields.title, /压力未判定|状态正常/);
     return Response.json({ code: 0, data: { record: { record_id: 'record', fields } } });
   },
 }] };

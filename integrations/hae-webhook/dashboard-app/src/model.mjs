@@ -72,8 +72,7 @@ export const pressureReason = (reason) =>
   })[reason] ?? (reason ? `暂不可用 · ${reason}` : "暂无评分");
 // Same four-tier words as the published signature.
 export const pressureLabels = { relaxed: "状态优秀", balanced: "状态正常", elevated: "注意压力", high: "压力过载" };
-// The headline follows the signature's choice: today's aggregate, the current (or last night's)
-// result, a retained historical result, a baseline still building, or missing. Each keeps its time.
+// Current DTOs use the latest valid observation. Older cached DTOs may still carry a daily median.
 export function pressureHeadline(dto, now = Date.now()) {
   const p = dto?.healthIndices?.pressure ?? {};
   const h = dto?.healthIndices?.headline ?? (finite(p.score)

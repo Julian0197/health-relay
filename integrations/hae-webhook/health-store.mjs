@@ -25,7 +25,7 @@ const DASHBOARD_CACHE_THROTTLE_MS = 2 * 60000;
 // With no changed data, retain the published snapshot until its actual expiry or midnight.
 const PRESSURE_REPLAY_BATCH = 24;
 const PRESSURE_REPLAY_INTERVAL_MS = 1000;
-const INDICES_CACHE_VERSION = 'health-indices-cache-v7';
+const INDICES_CACHE_VERSION = 'health-indices-cache-v10-latest-pressure';
 const initialDelivery = () => ({ pending: false, lastSentAt: null, sentContent: null, dueAt: null, attempts: 0, error: null });
 const reply = data => Response.json(data, { headers: { 'Cache-Control': 'no-store' } });
 const nextMidnight = now => Math.floor((now + 8 * HOUR) / (24 * HOUR)) * 24 * HOUR + 16 * HOUR;
@@ -110,14 +110,14 @@ export class HealthStore {
     return structuredClone(decision);
   }
 
-  refreshSignaturePresentation(indices, now, history = this.pressureHistory.view(now, '24h')) {
+  refreshSignaturePresentation(indices, now) {
     indices.lastValidPressure = this.pressureHistory.latest(now, indices.ruleVersion, indices.pressure.source);
     const retainedUntil = indices.lastValidPressure?.evidenceAt + RETAINED_PRESSURE_MS;
     if (indices.pressure.score === null && retainedUntil > now) {
       indices.validUntil = Math.min(indices.validUntil ?? Infinity, retainedUntil);
     }
-    indices.headline = pressureHeadline(indices, now, history);
-    indices.title = renderHealthSignature(indices, now, history);
+    indices.headline = pressureHeadline(indices, now);
+    indices.title = renderHealthSignature(indices, now);
     return indices;
   }
 
@@ -410,8 +410,7 @@ export class HealthStore {
         const scorerSeries = { ...series, heart: this.series.list('heart', now - 30 * 86400000) };
         // Show the decision the signature was built from; evaluate read-only when it is not current.
         const indices = this.cachedHealthIndices(state, now) ?? this.refreshSignaturePresentation(
-          this.evaluateIndices(scorerSeries, now, state.signatureDelivery?.publishedDecision), now,
-          range === '24h' ? history : undefined);
+          this.evaluateIndices(scorerSeries, now, state.signatureDelivery?.publishedDecision), now);
         const body = buildDashboard(series, now, { range, indices, publication: this.publicationView(state),
           workoutHeart: this.workoutHeart(series, now), pressureHistory: history, receivedAt: state.lastReceivedAt ?? null });
         // ETag is the rendered-content hash: same content returns 304 even when

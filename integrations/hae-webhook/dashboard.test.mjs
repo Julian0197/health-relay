@@ -361,7 +361,7 @@ test('dashboard keeps the last recorded pressure at its measurement time after e
   assert.equal(dto.healthIndices.pressure.score, last.score);
   assert.equal(dto.healthIndices.pressure.evidenceAt, last.evidenceAt);
   assert.equal(dto.healthIndices.pressure.state, measured.pressure.presentation.state);
-  assert.equal(dto.healthIndices.pressure.reason, null);
+  assert.equal(dto.healthIndices.pressure.reason, 'expired_hrv');
   assert.equal(dto.healthIndices.pressure.retained, true);
   assert.equal(dto.healthIndices.pressure.components, null);
   assert.equal(dto.generatedAt, later);
@@ -398,7 +398,7 @@ test('dashboard headline and retention follow the signature, including the seven
   assert.equal(old.dto.healthIndices.pressure.retained, false);
   assert.equal(old.dto.healthIndices.pressure.score, null);
   assert.equal(old.dto.healthIndices.headline.basis, 'missing');
-  assert.match(old.title, /^压力暂无/);
+  assert.match(old.title, /^压力未判定/);
   // A current result labels both copies with the same four-tier words.
   const current = at(NOW, null);
   assert.equal(current.dto.healthIndices.headline.basis, 'current');

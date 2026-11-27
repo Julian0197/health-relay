@@ -13,24 +13,30 @@ function fixture() {
  }
  return s;
 }
-test('charging gaps retain the last valid four-tier heading without claiming a current score', () => {
+test('the last valid pressure keeps its time in data and uses a concise state label', () => {
  const now = T + 7 * H, r = evaluateHealthIndices(fixture(), now);
  r.lastValidPressure = { ruleVersion: r.ruleVersion, source: 'Watch', score: 20,
    context: 'awake_sample', evidenceAt: T - D };
  assert.equal(r.pressure.score, null);
  const title = renderHealthSignature(r, now);
  assert.match(title, /^🟢 状态优秀 /);
- assert.doesNotMatch(title, /压力暂无|今日|最近|上次|昨夜/);
+ assert.doesNotMatch(title, /上次|（09\/27 15:00）/);
+ assert.equal(pressureHeadline(r, now).evidenceAt, T - D);
+ assert.equal(pressureHeadline(r, now).basis, 'retained');
  assert.match(title, /HRV30 心率75｜09\/28 15:00｜详情 ↗$/);
  assert.equal((title.match(/\d{2}\/\d{2} \d{2}:\d{2}/g) ?? []).length, 1);
+ assert.equal(r.pressure.score, null, 'presentation does not make the old score current');
  for (const change of [{ ruleVersion: 'old' }, { source: 'Other' }, { evidenceAt: now + H },
    { evidenceAt: now - 8 * D }, { score: null }]) {
   const changed = { ...r, lastValidPressure: { ...r.lastValidPressure, ...change } };
-  assert.match(renderHealthSignature(changed, now), /压力暂无/);
+  assert.match(renderHealthSignature(changed, now), /压力未判定/);
  }
+ const corrected = { ...r, pressure: { ...r.pressure, evidenceAt: T - D, reason: 'sleep_or_workout' } };
+ assert.match(renderHealthSignature(corrected, now), /压力未判定/);
  const fresh = evaluateHealthIndices(fixture(), T + 60000);
  fresh.lastValidPressure = r.lastValidPressure;
  assert.match(renderHealthSignature(fresh, T + 60000), /^🔴 压力过载 /);
+ assert.doesNotMatch(renderHealthSignature(fresh, T + 60000), /上次/);
 });
 test('indices use time-aligned HR and personal baselines, not latest unrelated HR',()=>{
  const s=fixture(); s.heart.push({start:T+H,end:T+H+60000,value:140,source:'Watch'});
@@ -46,7 +52,7 @@ test('indices use time-aligned HR and personal baselines, not latest unrelated H
 test('missing or conflicting HR does not become zero stress',()=>{
  for(const mutate of [s=>s.heart=[],s=>s.heart.push({...s.heart[0],value:90}),s=>s.heart[0].source='Other']) {
   const s=fixture();mutate(s);const r=evaluateHealthIndices(s,T+60000);
-  assert.equal(r.pressure.score,null); assert.match(r.title,/压力暂无/); assert.doesNotMatch(r.title,/待评估|待更新|—/);
+  assert.equal(r.pressure.score,null); assert.match(r.title,/压力未判定/); assert.doesNotMatch(r.title,/待评估|待更新|—/);
  }
 });
 test('sleep excludes awake pressure evidence; duplicate records never increase coverage',()=>{
@@ -311,16 +317,19 @@ test('compact signature retains pressure, sleep and available measurements', () 
  assert.match(r.title, /HRV30 心率75/);
 });
 
-test('the signature uses the latest result; a daily aggregate is a dashboard-only choice', () => {
- const s = fixture(); s.heart = s.heart.filter(r => r.start !== T);
+test('neither current headline nor signature replaces a missing pair with the daily aggregate', () => {
+ const s = fixture(); s.heart = [];
  const history = { days: [{ date: '2026-09-28', status: 'available', ruleVersion: 'health-indices-v4-nightly',
    median: 45, count: 5, spanMinutes: 240 }] };
  const r = evaluateHealthIndices(s, T + 60000, null, { pressureHistory: history });
  assert.equal(r.pressure.score, null);
- // Missing aligned heart evidence must not manufacture a current state.
- assert.match(r.title, /^压力暂无 /);
- // The dashboard can still present the day's aggregate.
- assert.equal(pressureHeadline(r, T + 60000, history).basis, 'today_median');
+ // Missing aligned heart evidence must not manufacture a state.
+ assert.match(r.title, /^压力未判定 /);
+ assert.equal(pressureHeadline(r, T + 60000, history).basis, 'missing');
+ assert.equal(pressureHeadline(r, T + 60000, history).score, null);
+ // A valid current result also takes precedence over a different daily median.
+ const current = evaluateHealthIndices(fixture(), T + 60000);
+ assert.equal(pressureHeadline(current, T + 60000, history).score, current.pressure.score);
 });
 
 test('a source-less recent heart value can display without being assigned to an HRV scoring pair', () => {
@@ -355,7 +364,7 @@ test('wrong-rule or insufficient daily history cannot conceal a missing scoring 
  ]) {
   const r = evaluateHealthIndices(s, T + 60000, null, { pressureHistory: { days: [day] } });
   assert.equal(r.pressure.reason, 'missing_or_conflicting_aligned_hr');
-  assert.match(r.title, /压力暂无/); assert.doesNotMatch(r.title, /待评估|待确认/);
+  assert.match(r.title, /压力未判定/); assert.doesNotMatch(r.title, /待评估|待确认/);
   assert.doesNotMatch(r.title, /状态正常/);
  }
 });
@@ -603,13 +612,13 @@ test('a new RMSSD baseline retains context and one clock through sparse or stale
  assert.equal(sparseResult.pressure.score, null);
  assert.equal(sparseResult.pressure.reason, 'insufficient_samples');
  assert.match(sparseResult.title, /压力积累中/);
- assert.doesNotMatch(sparseResult.title, /压力暂无|RMSSD/);
+ assert.doesNotMatch(sparseResult.title, /压力未判定|RMSSD/);
  const mature = rmssdFixture();
  mature.hrv = mature.hrv.filter(r => r.method !== 'RMSSD' || r.start < T - 20 * 60000 || r.start === T);
  const matureResult = evaluateHealthIndices(mature, T + 60000);
  assert.equal(matureResult.pressure.reason, 'insufficient_samples');
  assert.equal(matureResult.pressure.hrvBaseline.days, 8);
- assert.match(matureResult.title, /压力暂无/);
+ assert.match(matureResult.title, /压力未判定/);
  s.heart.push({ start: T + 5 * H, end: T + 5 * H + 60000, value: 55, source: 'Watch' });
  const now = T + 7 * H, r = evaluateHealthIndices(s, now);
  assert.equal(r.pressure.score, null);
@@ -688,4 +697,27 @@ test('legacy SDNN nightly scores retain their versioned seven-day baseline', () 
  assert.equal(r.pressure.hrvBaseline.days, 4);
  assert.equal(r.pressure.heartBaseline.days, 4);
  assert.equal(r.pressure.score, 50);
+});
+
+test('new RMSSD advances pressure to its own heart window, never the newest unrelated heart', () => {
+ const s = rmssdFixture(), first = evaluateHealthIndices(s, T + 60000);
+ const anchor = T + H;
+ for (const offset of [10, 5, 0]) {
+  const start = anchor - offset * 60000;
+  s.hrv.push({ start, end: start + 60000, value: 80, method: 'RMSSD', source: 'Watch', aggregation: 'minutes' });
+ }
+ for (let i = 0; i < 20; i++) {
+  const start = anchor - i * 60000;
+  s.heart.push({ start, end: start + 60000, value: 50, source: 'Watch' });
+ }
+ s.heart.push({ start: anchor + 30 * 60000, end: anchor + 31 * 60000, value: 140, source: 'Watch' });
+ const latest = evaluateHealthIndices(s, anchor + 31 * 60000, first);
+ assert.equal(latest.pressure.evidenceAt, anchor);
+ assert.equal(latest.pressure.evidence.hrv, 80);
+ assert.equal(latest.pressure.evidence.heart, 50);
+ assert.equal(latest.features.heart.endAt, anchor + 60000);
+ assert.equal(latest.displayedHeart.value, 140);
+ assert.ok(latest.pressure.score < first.pressure.score);
+ assert.equal(latest.headline.score, latest.pressure.score);
+ assert.equal(latest.headline.evidenceAt, anchor);
 });

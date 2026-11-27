@@ -38,7 +38,7 @@ const options = { cf: false, resourcePersistencePath: storagePath, workers: [{
       assert.equal(request.method, 'PUT');
       const body = await request.json();
       assert.deepEqual(Object.keys(body.fields), ['title']);
-      assert.match(body.fields.title, signatureMode === 'health-indices-v1' ? /(?:状态优秀|状态正常|注意压力|压力过载|压力暂无|压力积累中).*HRV.*心率/ : signatureMode === 'physiology-v2' ? /🔵 状态正常/ : /健康数据已同步/);
+      assert.match(body.fields.title, signatureMode === 'health-indices-v1' ? /(?:状态优秀|状态正常|注意压力|压力过载|压力未判定|压力积累中).*HRV.*心率/ : signatureMode === 'physiology-v2' ? /🔵 状态正常/ : /健康数据已同步/);
       signatureWrites++;
       return Response.json({ code: 0, data: { record: { record_id: 'record' } } });
     }
@@ -129,7 +129,10 @@ try {
     assert.match(JSON.stringify(sentCard), /1235/);
     assert.match(JSON.stringify(sentCard), /Running/);
   }
-  assert.match(JSON.stringify(sentCard), /7 小时/);
+  const cardDate = new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10);
+  const hasTodaySleep = cached7d.sleep.some(night => night.date === cardDate && !night.conflict);
+  assert.match(JSON.stringify(sentCard), signatureMode === 'health-indices-v1' && !hasTodaySleep
+    ? /今日暂无睡眠记录/ : /7 小时/);
   await mf.dispose(); mf = new Miniflare(convertV4MiniflareOptions(options));
   assert.equal((await upload('/ingest/health', health)).notification, 'unchanged');
   const status = await (await mf.dispatchFetch('http://local/status', { headers })).json();
